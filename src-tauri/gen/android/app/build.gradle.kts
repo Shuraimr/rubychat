@@ -35,8 +35,13 @@ android {
             // Hata ayıklama sembolleri tutulmuyor: onlarla APK 871 MB olup USB'de zaman aşımına uğruyordu (onlarsız ~190 MB).
         }
         getByName("release") {
+            // R8 off: it broke rustls-platform-verifier's Kotlin half (every HTTPS cert came back "Revoked", login failed).
+            // Our Java/Kotlin code is tiny next to the Rust library, so shrinking it saved almost nothing.
+            // R8 kapalı: rustls-platform-verifier'ın Kotlin yarısını bozuyordu (her HTTPS sertifikası "iptal edilmiş" dönüyor,
+            // giriş başarısız oluyordu). Java/Kotlin kodumuz Rust kütüphanesinin yanında çok küçük; küçültmek neredeyse hiç kazandırmıyordu.
+            isMinifyEnabled = false
             optimization {
-               enable = true
+               enable = false
             }
             proguardFiles(
                 *fileTree(".") {

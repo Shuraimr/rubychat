@@ -81,7 +81,8 @@ impl From<matrix_sdk::ClientBuildError> for Hata {
     fn from(e: matrix_sdk::ClientBuildError) -> Self {
         match e {
             matrix_sdk::ClientBuildError::Http(_) | matrix_sdk::ClientBuildError::AutoDiscovery(_) => {
-                Hata::SunucuBulunamadi(e.to_string())
+                // Debug (not Display) keeps the whole cause chain (DNS / TLS / HTTP status). · Display değil Debug: tüm sebep zinciri (DNS / TLS / HTTP durumu) kalır.
+                Hata::SunucuBulunamadi(format!("{e:?}"))
             }
             other => Hata::Diger(other.to_string()),
         }

@@ -18,6 +18,9 @@
   const hataMetni = $derived(
     yerelHata ?? (oturum.hata ? t(`hata.${oturum.hata.tur}` as Anahtar) : null),
   );
+  // Technical detail under the friendly text: without it a phone-only failure (TLS, DNS) cannot be diagnosed.
+  // Dost metnin altında teknik ayrıntı: onsuz yalnızca telefonda olan bir hata (TLS, DNS) teşhis edilemez.
+  const hataAyrinti = $derived(yerelHata ? null : (oturum.hata?.mesaj ?? null));
 
   async function gonder(e: SubmitEvent) {
     e.preventDefault();
@@ -60,7 +63,7 @@
         <input bind:value={sifre} type={goster ? "text" : "password"} autocomplete="current-password" />
         <button type="button" class="goster" onclick={() => (goster = !goster)}>{goster ? t("giris.gizle") : t("giris.goster")}</button>
       </span>
-      {#if hataMetni}<span class="alan-hata" role="alert"><Ikon ad="uyari" boyut={14} />{hataMetni}</span>{/if}
+      {#if hataMetni}<span class="alan-hata" role="alert"><Ikon ad="uyari" boyut={14} />{hataMetni}</span>{#if hataAyrinti}<small class="alan-ayrinti">{hataAyrinti}</small>{/if}{/if}
     </label>
 
     <button class="buton birincil" type="submit" disabled={oturum.mesgul}>
@@ -87,4 +90,5 @@
   .ya { display: flex; align-items: center; gap: 12px; color: var(--yazi-2); font-size: .8125rem; }
   .ya::before, .ya::after { content: ""; flex: 1; height: 1px; background: var(--kenar-ince); }
   .not { font-size: .8125rem; color: var(--yazi-2); text-align: center; margin-top: -8px; }
+  .alan-ayrinti { display: block; font-size: 11px; color: var(--ton); word-break: break-word; user-select: text; }
 </style>

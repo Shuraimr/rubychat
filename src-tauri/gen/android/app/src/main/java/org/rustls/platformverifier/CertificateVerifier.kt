@@ -369,7 +369,16 @@ internal object CertificateVerifier {
             try {
                 validator.validate(certFactory.generateCertPath(validChain), parameters)
             } catch (e: CertPathValidatorException) {
-                return VerificationResult(StatusCode.Revoked, e.toString())
+                // Only a REAL revocation rejects the certificate. Any other failure here (OCSP/CRL unreachable, Android's
+                // path rebuild quirks) used to be reported as "Revoked" too and blocked login to matrix.org; revocation
+                // checking is best-effort (SOFT_FAIL above), and the chain itself was already validated.
+                // Sertifikayı yalnızca GERÇEK iptal reddeder. Buradaki başka her hata (OCSP/CRL'e ulaşılamaması, Android'in
+                // zincir kurma tuhaflıkları) da "iptal edildi" sayılıyor ve matrix.org'a girişi engelliyordu; iptal denetimi
+                // en iyi çabadır (yukarıda SOFT_FAIL) ve zincirin kendisi zaten doğrulandı.
+                if (e.reason == CertPathValidatorException.BasicReason.REVOKED) {
+                    return VerificationResult(StatusCode.Revoked, e.toString())
+                }
+                Log.w(TAG, "revocation check skipped: $e")
             }
         } else {
             // This is allowed to be skipped since revocation checking is best-effort.
