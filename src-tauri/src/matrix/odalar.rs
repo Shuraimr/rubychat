@@ -1,0 +1,119 @@
+//! Room list: maps `matrix_sdk::Room` → `OdaOzeti` and builds the sorted list.
+//! Oda listesi: `matrix_sdk::Room` → `OdaOzeti` dönüşümü ve sıralı liste.
+
+use matrix_sdk::{latest_events::LatestEventValue, ruma::MilliSecondsSinceUnixEpoch, Client, Room, RoomMemberships, RoomState};
+
+use crate::tipler::OdaOzeti;
+
+/// First letter/digit of the name, uppercase; "#" if there is none.
+/// Adın ilk harfi/rakamı, büyük; yoksa "#".
+pub fn bas_harf(ad: &str) -> String {
+    ad.chars()
+        .find(|c| c.is_alphanumeric())
+        .map(|c| c.to_uppercase().collect())
+        .unwrap_or_else(|| "#".to_owned())
+}
+
+/// Best available name without hitting the network: cached display name → id.
+/// Ağa çıkmadan bulunabilen en iyi ad: önbellekteki görünen ad → kimlik.
+pub fn oda_adi(room: &Room) -> String {
+    room.cached_display_name().map(|a| a.to_string()).filter(|a| !a.trim().is_empty()).unwrap_or_else(|| room.room_id().to_string())
+}
+
+/// Text preview of the room's latest event. Reads the raw JSON on purpose: it keeps working across SDK versions.
+/// Odanın son olayının metin önizlemesi. Ham JSON'u bilerek okur: SDK sürümleri arasında bozulmaz.
+fn onizleme(deger: &LatestEventValue) -> Option<String> {
+    match deger {
+        LatestEventValue::Remote(olay) => {
+            let ham = olay.raw();
+            let tur = ham.get_field::<String>("type").ok().flatten()?;
+            match tur.as_str() {
+                "m.room.message" => {
+                    let icerik = ham.get_field::<serde_json::Value>("content").ok().flatten()?;
+                    match icerik.get("msgtype").and_then(|m| m.as_str()) {
+                        Some("m.image") => Some("Fotoğraf".to_owned()),
+                        Some("m.video") => Some("Video".to_owned()),
+                        Some("m.audio") => Some("Ses".to_owned()),
+                        Some("m.file") => Some("Dosya".to_owned()),
+                        _ => icerik.get("body").and_then(|b| b.as_str()).map(|b| b.lines().next().unwrap_or("").to_owned()),
+                    }
+                }
+                "m.room.encrypted" => Some("Şifreli mesaj".to_owned()),
+                "m.sticker" => Some("Çıkartma".to_owned()),
+                _ => None,
+            }
+        }
+        LatestEventValue::LocalIsSending(v) | LatestEventValue::LocalCannotBeSent(v) | LatestEventValue::LocalHasBeenSent { value: v, .. } => {
+            let json = serde_json::to_value(&v.content).ok()?;
+            json.get("body").or_else(|| json.pointer("/content/body")).and_then(|b| b.as_str()).map(str::to_owned)
+        }
+        _ => None,
+    }
+}
+
+/// Room avatar `mxc://`; in a DM without its own avatar, the other person's avatar.
+/// Oda avatarı (`mxc://`); kendi avatarı olmayan DM'de karşıdaki kişinin avatarı.
+pub async fn avatar_mxc(room: &Room, dm: bool) -> Option<String> {
+    if let Some(a) = room.avatar_url() {
+        return Some(a.to_string());
+    }
+    if dm {
+        return room.heroes().await.into_iter().find_map(|h| h.avatar_url).map(|a| a.to_string());
+    }
+    None
+}
+
+/// In a room with exactly 2 joined members: the other member's user id (the person a call would ring).
+/// Tam 2 üyeli odada: öbür üyenin kimliği (arama çaldıracağı kişi).
+pub async fn karsi_kullanici(room: &Room) -> Option<String> {
+    if room.joined_members_count() != 2 {
+        return None;
+    }
+    let ben = room.own_user_id();
+    let uyeler = room.members_no_sync(RoomMemberships::JOIN).await.ok()?;
+    uyeler.into_iter().map(|m| m.user_id().to_owned()).find(|u| u != ben).map(|u| u.to_string())
+}
+
+pub async fn ozetle(room: &Room) -> OdaOzeti {
+    let ad = oda_adi(room);
+    let davet = room.state() == RoomState::Invited;
+    let son: Option<MilliSecondsSinceUnixEpoch> = room.latest_event_timestamp();
+    let bahsedilme = room.num_unread_mentions();
+    let mut okunmamis = room.num_unread_notifications().max(bahsedilme);
+    if okunmamis == 0 {
+        okunmamis = room.num_unread_messages();
+    }
+    if okunmamis == 0 && room.is_marked_unread() {
+        okunmamis = 1;
+    }
+    let dm = room.is_direct().await.unwrap_or(false);
+    OdaOzeti {
+        id: room.room_id().to_string(),
+        avatar_mxc: avatar_mxc(room, dm).await,
+        avatar_harf: bas_harf(&ad),
+        ad,
+        son_mesaj: onizleme(&room.latest_event()),
+        son_zaman: son.map(|t| t.0.into()),
+        okunmamis,
+        bahsedilme,
+        sifreli: room.encryption_state().is_encrypted(),
+        dm,
+        davet,
+    }
+}
+
+/// All joined + invited rooms, newest activity first (invites without a timestamp go on top).
+/// Katıldığımız + davetli bütün odalar, en yeni etkinlik önce (zaman damgasız davetler üstte).
+pub async fn liste(client: &Client) -> Vec<OdaOzeti> {
+    let mut sonuc = Vec::new();
+    for room in client.rooms() {
+        if matches!(room.state(), RoomState::Joined | RoomState::Invited) {
+            sonuc.push(ozetle(&room).await);
+        }
+    }
+    sonuc.sort_by(|a, b| {
+        let (x, y) = (a.son_zaman.unwrap_or(u64::MAX), b.son_zaman.unwrap_or(u64::MAX));
+        y.cmp(&x)
+    });
+    sonuc
+}

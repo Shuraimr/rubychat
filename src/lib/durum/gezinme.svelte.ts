@@ -1,0 +1,225 @@
+// Navigation state: which tab and which room are open, the screen SHAPE (phone / landscape phone / tablet), and the LAYER STACK
+// that makes the Android back button (and Escape) close the top-most thing instead of leaving the app.
+// Gezinme durumu: hangi sekme ve hangi oda açık, ekranın ŞEKLİ (telefon / yatay telefon / tablet) ve Android geri tuşunun
+// (ile Escape'in) uygulamadan çıkmak yerine en üstteki şeyi kapatmasını sağlayan KATMAN YIĞINI.
+import { arama } from "./arama.svelte";
+
+export type Sekme = "sohbetler" | "alanlar" | "ben";
+/** Sub-pages under "Ben" · "Ben" altındaki alt sayfalar */
+export type BenAlt = "gorunum" | "guvenlik";
+/**
+ * Layout by SHAPE, not by width alone (design section 15):
+ *  - yatay   = height <= 500px (a landscape phone, even if it is 844px wide): 64px rail, room replaces the list
+ *  - tablet  = width >= 768px and height > 500px: rail + list + room side by side
+ *  - telefon = everything else (portrait phone): one screen at a time + bottom menu
+ * Düzen yalnızca genişliğe değil ŞEKLE göre (tasarım bölüm 15): yatay = yükseklik <= 500px (844px geniş olsa bile yatay telefon),
+ * tablet = genişlik >= 768px ve yükseklik > 500px, telefon = geri kalan (dikey telefon).
+ */
+export type Sekil = "telefon" | "yatay" | "tablet";
+
+const YATAY_SORGU = "(max-height: 500px)";
+const TABLET_SORGU = "(min-width: 768px) and (min-height: 501px)";
+
+interface Katman {
+  id: number;
+  /** Close it. Return false to refuse (a step the user must finish): the history entry is pushed again. · Kapat. false dönerse reddeder (kullanıcının bitirmesi gereken adım): history girdisi yeniden eklenir. */
+  kapat: () => void | false;
+  /** Has its history entry been pushed yet? (pushes wait while a back() is in flight) · history girdisi eklendi mi? (back() sürerken ekleme bekler) */
+  eklendi: boolean;
+}
+
+class Gezinme {
+  sekme = $state<Sekme>("sohbetler");
+  acikOdaId = $state<string | null>(null);
+  benAlt = $state<BenAlt | null>(null);
+  sekil = $state<Sekil>("telefon");
+  /** Side-by-side layout (tablet and bigger) · Yan yana düzen (tablet ve üstü) */
+  genis = $derived(this.sekil === "tablet");
+  yatay = $derived(this.sekil === "yatay");
+
+  #katmanlar: Katman[] = [];
+  #sayac = 0;
+  /** How many history.back() calls we made that have not produced their popstate yet · Yaptığımız ama popstate'i henüz gelmemiş history.back() sayısı */
+  #geriBekleyen = 0;
+  #bekleyenEklemeler: { id: number; ekle: () => void }[] = [];
+  #odaKatmani = 0;
+  #benAltKatmani = 0;
+
+  baslat() {
+    const yatay = window.matchMedia(YATAY_SORGU);
+    const tablet = window.matchMedia(TABLET_SORGU);
+    const guncelle = () => (this.sekil = yatay.matches ? "yatay" : tablet.matches ? "tablet" : "telefon");
+    guncelle();
+    yatay.addEventListener("change", guncelle);
+    tablet.addEventListener("change", guncelle);
+
+    // Android back button / swipe-back = history pop. The call screen has its own entry (arama.svelte.ts); every other layer
+    // pushes an entry with {kat: id}: a pop closes every layer whose id is higher than the entry we landed on.
+    // Android geri tuşu / kaydırma = history pop. Arama ekranının kendi girdisi var (arama.svelte.ts); diğer her katman {kat: id}
+    // girdisi ekler: bir pop, ulaştığımız girdiden daha yüksek kimlikli her katmanı kapatır.
+    window.addEventListener("popstate", () => {
+      if (this.#geriBekleyen > 0) {
+        // Our own back(): the layer was already released, nothing to close. · Kendi back()'imiz: katman zaten bırakılmış, kapatılacak bir şey yok.
+        this.#geriBekleyen--;
+        if (this.#geriBekleyen === 0) this.#ekleBosalt();
+        return;
+      }
+      const s = history.state as { kat?: number; arama?: boolean } | null;
+      if (arama.ekranAcik && !s?.arama) {
+        arama.ekranGizle();
+        return;
+      }
+      if (s?.arama) return;
+      const simdi = s?.kat ?? 0;
+      while (this.#katmanlar.length > 0 && this.#katmanlar[this.#katmanlar.length - 1].id > simdi) {
+        const ust = this.#katmanlar.pop()!;
+        if (ust.kapat() === false) {
+          // Refused: put it back and restore its history entry so back does nothing visible. · Reddedildi: geri koy ve history girdisini yenile; geri hiçbir şey göstermesin.
+          this.#katmanlar.push(ust);
+          history.pushState({ kat: ust.id }, "");
+          break;
+        }
+      }
+    });
+
+    // Escape (desktop) does what back does. · Escape (masaüstü) geri tuşunun yaptığını yapar.
+    window.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const ust = this.#katmanlar[this.#katmanlar.length - 1];
+      if (!ust) return;
+      e.preventDefault();
+      this.#geriGit(ust);
+    });
+  }
+
+  /**
+   * Open a layer (room on phones, sheet, dialog, context menu, full-screen media flow, settings sub-page).
+   * Returns its id; give it to katmanBirak() when the layer closes by itself (button, finished flow).
+   * Bir katman aç (telefonda oda, sayfa, pencere, bağlam menüsü, tam ekran medya akışı, ayar alt sayfası).
+   * Kimliğini döndürür; katman kendiliğinden kapanınca (düğme, biten akış) katmanBirak()'a ver.
+   */
+  katmanAc(kapat: () => void | false): number {
+    const k: Katman = { id: ++this.#sayac, kapat, eklendi: false };
+    this.#katmanlar.push(k);
+    const ekle = () => {
+      history.pushState({ kat: k.id }, "");
+      k.eklendi = true;
+    };
+    // A back() still in flight would pop the entry we are about to push: wait for its popstate.
+    // Süren bir back() az sonra ekleyeceğimiz girdiyi silerdi: onun popstate'ini bekle.
+    if (this.#geriBekleyen > 0) this.#bekleyenEklemeler.push({ id: k.id, ekle });
+    else ekle();
+    return k.id;
+  }
+
+  /** The layer closed by itself: drop it and, if it is the top one, remove its history entry. · Katman kendiliğinden kapandı: bırak ve en üstteyse history girdisini sil. */
+  katmanBirak(id: number) {
+    const i = this.#katmanlar.findIndex((k) => k.id === id);
+    if (i < 0) return; // already closed by a pop · pop ile zaten kapanmış
+    const [k] = this.#katmanlar.splice(i, 1);
+    if (!k.eklendi) {
+      // Its push never ran: cancel it. · Eklemesi hiç çalışmadı: iptal et.
+      this.#bekleyenEklemeler = this.#bekleyenEklemeler.filter((b) => b.id !== id);
+      return;
+    }
+    if (i === this.#katmanlar.length) this.#geri();
+  }
+
+  /** UI-initiated close of a layer (✕, scrim): back() makes the pop handler do the closing. · Arayüzden katman kapatma (✕, perde): back() kapatma işini pop işleyicisine yaptırır. */
+  #geriGit(k: Katman) {
+    // Close it HERE, then consume its history entry with our own back() (the pop handler ignores our own pops). Leaving the
+    // closing to the pop handler was a bug: it skips pops we caused, so ✕ never closed anything.
+    // Katmanı BURADA kapat, sonra history girdisini kendi back()'imizle tüket (pop işleyicisi kendi pop'larımızı yok sayar).
+    // Kapatmayı pop işleyicisine bırakmak hataydı: bizim yaptığımız pop'ları atlıyor, bu yüzden ✕ hiçbir şeyi kapatmıyordu.
+    if (k.kapat() === false) return;
+    const i = this.#katmanlar.indexOf(k);
+    const enUstte = i === this.#katmanlar.length - 1;
+    if (i >= 0) this.#katmanlar.splice(i, 1);
+    if (!k.eklendi) this.#bekleyenEklemeler = this.#bekleyenEklemeler.filter((b) => b.id !== k.id);
+    else if (enUstte) this.#geri();
+  }
+
+  #geri() {
+    this.#geriBekleyen++;
+    history.back();
+    // Safety net: if no popstate arrives (nothing to go back to), do not wait forever. · Güvenlik ağı: popstate gelmezse sonsuza dek bekleme.
+    setTimeout(() => {
+      if (this.#geriBekleyen > 0) {
+        this.#geriBekleyen = 0;
+        this.#ekleBosalt();
+      }
+    }, 500);
+  }
+
+  #ekleBosalt() {
+    const f = this.#bekleyenEklemeler;
+    this.#bekleyenEklemeler = [];
+    f.forEach((b) => b.ekle());
+  }
+
+  /** Ask the layer to close (used by ✕ buttons and scrims). · Katmanın kapanmasını iste (✕ düğmeleri ve perdeler kullanır). */
+  katmanKapat(id: number) {
+    const k = this.#katmanlar.find((x) => x.id === id);
+    if (k) this.#geriGit(k);
+  }
+
+  sekmeSec(s: Sekme) {
+    this.benAltKapat();
+    this.sekme = s;
+    // Where a room covers the tab panels (phone, landscape phone), leaving to a tab closes it. · Odanın sekme panellerini örttüğü yerde (telefon, yatay) sekmeye geçmek odayı kapatır.
+    if (!this.genis) this.odaKapat();
+  }
+
+  odaAc(id: string) {
+    // Where the room replaces the list it is a layer, so the hardware back button closes it. · Oda listenin yerini aldığı yerde bir katmandır; donanım geri tuşu onu kapatır.
+    if (!this.genis && !this.#odaKatmani) {
+      this.#odaKatmani = this.katmanAc(() => {
+        this.#odaKatmani = 0;
+        this.acikOdaId = null;
+      });
+    }
+    this.acikOdaId = id;
+    this.sekme = "sohbetler";
+  }
+
+  odaKapat() {
+    if (this.#odaKatmani) {
+      const k = this.#odaKatmani;
+      this.#odaKatmani = 0;
+      this.acikOdaId = null;
+      this.katmanBirak(k);
+    } else this.acikOdaId = null;
+  }
+
+  benAltAc(ad: BenAlt) {
+    this.sekme = "ben";
+    if (this.#benAltKatmani) this.katmanBirak(this.#benAltKatmani);
+    this.benAlt = ad;
+    this.#benAltKatmani = this.katmanAc(() => {
+      this.#benAltKatmani = 0;
+      this.benAlt = null;
+    });
+  }
+
+  benAltKapat() {
+    if (!this.#benAltKatmani) {
+      this.benAlt = null;
+      return;
+    }
+    const k = this.#benAltKatmani;
+    this.#benAltKatmani = 0;
+    this.benAlt = null;
+    this.katmanBirak(k);
+  }
+
+  sifirla() {
+    this.sekme = "sohbetler";
+    this.acikOdaId = null;
+    this.benAlt = null;
+    this.#katmanlar = [];
+    this.#odaKatmani = 0;
+    this.#benAltKatmani = 0;
+  }
+}
+
+export const gezinme = new Gezinme();

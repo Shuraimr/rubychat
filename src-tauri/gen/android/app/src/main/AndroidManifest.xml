@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Voice calls: the webview asks for the mic at runtime (wry's WebChromeClient shows the Android dialog) -->
+    <!-- Sesli arama: webview mikrofonu çalışma anında ister (wry'nin WebChromeClient'ı Android penceresini gösterir) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- Notifications: the runtime permission (Android 13+) is asked when the user taps "Aç" on the permission card; full-screen intent = incoming call -->
+    <!-- Bildirimler: çalışma anı izni (Android 13+) kullanıcı izin kartında "Aç"a dokununca istenir; tam ekran niyet = gelen arama -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- Save to gallery: Android 10+ uses MediaStore (no permission); only Android 7-9 needs this one -->
+    <!-- Galeriye kaydet: Android 10+ MediaStore kullanır (izin yok); yalnızca Android 7-9 buna ihtiyaç duyar -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+    <!-- AndroidTV support -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
+    <application
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.rubychat"
+        android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:launchMode="singleTask"
+            android:label="@string/main_activity_title"
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- AndroidTV support -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Notification actions (inline reply, mark as read) -->
+        <!-- Bildirim eylemleri (satır içi yanıt, okundu işaretle) -->
+        <receiver android:name=".BildirimEylemi" android:exported="false" />
+
+        <provider
+          android:name="androidx.core.content.FileProvider"
+          android:authorities="${applicationId}.fileprovider"
+          android:exported="false"
+          android:grantUriPermissions="true">
+          <meta-data
+            android:name="android.support.FILE_PROVIDER_PATHS"
+            android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

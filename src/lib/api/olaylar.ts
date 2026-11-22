@@ -1,0 +1,38 @@
+// The ONLY place that calls listen(). Each backend event gets a typed subscription that returns an unsubscribe function.
+// listen() çağrısının YAPILDIĞI TEK yer. Her arka uç olayının tipli bir aboneliği var; abonelikten çıkma fonksiyonu döner.
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type {
+  AramaOlayi,
+  DogrulamaDurumu,
+  EsitlemeDurumu,
+  MedyaIlerlemeOlayi,
+  OdaOzeti,
+  SifrelemeDurumu,
+  UygulamaIciBildirim,
+  ZamanGuncelleme,
+} from "./tipler";
+
+export const odalarGuncellendi = (isle: (odalar: OdaOzeti[]) => void): Promise<UnlistenFn> =>
+  listen<OdaOzeti[]>("odalar-guncellendi", (e) => isle(e.payload));
+
+export const esitlemeDurumu = (isle: (d: EsitlemeDurumu) => void): Promise<UnlistenFn> =>
+  listen<EsitlemeDurumu>("esitleme-durumu", (e) => isle(e.payload));
+
+export const zamanGuncellendi = (isle: (g: ZamanGuncelleme) => void): Promise<UnlistenFn> =>
+  listen<ZamanGuncelleme>("zaman-guncellendi", (e) => isle(e.payload));
+
+export const aramaOlayi = (isle: (o: AramaOlayi) => void): Promise<UnlistenFn> =>
+  listen<AramaOlayi>("arama-olayi", (e) => isle(e.payload));
+
+export const sifrelemeDurumuOlayi = (isle: (d: SifrelemeDurumu) => void): Promise<UnlistenFn> =>
+  listen<SifrelemeDurumu>("sifreleme-durumu", (e) => isle(e.payload));
+
+export const dogrulamaGuncellendi = (isle: (d: DogrulamaDurumu) => void): Promise<UnlistenFn> =>
+  listen<DogrulamaDurumu>("dogrulama-guncellendi", (e) => isle(e.payload));
+
+export const medyaIlerleme = (isle: (o: MedyaIlerlemeOlayi) => void): Promise<UnlistenFn> =>
+  listen<MedyaIlerlemeOlayi>("medya-ilerleme", (e) => isle(e.payload));
+
+/** A message arrived in a room that is not open and the app is visible: show an in-app banner. · Açık olmayan odaya mesaj geldi ve uygulama görünür: uygulama içi şerit göster. */
+export const uygulamaIciBildirim = (isle: (b: UygulamaIciBildirim) => void): Promise<UnlistenFn> =>
+  listen<UygulamaIciBildirim>("uygulama-ici-bildirim", (e) => isle(e.payload));

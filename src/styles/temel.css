@@ -1,0 +1,110 @@
+/* Base styles and shared layout. Everything uses tokens.css variables. */
+/* Temel stiller ve ortak yerleşim. Hepsi tokens.css değişkenlerini kullanır. */
+*, *::before, *::after { box-sizing: border-box; }
+/* Root size follows Görünüm › Yazı boyutu; text uses rem so it scales, boxes stay in px. */
+/* Kök boyut Görünüm › Yazı boyutu'nu izler; yazılar rem kullanır, ölçeklenir; kutular px kalır. */
+html { height: 100%; margin: 0; font-size: calc(16px * var(--yazi-olcegi)); -webkit-text-size-adjust: 100%; }
+body { height: 100%; margin: 0; }
+/* The app is as tall as the VISIBLE area (js/klavye.ts sets the variable), so the on-screen keyboard never covers the composer. */
+/* Uygulama GÖRÜNEN alan kadar yüksektir (klavye.ts değişkeni yazar); ekran klavyesi yazma alanını hiç örtmez. */
+#uygulama { height: var(--gorunen-yukseklik, 100%); margin: 0; }
+body {
+  background: var(--zemin); color: var(--yazi);
+  font-family: var(--yazi-tipi); font-size: 1rem; line-height: 1.4;
+  overflow: hidden; overflow-wrap: anywhere;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  /* Chrome (buttons, rows, bars) is not selectable; message text and inputs opt back in. */
+  /* Arayüz (düğme, satır, çubuk) seçilemez; mesaj metni ve girdiler yeniden seçilebilir yapılır. */
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+input, textarea { -webkit-user-select: text; user-select: text; }
+button, input, textarea { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 0; cursor: pointer; }
+button:disabled { cursor: default; }
+h1, h2, h3, p { margin: 0; }
+h1, h2 { font-family: var(--baslik-tipi); }
+:focus-visible { outline: 2px solid var(--vurgu); outline-offset: 2px; }
+a { color: var(--vurgu); }
+
+/* ---- Type scale (design section 1) · Yazı ölçeği (tasarım bölüm 1) ---- */
+.t-xl { font-family: var(--baslik-tipi); font-size: 1.75rem; line-height: 1.215; font-weight: 600; }
+.t-l { font-family: var(--baslik-tipi); font-size: 1.5rem; line-height: 1.25; font-weight: 600; }
+.t-m { font-family: var(--baslik-tipi); font-size: 1.25rem; line-height: 1.3; font-weight: 600; }
+.t-s { font-size: 1.0625rem; line-height: 1.3; font-weight: 600; }
+.t-alt { font-size: .75rem; line-height: 1.33; color: var(--yazi-2); }
+
+/* ---- Buttons (design section 2) · Düğmeler (tasarım bölüm 2) ---- */
+/* Icon button: 44px hit area · Simge düğmesi: 44px dokunma alanı */
+.simge-dugme {
+  width: 44px; height: 44px; border-radius: 12px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--yazi); transition: background var(--sure-hizli) var(--egri-cikis), opacity var(--sure-hizli) var(--egri-cikis);
+}
+.simge-dugme:disabled { opacity: .38; }
+@media (hover: hover) { .simge-dugme:not(:disabled):hover { background: var(--yuzey-3); } }
+/* Press feedback: one surface tone up on every tappable control. · Basma geri bildirimi: her dokunulur denetimde bir üst yüzey tonu. */
+.simge-dugme:not(.vurgulu):not(.tonlu):not(:disabled):active { background: var(--yuzey-3); }
+.simge-dugme.tonlu:not(:disabled):active, .simge-dugme.vurgulu:not(:disabled):active, .buton:not(:disabled):active { opacity: .82; }
+.simge-dugme.tonlu { background: var(--ton); color: var(--ton-ustu); }
+.simge-dugme.vurgulu { background: var(--vurgu); color: var(--vurgu-ustu); }
+
+.buton {
+  height: 48px; width: 100%; padding: 0 20px; border-radius: 12px; font-weight: 600; font-size: .9375rem;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  transition: opacity var(--sure-hizli) var(--egri-cikis), background var(--sure-hizli) var(--egri-cikis);
+}
+.buton.birincil { background: var(--vurgu); color: var(--vurgu-ustu); }
+.buton.tonlu { background: var(--ton); color: var(--ton-ustu); }
+.buton.cizgili { border: 1px solid var(--kenar); color: var(--yazi); }
+.buton.cizgili:not(:disabled):active { background: var(--yuzey-3); opacity: 1; }
+.buton.metin { color: var(--vurgu); }
+.buton.metin:not(:disabled):active { background: var(--yuzey-3); opacity: 1; }
+.buton.tehlike { background: var(--hata); color: var(--zemin); }
+.buton.kirmizi { color: var(--hata); }
+.buton:disabled { opacity: .38; }
+/* Loading = spinner + text; width stays the same (no jump) · Yükleniyor = dönen + metin; genişlik sabit kalır (zıplamaz) */
+.yuklenme {
+  width: 18px; height: 18px; border-radius: 50%; flex: none;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: don calc(900ms * var(--hareket)) linear infinite;
+}
+@keyframes don { to { transform: rotate(360deg); } }
+
+/* ---- Inputs (design section 3): 52px field, label above, focus = 2px accent border, error = red border + reason ---- */
+/* ---- Girdiler (tasarım bölüm 3): 52px alan, etiket üstte, odak = 2px vurgu kenarı, hata = kırmızı kenar + neden ---- */
+.alan { display: grid; gap: 6px; }
+.alan > .etiket { font-size: .8125rem; font-weight: 500; color: var(--yazi-2); }
+.alan-kutu {
+  min-height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: 12px;
+  background: var(--yuzey-2); border: 1px solid var(--kenar); color: var(--yazi-2);
+  transition: border-color var(--sure-hizli) var(--egri-cikis);
+}
+.alan-kutu:focus-within { border-color: var(--vurgu); box-shadow: 0 0 0 1px var(--vurgu); }
+.alan-kutu.hatali { border-color: var(--hata); box-shadow: 0 0 0 1px var(--hata); }
+.alan-kutu input, .alan-kutu textarea { flex: 1; min-width: 0; min-height: 44px; background: none; border: 0; outline: none; color: var(--yazi); font-size: 1rem; }
+.alan-kutu input::placeholder, .alan-kutu textarea::placeholder { color: var(--yazi-2); }
+.alan-hata { display: flex; align-items: center; gap: 6px; font-size: .8125rem; color: var(--hata); }
+
+/* ---- Identity chips and counters (design section 4) · Kimlik çipleri ve sayaçlar (tasarım bölüm 4) ---- */
+.cip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 10px; border-radius: 8px;
+  font-size: .75rem; font-weight: 600; background: var(--yuzey-3); color: var(--yazi-2);
+}
+.cip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.cip.sade::before { display: none; }
+.cip.tamam { background: color-mix(in srgb, var(--cozum) 16%, var(--zemin)); color: var(--cozum); }
+.cip.bekliyor { background: color-mix(in srgb, var(--bekliyor) 16%, var(--zemin)); color: var(--bekliyor); }
+.cip.hata { background: color-mix(in srgb, var(--hata) 16%, var(--zemin)); color: var(--hata); }
+.cip.ton { background: var(--ton); color: var(--ton-ustu); }
+.cip.notr { background: var(--yuzey-3); color: var(--yazi-2); }
+/* Counter badge: accent = unread, grey = muted · Sayaç rozeti: vurgu = okunmamış, gri = sessiz */
+.rozet {
+  flex: none; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--vurgu); color: var(--vurgu-ustu); font-size: .75rem; font-weight: 700; line-height: 1;
+}
+.rozet.sessiz { background: var(--yuzey-3); color: var(--yazi-2); }
+
+.gorunmez-etiket { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

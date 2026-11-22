@@ -1,0 +1,137 @@
+/* Design tokens copied from the sister project rubyyard. Colors and durations are ONLY used through these variables. */
+/* Tasarım değişkenleri kardeş proje rubyyard'dan alındı. Renkler ve süreler YALNIZCA bu değişkenlerle kullanılır. */
+:root {
+  --zemin: #121212;
+  --yuzey-1: #18181A;
+  --yuzey-2: #1E1E21;
+  --yuzey-3: #26262A;
+  --kenar: #38383D;
+  --kenar-ince: #29292D;
+  --yazi: #EDEDED;
+  --yazi-2: #A3A3A8;
+  --hata: #FF8FA3;
+  --cozum: #4FD08A;      /* "processed" green · "işlendi" yeşili */
+  --bekliyor: #F5C46B;   /* "pending" yellow · "bekliyor" sarısı */
+  --vurgu: #9DB4FF;
+  --vurgu-ustu: #0A1433;
+  --ton: #1F2A4D;
+  --ton-ustu: #D6DFFF;
+  --kat-1: 0 1px 2px rgb(0 0 0 / .35), inset 0 1px 0 rgb(255 255 255 / .06), inset 0 -1px 0 rgb(0 0 0 / .22);
+  --kat-2: 0 1px 2px rgb(0 0 0 / .4), 0 10px 28px -8px rgb(0 0 0 / .28), inset 0 1px 0 rgb(255 255 255 / .08), inset 0 -1px 0 rgb(0 0 0 / .28);
+
+  /* Durations: one token per motion in the design's motion table (section 14). Reduced motion zeroes all of them. */
+  /* Süreler: tasarımın hareket tablosundaki (bölüm 14) her hareket için bir değişken. Azaltılmış hareket hepsini sıfırlar. */
+  --sure-hizli: 120ms;
+  --sure-gecis: 160ms;   /* status icon cross-fade · durum simgesi çapraz solma */
+  --sure-menu: 180ms;    /* context menu · bağlam menüsü */
+  --sure-orta: 200ms;    /* new message, nav pill · yeni mesaj, sekme hapı */
+  --sure-bildirim: 200ms; /* toast in · bildirim girişi */
+  --sure-bildirim-cik: 150ms; /* toast out · bildirim çıkışı */
+  --sure-ekran: 260ms;   /* list → room · liste → oda */
+  --sure-sayfa: 280ms;   /* bottom sheet · alt sayfa */
+  --sure-pop: 300ms;     /* reaction pop · tepki yaylanması */
+  --sure-yavas: 320ms;
+  --egri-cikis: cubic-bezier(.2, .8, .2, 1);
+  --egri-giris: cubic-bezier(.4, 0, 1, 1);
+  --egri-yay: cubic-bezier(.34, 1.56, .64, 1);
+  /* Emphasized curve for screen changes; slight spring for sheets · Ekran geçişleri için vurgulu eğri; sayfalar için hafif yay */
+  --egri-vurgulu: cubic-bezier(.2, 0, 0, 1);
+  --egri-sayfa: cubic-bezier(.2, .9, .25, 1.04);
+  --hareket: 1;
+
+  --yazi-tipi: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --baslik-tipi: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --mono-tipi: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  /* Root text scale (Görünüm › Yazı boyutu) · Kök yazı ölçeği (Görünüm › Yazı boyutu) */
+  --yazi-olcegi: 1;
+  /* Height of fixed bottom bars, measured at runtime by the app (toasts sit above it) */
+  /* Ekranın altına sabitlenen çubukların yüksekliği; uygulama ölçer (bildirimler bunun üstünde durur) */
+  --alt-yer: 0px;
+  /* Accent swatch colours for Görünüm (the gems' own colours, dark values; light values below) */
+  /* Görünüm'deki vurgu örnek renkleri (taşların kendi renkleri, koyu değerler; açık değerler aşağıda) */
+  --tas-safir: #9DB4FF; --tas-zumrut: #5FE0A8; --tas-kehribar: #FFC94D; --tas-ametist: #C2A3FF; --tas-yakut: #FF8FA3;
+  color-scheme: dark;
+}
+
+/* ---- Light theme: "sistem" (media query) and "acik" (forced) share the same values ---- */
+/* ---- Açık tema: "sistem" (medya sorgusu) ve "acik" (zorla) aynı değerleri kullanır ---- */
+@media (prefers-color-scheme: light) {
+  :root:not([data-tema="koyu"]) {
+    --zemin: #E9EEF5; --yuzey-1: #F4F7FB; --yuzey-2: #FFFFFF; --yuzey-3: #FFFFFF;
+    --kenar: #C6D0DD; --kenar-ince: #DAE1EA; --yazi: #0B1220; --yazi-2: #4A5568;
+    --hata: #C2183E; --cozum: #0F7A4F; --bekliyor: #744700;
+    --vurgu: #2E4BB8; --vurgu-ustu: #FFFFFF; --ton: #E0E6FF; --ton-ustu: #13235E;
+    --kat-1: 0 1px 2px rgb(0 0 0 / .08), inset 0 -1px 0 rgb(0 0 0 / .06);
+    --kat-2: 0 1px 2px rgb(0 0 0 / .1), 0 10px 28px -8px rgb(0 0 0 / .14);
+    --tas-safir: #2E4BB8; --tas-zumrut: #0F7A4F; --tas-kehribar: #8A5A00; --tas-ametist: #6B3FD6; --tas-yakut: #C2183E;
+    color-scheme: light;
+  }
+}
+:root[data-tema="acik"] {
+  --zemin: #E9EEF5; --yuzey-1: #F4F7FB; --yuzey-2: #FFFFFF; --yuzey-3: #FFFFFF;
+  --kenar: #C6D0DD; --kenar-ince: #DAE1EA; --yazi: #0B1220; --yazi-2: #4A5568;
+  --hata: #C2183E; --cozum: #0F7A4F; --bekliyor: #744700;
+  --vurgu: #2E4BB8; --vurgu-ustu: #FFFFFF; --ton: #E0E6FF; --ton-ustu: #13235E;
+  --kat-1: 0 1px 2px rgb(0 0 0 / .08), inset 0 -1px 0 rgb(0 0 0 / .06);
+  --kat-2: 0 1px 2px rgb(0 0 0 / .1), 0 10px 28px -8px rgb(0 0 0 / .14);
+  --tas-safir: #2E4BB8; --tas-zumrut: #0F7A4F; --tas-kehribar: #8A5A00; --tas-ametist: #6B3FD6; --tas-yakut: #C2183E;
+  color-scheme: light;
+}
+
+/* ---- Accent gems (values copied exactly from rubyyard/public/css/rubyyard.css). Sapphire (safir) is the default and has no attribute. ---- */
+/* ---- Vurgu taşları (değerler rubyyard/public/css/rubyyard.css'ten birebir). Safir varsayılandır, öznitelik taşımaz. ---- */
+:root[data-vurgu="zumrut"]   { --vurgu: #5FE0A8; --vurgu-ustu: #03170F; --ton: #123A2C; --ton-ustu: #C8F5E0; }
+:root[data-vurgu="kehribar"] { --vurgu: #FFC94D; --vurgu-ustu: #1F1500; --ton: #3B2D0A; --ton-ustu: #FFE7A8; }
+:root[data-vurgu="ametist"]  { --vurgu: #C2A3FF; --vurgu-ustu: #160A33; --ton: #2C2150; --ton-ustu: #E4D8FF; }
+:root[data-vurgu="yakut"]    { --vurgu: #FF8FA3; --vurgu-ustu: #2A0510; --ton: #44172A; --ton-ustu: #FFD6DE; }
+/* Light versions: forced light, and "sistem" while the OS is light · Açık sürümler: zorla açık ve işletim sistemi açıkken "sistem" */
+:root[data-tema="acik"][data-vurgu="zumrut"]   { --vurgu: #0F7A4F; --vurgu-ustu: #FFFFFF; --ton: #D5F3E4; --ton-ustu: #0A3B27; }
+:root[data-tema="acik"][data-vurgu="kehribar"] { --vurgu: #8A5A00; --vurgu-ustu: #FFFFFF; --ton: #FFEFC7; --ton-ustu: #4A3000; }
+:root[data-tema="acik"][data-vurgu="ametist"]  { --vurgu: #6B3FD6; --vurgu-ustu: #FFFFFF; --ton: #ECE3FF; --ton-ustu: #2E1670; }
+:root[data-tema="acik"][data-vurgu="yakut"]    { --vurgu: #C2183E; --vurgu-ustu: #FFFFFF; --ton: #FFE0E6; --ton-ustu: #5C0A1F; }
+@media (prefers-color-scheme: light) {
+  :root[data-tema="sistem"][data-vurgu="zumrut"]   { --vurgu: #0F7A4F; --vurgu-ustu: #FFFFFF; --ton: #D5F3E4; --ton-ustu: #0A3B27; }
+  :root[data-tema="sistem"][data-vurgu="kehribar"] { --vurgu: #8A5A00; --vurgu-ustu: #FFFFFF; --ton: #FFEFC7; --ton-ustu: #4A3000; }
+  :root[data-tema="sistem"][data-vurgu="ametist"]  { --vurgu: #6B3FD6; --vurgu-ustu: #FFFFFF; --ton: #ECE3FF; --ton-ustu: #2E1670; }
+  :root[data-tema="sistem"][data-vurgu="yakut"]    { --vurgu: #C2183E; --vurgu-ustu: #FFFFFF; --ton: #FFE0E6; --ton-ustu: #5C0A1F; }
+}
+/* "ozel" (custom colour): the four variables are written inline on <html> by ayarlar.svelte.ts, so no rule is needed here. */
+/* "ozel" (özel renk): dört değişken ayarlar.svelte.ts tarafından <html> üzerine satır içi yazılır; burada kural gerekmez. */
+
+/* ---- AMOLED black: dark only (forced dark, or "sistem" while the OS is dark); no effect in light ---- */
+/* ---- AMOLED siyah: yalnızca koyuda (zorla koyu ya da işletim sistemi koyuyken "sistem"); açıkta etkisiz ---- */
+:root[data-amoled][data-tema="koyu"] {
+  --zemin: #000000; --yuzey-1: #0A0A0B; --yuzey-2: #121214; --yuzey-3: #1A1A1D; --kenar: #2C2C31; --kenar-ince: #1C1C20;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-amoled][data-tema="sistem"] {
+    --zemin: #000000; --yuzey-1: #0A0A0B; --yuzey-2: #121214; --yuzey-3: #1A1A1D; --kenar: #2C2C31; --kenar-ince: #1C1C20;
+  }
+}
+
+/* ---- Fonts: the selected family. Headings keep Space Grotesk unless "sistem" is chosen. ---- */
+/* ---- Yazı tipi: seçilen aile. "Sistem" seçilmedikçe başlıklar Space Grotesk kalır. ---- */
+:root[data-font="sistem"] { --yazi-tipi: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --baslik-tipi: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+:root[data-font="atkinson"] { --yazi-tipi: "Atkinson Hyperlegible", system-ui, sans-serif; }
+:root[data-font="nunito"] { --yazi-tipi: "Nunito", system-ui, sans-serif; }
+:root[data-font="mono"] { --yazi-tipi: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
+
+/* ---- Text size ---- */
+/* ---- Yazı boyutu ---- */
+:root[data-boyut="kucuk"] { --yazi-olcegi: .875; }
+:root[data-boyut="buyuk"] { --yazi-olcegi: 1.125; }
+
+/* Reduced motion: every transition/animation uses the duration variables, so zeroing them here turns all motion off.
+   Followed from the OS ("sistem") or forced by Görünüm › Animasyonları azalt (data-az-animasyon). */
+/* Azaltılmış hareket: bütün geçişler süre değişkenlerini kullanır; burada sıfırlamak hareketin hepsini kapatır.
+   İşletim sisteminden ("sistem") ya da Görünüm › Animasyonları azalt (data-az-animasyon) ile zorla uygulanır. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --sure-hizli: 0ms; --sure-gecis: 0ms; --sure-menu: 0ms; --sure-orta: 0ms; --sure-bildirim: 0ms; --sure-bildirim-cik: 0ms;
+    --sure-ekran: 0ms; --sure-sayfa: 0ms; --sure-pop: 0ms; --sure-yavas: 0ms; --hareket: 0;
+  }
+}
+:root[data-az-animasyon] {
+  --sure-hizli: 0ms; --sure-gecis: 0ms; --sure-menu: 0ms; --sure-orta: 0ms; --sure-bildirim: 0ms; --sure-bildirim-cik: 0ms;
+  --sure-ekran: 0ms; --sure-sayfa: 0ms; --sure-pop: 0ms; --sure-yavas: 0ms; --hareket: 0;
+}

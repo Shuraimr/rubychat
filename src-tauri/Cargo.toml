@@ -1,0 +1,71 @@
+[package]
+name = "rubychat"
+version = "0.1.0"
+description = "rubychat: a Matrix chat client (rubyyard family)"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+rust-version = "1.96"
+
+[lib]
+# staticlib + cdylib are needed for the Android/iOS builds; rlib for the desktop binary
+# staticlib + cdylib Android/iOS derlemesi için gerekir; rlib masaüstü ikilisi için
+name = "rubychat_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+futures-util = "0.3"
+eyeball-im = "0.9"
+rand = "0.9"
+url = "2"
+# Already in the lock file (transitive): MIME types for attachments, base64 for the chunked file upload from the webview.
+# Kilit dosyasında zaten var (dolaylı): ek dosyaların MIME türleri; webview'den parçalı dosya yüklemesi için base64.
+mime = "0.3"
+base64 = "0.22"
+# JNI helpers (Kotlin media/notification code). Pure Rust, so they also compile on the desktop where `cargo check` runs;
+# the calls themselves only happen on Android.
+# JNI yardımcıları (Kotlin medya/bildirim kodu). Saf Rust; `cargo check`in çalıştığı masaüstünde de derlenir,
+# çağrıların kendisi yalnızca Android'de yapılır.
+jni = "0.21"
+ndk-context = "0.1"
+
+# default-features = false so we choose the TLS backend ourselves: rustls (NOT OpenSSL) cross-compiles to Android easily.
+# default-features = false: TLS arka ucunu biz seçeriz; rustls (OpenSSL DEĞİL) Android için kolay derlenir.
+matrix-sdk = { version = "0.19", default-features = false, features = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "bundled-sqlite", "rustls-aws-lc-rs"] }
+matrix-sdk-ui = { version = "0.19", default-features = false, features = ["rustls-aws-lc-rs"] }
+
+# Secret storage backends (see src/gizli_depo.rs). The OS keyring on desktop, the Android Keystore (via JNI) on Android.
+# Gizli bilgi depoları (bkz. src/gizli_depo.rs). Masaüstünde işletim sistemi anahtarlığı, Android'de Android Keystore (JNI ile).
+# keyring: MIT OR Apache-2.0. `crypto-rust` = pure-Rust transport encryption for the Secret Service (no OpenSSL).
+# keyring: MIT OR Apache-2.0. `crypto-rust` = Secret Service için saf Rust taşıma şifrelemesi (OpenSSL yok).
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+# Already in the dependency tree through tao/wry: same versions, so nothing new is downloaded.
+# tao/wry yoluyla zaten bağımlılık ağacında: aynı sürümler, yeni bir şey inmez.
+[target.'cfg(target_os = "android")'.dependencies]
+# reqwest 0.13 verifies TLS certificates with Android's own verifier through this crate; it must be
+# initialised once via JNI (see lib.rs) or the first HTTPS request panics. It uses jni 0.22, hence the alias.
+# reqwest 0.13 TLS sertifikalarını bu crate üzerinden Android'in kendi doğrulayıcısıyla denetler; JNI ile bir kez
+# başlatılmalıdır (bkz. lib.rs), yoksa ilk HTTPS isteği panik olur. jni 0.22 kullandığı için takma adla eklendi.
+rustls-platform-verifier = "0.7"
+jni22 = { package = "jni", version = "0.22", default-features = false }
+# Rust logs → Android logcat (stdout goes nowhere on Android) / Rust günlükleri → Android logcat (Android'de stdout kaybolur)
+tracing-logcat = "0.1"
+
+[profile.release]
+lto = "thin"
+opt-level = "s"
