@@ -66,6 +66,18 @@ jni22 = { package = "jni", version = "0.22", default-features = false }
 # Rust logs → Android logcat (stdout goes nowhere on Android) / Rust günlükleri → Android logcat (Android'de stdout kaybolur)
 tracing-logcat = "0.1"
 
+# The phone APK is built in RELEASE: an unoptimized (debug) Rust build made crypto + SQLite many times slower and the app start
+# took ages. LTO is off to keep the build light on the PC; symbols are stripped so the APK stays small.
+# Telefon APK'sı YAYIN derlemesidir: optimize edilmemiş (debug) Rust derlemesi şifreleme + SQLite'ı kat kat yavaşlatıyor, açılış
+# çok uzun sürüyordu. Derleme bilgisayarı yormasın diye LTO kapalı; APK küçük kalsın diye semboller atılır.
 [profile.release]
-lto = "thin"
-opt-level = "s"
+lto = false
+opt-level = 2
+codegen-units = 16
+debug = false
+strip = true
+
+# Dev builds (desktop `cargo tauri dev`): optimize dependencies anyway, matrix-sdk is painfully slow at opt-level 0.
+# Geliştirme derlemeleri (masaüstü): bağımlılıkları yine de optimize et; matrix-sdk opt-level 0'da çok yavaş.
+[profile.dev.package."*"]
+opt-level = 2

@@ -168,6 +168,7 @@ impl Kayit {
     fn sil(veri: &Path) {
         let _ = std::fs::remove_file(Self::yol(veri));
         let _ = std::fs::remove_dir_all(veri.join(DEPO_KLASORU));
+        let _ = std::fs::remove_file(veri.join(SLIDING_DOSYASI));
         if let Err(e) = gizli_depo::varsayilan().sil(GIZLI_ANAHTAR) {
             warn!("gizli depodan silinemedi: {e}");
         }
@@ -195,6 +196,27 @@ pub fn girdiyi_ayir(sunucu: &str, kullanici: &str) -> (String, String) {
     (sunucu.trim().to_owned(), kullanici.to_owned())
 }
 
+/// Remembered answer of "does the server support sliding sync?", so a restore skips the `/versions` round trip (it made every
+/// app start wait on the network). Not secret, so a plain file next to the session metadata.
+/// "Sunucu sliding sync destekliyor mu?" sorusunun hatırlanan cevabı; geri yükleme `/versions` gidiş-dönüşünü atlar (her açılışı
+/// ağa bekletiyordu). Gizli değil, oturum üst bilgisinin yanında düz bir dosya.
+const SLIDING_DOSYASI: &str = "sliding-surumu";
+
+fn sliding_oku(veri: &Path) -> VersionBuilder {
+    match std::fs::read_to_string(veri.join(SLIDING_DOSYASI)).as_deref().map(str::trim) {
+        Ok("native") => VersionBuilder::Native,
+        Ok("none") => VersionBuilder::None,
+        _ => VersionBuilder::DiscoverNative,
+    }
+}
+
+fn sliding_yaz(veri: &Path, client: &Client) {
+    let s = if matches!(client.sliding_sync_version(), matrix_sdk::sliding_sync::Version::Native) { "native" } else { "none" };
+    if let Err(e) = std::fs::write(veri.join(SLIDING_DOSYASI), s) {
+        warn!("sliding sync sürümü kaydedilemedi: {e}");
+    }
+}
+
 async fn istemci_kur(veri: &Path, parola: &str, sunucu: SunucuGirdisi<'_>) -> Sonuc<Client> {
     let depo = veri.join(DEPO_KLASORU);
     std::fs::create_dir_all(&depo)?;
@@ -202,7 +224,11 @@ async fn istemci_kur(veri: &Path, parola: &str, sunucu: SunucuGirdisi<'_>) -> So
         .sqlite_store(&depo, Some(parola))
         // Use sliding sync (MSC4186) when the server advertises it; otherwise `Version::None` → classic sync fallback.
         // Sunucu bildiriyorsa sliding sync (MSC4186); bildirmiyorsa `Version::None` → klasik sync yedeği.
-        .sliding_sync_version_builder(VersionBuilder::DiscoverNative)
+        .sliding_sync_version_builder(match sunucu {
+            // Login: ask the server. Restore: use what we learned at login (no network wait). · Giriş: sunucuya sor. Geri yükleme: girişte öğrendiğimizi kullan (ağ beklemesi yok).
+            SunucuGirdisi::AdVeyaUrl(_) => VersionBuilder::DiscoverNative,
+            SunucuGirdisi::Url(_) => sliding_oku(veri),
+        })
         // Servers with expiring tokens (matrix.org via MAS) need refresh; we persist the new tokens in `token_izle`.
         // Süresi dolan belirteç kullanan sunucular (MAS'lı matrix.org) yenileme ister; yeni belirteçleri `token_izle` kaydeder.
         .handle_refresh_tokens()
@@ -263,6 +289,7 @@ pub async fn sifreyle_giris(veri: &Path, sunucu: &str, kullanici: &str, sifre: &
 
     let oturum = auth.session().ok_or(Hata::OturumYok)?;
     Kayit { sunucu_url: client.homeserver().to_string(), sunucu_adi: sunucu, parola, oturum }.kaydet(veri)?;
+    sliding_yaz(veri, &client);
     info!("giriş başarılı");
     let ben = ben_olustur(&client, veri);
     Ok((client, ben))
@@ -274,6 +301,10 @@ pub async fn geri_yukle(veri: &Path) -> Sonuc<Option<(Client, Ben)>> {
     let Some(kayit) = Kayit::yukle(veri)? else { return Ok(None) };
     let client = istemci_kur(veri, &kayit.parola, SunucuGirdisi::Url(&kayit.sunucu_url)).await?;
     client.matrix_auth().restore_session(kayit.oturum, RoomLoadSettings::default()).await?;
+    // Sessions from before this file existed learn it now (this start still asked the server). · Bu dosyadan önceki oturumlar şimdi öğrenir.
+    if !veri.join(SLIDING_DOSYASI).exists() {
+        sliding_yaz(veri, &client);
+    }
     info!("oturum geri yüklendi");
     let ben = ben_olustur(&client, veri);
     Ok(Some((client, ben)))

@@ -5,3 +5,6 @@
 -keep class dev.rubyyard.rubychat.Bildirimci { *; }
 -keep class dev.rubyyard.rubychat.MedyaDepo { *; }
 -keep class dev.rubyyard.rubychat.YerelKoprusu { *; }
+# Safety net: keep every app class (JNI names, inner classes, receivers referenced from the manifest).
+# Emniyet ağı: uygulamanın bütün sınıflarını koru (JNI adları, iç sınıflar, manifestteki alıcılar).
+-keep class dev.rubyyard.rubychat.** { *; }
