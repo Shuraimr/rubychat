@@ -118,6 +118,14 @@ durumu `lib/durum/sifreleme.svelte.ts`, sayfalar `bilesenler/SifrelemeKatmani.sv
 - Sunucuda yedek varken `enable()` `BackupExistsOnServer` verir: arayüz şimdilik genel şifreleme hatası gösterir (anahtar gir yolu kullanılmalı).
 - Odalarda kullanıcı doğrulama / cihaz listesi / "güvenilmeyen cihaz" uyarıları, QR doğrulama ve anahtar dışa aktarma henüz yok.
 
+## Mesaj araması (`matrix/dizin.rs`, `src/lib/arama-mesaj/`)
+
+- Yerel tam metin dizini: **tantivy 0.26** (`<veri>/arama-dizini`, çıkışta silinir). Alanlar: `olay_id`, `oda_id`, `gonderen`, `gonderen_ad`, `zaman` (hızlı alan), `govde` ("tr" çözümleyicisi: küçük harf + Türkçe katlama ı/ş/ğ/ü/ö/ç + ASCII katlama).
+- Besleme: (1) canlı: `add_event_handler` ile eşitlemenin getirdiği çözülmüş mesajlar (düzenleme = gövde değişir, silme = dizinden çıkar); (2) doldurma: `Room::messages` ile odaları geriye yürüyen yavaş arka plan görevi, ilerleme `ilerleme.json` (commit'ten sonra yazılır), oda başına 20 000 olay sınırı.
+- Tek yazıcı iş parçacığı (15 MB bellek, 200 belge / 2 sn'de commit). Arama `spawn_blocking`; son sözcük önek sayılır (yazdıkça sonuç). Vurgu parçaları Rust'ta hesaplanır (`MesajParcasi`).
+- Komutlar: `mesaj_ara`, `dizin_durumu`, `olaya_git` (açık odanın çizelgesine olay girene dek geriye sayfalar).
+- Arayüz kendi klasöründe, yerleşimden bağımsız: `MesajAramaSonuclari` (sorgu → liste), `OdaAramasi` (oda başlığı düğmesi + katman + sonuca atlama), `durum.svelte.ts`, `vurgula.ts`.
+
 ## Medya şeması (`medya`)
 
 `medya://localhost/<sunucu>/<medyaId>?b=96` (Android/Windows: `http://medya.localhost/...`). `lib/medya.ts` doğru biçimi kurar ve boyutu

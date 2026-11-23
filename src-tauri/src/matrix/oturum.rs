@@ -42,6 +42,9 @@ use crate::{
 
 const OTURUM_DOSYASI: &str = "oturum.json";
 const DEPO_KLASORU: &str = "depo";
+/// Message search index (see `dizin.rs`); decrypted text lives here, so it must go away with the session.
+/// Mesaj arama dizini (bkz. `dizin.rs`); çözülmüş metin burada durur, bu yüzden oturumla birlikte silinmeli.
+pub const DIZIN_KLASORU: &str = "arama-dizini";
 /// Key under which the secrets blob is stored in the backend. · Gizli bilgi paketinin arka uçtaki anahtarı.
 const GIZLI_ANAHTAR: &str = "oturum";
 /// `Dosya::gizli` value meaning "secrets are inside this file". · "Gizli bilgiler bu dosyanın içinde" anlamındaki değer.
@@ -168,6 +171,7 @@ impl Kayit {
     fn sil(veri: &Path) {
         let _ = std::fs::remove_file(Self::yol(veri));
         let _ = std::fs::remove_dir_all(veri.join(DEPO_KLASORU));
+        let _ = std::fs::remove_dir_all(veri.join(DIZIN_KLASORU));
         let _ = std::fs::remove_file(veri.join(SLIDING_DOSYASI));
         if let Err(e) = gizli_depo::varsayilan().sil(GIZLI_ANAHTAR) {
             warn!("gizli depodan silinemedi: {e}");

@@ -17,11 +17,19 @@
 <script lang="ts">
   import type { ZamanOgesi } from "../api/tipler";
   import MedyaIcerik from "../medya/MedyaIcerik.svelte";
+  import { baglantilar, parcala } from "../baglanti/bul";
+  import { kartGoster } from "../baglanti/onizleme";
+  import { baglantiAc } from "../durum/baglantiOnay.svelte";
+  import BaglantiKarti from "./BaglantiKarti.svelte";
+  import { uzunBasma } from "../dokunma";
+  import { kullaniciKartiAc } from "../durum/kullaniciKarti.svelte";
   import { sifreleme } from "../durum/sifreleme.svelte";
+  import { zaman } from "../durum/zaman.svelte";
   import { t } from "../i18n";
   import { saatYaz } from "../zaman-bicim";
   import Avatar from "./Avatar.svelte";
   import DurumIkonu from "./DurumIkonu.svelte";
+  import Maskot from "./Maskot.svelte";
   import Ikon from "./Ikon.svelte";
 
   let {
@@ -32,6 +40,8 @@
     vurgulu = false,
     yenidenDene,
     menuAc,
+    eslesme = false,
+    vurguSorgu = "",
   }: {
     oge: ZamanOgesi;
     konum: Konum;
@@ -43,6 +53,10 @@
     vurgulu?: boolean;
     yenidenDene: (ogeId: string) => void;
     menuAc: (x: number, y: number, oge: ZamanOgesi) => void;
+    /** The current in-chat search match: outlined · Sohbet içi aramanın şu anki eşleşmesi: çerçeveli */
+    eslesme?: boolean;
+    /** In-chat search text: its words are highlighted in the message · Sohbet içi arama metni: kelimeleri mesajda vurgulanır */
+    vurguSorgu?: string;
   } = $props();
 
   const ilkMi = $derived(konum === "tek" || konum === "ilk");
@@ -69,25 +83,21 @@
     return t(`arama.satir.${a.sonuc}`);
   });
 
-  // ---- Long press (touch) and right click (desktop) · Uzun basma (dokunmatik) ve sağ tık (masaüstü) ----
-  let zamanlayici: ReturnType<typeof setTimeout> | undefined;
-  let bx = 0;
-  let by = 0;
-  function bas(e: PointerEvent) {
-    if (e.pointerType === "mouse") return;
-    bx = e.clientX;
-    by = e.clientY;
-    clearTimeout(zamanlayici);
-    zamanlayici = setTimeout(() => menuAc(bx, by, oge), 420);
-  }
-  function oynat(e: PointerEvent) {
-    if (Math.hypot(e.clientX - bx, e.clientY - by) > 10) clearTimeout(zamanlayici);
-  }
-  const birak = () => clearTimeout(zamanlayici);
-  function sagTik(e: MouseEvent) {
-    e.preventDefault();
-    menuAc(e.clientX, e.clientY, oge);
-  }
+  // Split the text into plain / highlighted parts for the search words. · Metni arama kelimelerine göre düz / vurgulu parçalara böl.
+  const parcalar = $derived.by(() => {
+    const m = metin;
+    const kelimeler = vurguSorgu.trim().split(/\s+/).filter((k) => k.length > 1).map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const re = kelimeler.length ? new RegExp(`(${kelimeler.join("|")})`, "gi") : null;
+    const sonuc: { m: string; v: boolean; url: boolean }[] = [];
+    for (const p of parcala(m)) {
+      if (p.url || !re) sonuc.push({ m: p.m, v: false, url: p.url });
+      else for (const [i, x] of p.m.split(re).entries()) if (x) sonuc.push({ m: x, v: i % 2 === 1, url: false });
+    }
+    return sonuc;
+  });
+  // Rich cards for the first two links of a text message (network parts are gated inside the card) · Metin mesajındaki ilk iki bağlantı için zengin kartlar (ağ kısımları kartın içinde sınırlanır)
+  const kartlar = $derived(oge.tur === "metin" && kartGoster() ? baglantilar(oge.metin) : []);
+  const odaId = $derived(zaman.bilgi?.id);
 </script>
 
 {#if oge.tur === "arama"}
@@ -97,7 +107,7 @@
 {:else}
   <div class="satir {konum}" class:kendi={oge.kendi} class:yeni class:vurgulu>
     {#if !oge.kendi}
-      <span class="avatar-yer">{#if sonMu}<Avatar harf={oge.gonderenAd.charAt(0).toUpperCase() || "#"} mxc={oge.gonderenAvatarMxc} boyut={32} />{/if}</span>
+      <span class="avatar-yer">{#if sonMu}<button class="avatar-dugme" aria-label={oge.gonderenAd} onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}><Avatar harf={oge.gonderenAd.charAt(0).toUpperCase() || "#"} mxc={oge.gonderenAvatarMxc} boyut={32} /></button>{/if}</span>
     {/if}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -105,13 +115,10 @@
       class:kendi={oge.kendi}
       class:sifre-yok={oge.tur === "sifre_cozulemedi"}
       class:medyali={medya}
-      onpointerdown={bas}
-      onpointermove={oynat}
-      onpointerup={birak}
-      onpointercancel={birak}
-      oncontextmenu={sagTik}
+      class:eslesme
+      use:uzunBasma={{ ac: (x, y) => menuAc(x, y, oge) }}
     >
-      {#if !oge.kendi && gonderenGoster && ilkMi}<div class="gonderen">{oge.gonderenAd}</div>{/if}
+      {#if !oge.kendi && gonderenGoster && ilkMi}<button class="gonderen" onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}>{oge.gonderenAd}</button>{/if}
 
       {#if oge.tur === "sifre_cozulemedi"}
         <!-- Undecryptable (design: yellow card) · Çözülemiyor (tasarım: sarı kart) -->
@@ -127,11 +134,12 @@
       {:else if bilinmeyen}
         <div class="metin soluk">{t("oda.desteklenmeyen")}</div>
       {:else}
-        <div class="metin" class:soluk={oge.tur === "diger"}>{metin}<span class="meta"><span>{saatYaz(oge.zaman)}</span>{#if oge.kendi}<DurumIkonu durum={oge.durum} />{/if}</span></div>
+        <div class="metin" class:soluk={oge.tur === "diger"}>{#each parcalar as p, i (i)}{#if p.url}<button class="baglanti-metin" onclick={() => baglantiAc(p.m)}>{p.m}</button>{:else if p.v}<mark>{p.m}</mark>{:else}{p.m}{/if}{/each}<span class="meta"><span>{saatYaz(oge.zaman)}</span>{#if oge.kendi}<DurumIkonu durum={oge.durum} />{/if}</span></div>
+        {#each kartlar as k (k.url)}<BaglantiKarti b={k} sifreli={zaman.bilgi?.sifreli ?? false} />{/each}
       {/if}
 
       {#if oge.durum === "hata" && oge.kendi}
-        <button class="tekrar" onclick={() => yenidenDene(oge.id)}><span class="kirmizi">{t("oda.gonderilemedi")}</span><span class="nokta-ayrac">·</span><span class="eylem">{t("eylem.yenidenDene")}</span></button>
+        <button class="tekrar" onclick={() => yenidenDene(oge.id)}><Maskot poz="hata" boyut={28} /><span class="kirmizi">{t("oda.gonderilemedi")}</span><span class="nokta-ayrac">·</span><span class="eylem">{t("eylem.yenidenDene")}</span></button>
       {/if}
     </div>
   </div>
@@ -145,21 +153,26 @@
   .sistem.cevapsiz { color: var(--hata); }
   .sistem .saat { opacity: .75; }
 
-  .satir { display: flex; align-items: flex-end; gap: 8px; margin-top: 8px; }
-  .satir.orta, .satir.son { margin-top: 2px; }
+  .satir { display: flex; align-items: flex-end; gap: 8px; margin-top: calc(var(--balon-aralik, 2px) * 4); }
+  .satir.orta, .satir.son { margin-top: var(--balon-aralik, 2px); }
   .satir.kendi { justify-content: flex-end; }
   .avatar-yer { width: 32px; flex: none; }
+  /* 44px hit area around the 32px avatar (negative margin keeps the layout) · 32px avatarın çevresinde 44px dokunma alanı (negatif kenar boşluğu düzeni korur) */
+  .avatar-dugme { display: block; margin: -6px; padding: 6px; border-radius: 14px; }
+  /* "Gruplarda avatar" off: the column disappears · "Gruplarda avatar" kapalı: sütun kaybolur */
+  :global(.oda[data-avatar="yok"]) .avatar-yer { display: none; }
+  :global(.oda[data-saat="yok"]) .meta { display: none; }
   .satir.vurgulu { position: relative; z-index: 32; }
 
   /* Rise: a new message comes up 8px and fades in (200ms); own messages rise from the composer, a bit further. */
   /* Yükselme: yeni mesaj 8px aşağıdan yükselir ve solarak gelir (200ms); giden mesaj yazma alanından, biraz daha uzaktan yükselir. */
   .satir.yeni { animation: yuksel var(--sure-orta) var(--egri-cikis); }
-  .satir.yeni.kendi { animation-name: yuksel-kendi; }
+  .satir.yeni.kendi { animation-name: yuksel-kendi; animation-duration: calc(180ms * var(--hareket)); }
   @keyframes yuksel { from { transform: translateY(8px); opacity: 0; } }
-  @keyframes yuksel-kendi { from { transform: translateY(24px); opacity: 0; } }
+  @keyframes yuksel-kendi { from { transform: translateY(24px) scale(.9); opacity: 0; } }
 
   .balon {
-    max-width: min(78%, 560px); min-width: 0; padding: 8px 12px; border-radius: 16px;
+    max-width: min(78%, 560px); min-width: 0; padding: var(--balon-dolgu, 8px 12px); border-radius: var(--balon-r, 16px);
     background: var(--yuzey-2); color: var(--yazi);
   }
   .balon.medyali { padding: 4px; }
@@ -168,16 +181,22 @@
   .balon.ilk { border-bottom-left-radius: 4px; }
   .balon.orta { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
   .balon.son { border-top-left-radius: 4px; }
-  .balon.kendi { background: var(--ton); color: var(--ton-ustu); }
-  .balon.kendi.ilk { border-bottom-left-radius: 16px; border-bottom-right-radius: 4px; }
-  .balon.kendi.orta { border-top-left-radius: 16px; border-bottom-left-radius: 16px; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
-  .balon.kendi.son { border-top-left-radius: 16px; border-top-right-radius: 4px; }
+  .balon.kendi { background: var(--giden-bg, var(--ton)); color: var(--giden-yazi, var(--ton-ustu)); }
+  .balon.kendi.ilk { border-bottom-left-radius: var(--balon-r, 16px); border-bottom-right-radius: 4px; }
+  .balon.kendi.orta { border-top-left-radius: var(--balon-r, 16px); border-bottom-left-radius: var(--balon-r, 16px); border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+  .balon.kendi.son { border-top-left-radius: var(--balon-r, 16px); border-top-right-radius: 4px; }
   .balon.sifre-yok { background: color-mix(in srgb, var(--bekliyor) 14%, var(--yuzey-1)); border: 1px solid color-mix(in srgb, var(--bekliyor) 30%, transparent); }
 
-  .gonderen { font-size: .8125rem; font-weight: 600; color: var(--vurgu); margin-bottom: 2px; }
+  .gonderen { display: block; min-height: 28px; margin: -4px 0 -2px; font-size: .8125rem; font-weight: 600; color: var(--vurgu); text-align: left; }
+  /* In-chat search: the current match is outlined, search words highlighted · Sohbet içi arama: şu anki eşleşme çerçeveli, aranan kelimeler vurgulu */
+  .balon.eslesme { outline: 2px solid var(--bekliyor); outline-offset: 2px; }
+  mark { background: color-mix(in srgb, var(--bekliyor) 38%, transparent); color: inherit; border-radius: 4px; padding: 0 1px; }
+  /* "Çizgisiz": no bubble fill, text only (own messages keep a soft tint) · "Çizgisiz": balon dolgusu yok, yalnızca metin (giden mesajlar yumuşak ton tutar) */
+  :global(.oda[data-balon="cizgisiz"]) .balon:not(.kendi):not(.sifre-yok) { background: transparent; padding-left: 0; }
+  :global(.oda[data-balon="cizgisiz"]) .balon.kendi { background: color-mix(in srgb, var(--giden-bg, var(--ton)) 55%, transparent); }
   /* Text: on phones it is NOT selectable (long press opens the menu); with a mouse it is. Long words/links wrap. */
   /* Metin: telefonda seçilemez (uzun basma menüyü açar); fare ile seçilebilir. Uzun kelime/bağlantılar satır kırar. */
-  .metin { font-size: .9375rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+  .metin { font-size: calc(.9375rem * var(--sohbet-yazi, 1)); line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
   @media (hover: hover) and (pointer: fine) { .metin { -webkit-user-select: text; user-select: text; } }
   .metin.soluk { color: var(--yazi-2); font-style: italic; }
   .balon.kendi .metin.soluk { color: inherit; opacity: .8; }
@@ -189,6 +208,7 @@
   .meta { float: right; display: inline-flex; align-items: center; gap: 4px; margin: 6px 0 -2px 10px; font-size: .6875rem; line-height: 1; color: inherit; opacity: .7; font-style: normal; white-space: nowrap; }
   .meta.alt-satir { float: none; justify-content: flex-end; margin: 2px 4px 2px 0; }
 
+  .baglanti-metin { display: inline; padding: 0; text-align: left; color: inherit; text-decoration: underline; text-underline-offset: 2px; font: inherit; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
   .baglanti { display: block; min-height: 44px; margin-top: 4px; padding: 0; color: var(--vurgu); font-size: .8125rem; font-weight: 600; text-align: left; }
   .tekrar {
     display: flex; align-items: center; gap: 6px; min-height: 44px; margin: 0 -6px -6px auto; padding: 0 8px; border-radius: 12px;

@@ -6,6 +6,7 @@
   import { odalar } from "../durum/odalar.svelte";
   import { t } from "../i18n";
   import Ikon from "./Ikon.svelte";
+  import Maskot from "./Maskot.svelte";
 
   // "basliyor" is the normal start-up: the strip would flash on every launch, so it only shows once a list already exists.
   // "basliyor" normal açılıştır: şerit her açılışta yanıp sönerdi; yalnızca liste zaten varken gösterilir.
@@ -15,14 +16,15 @@
 
 {#if gorunur}
   <div class="serit" class:sari={durum === "cevrimdisi"} class:kirmizi={durum === "hata"} role="status">
-    <Ikon ad={durum === "cevrimdisi" ? "bulutYok" : durum === "hata" ? "uyari" : "yenile"} boyut={16} />
+    <!-- Offline: the sleeping raccoon (design 22/13) · Çevrimdışı: uyuyan rakun (tasarım 22/13) -->
+    {#if durum === "cevrimdisi"}<Maskot poz="uyku" boyut={32} />{:else}<Ikon ad={durum === "hata" ? "uyari" : "yenile"} boyut={16} />{/if}
     <span class="metin">{durum === "cevrimdisi" ? t("esitleme.seridi") : durum === "hata" ? t("esitleme.durdu") : t("esitleme.baglaniyor")}</span>
     {#if durum === "hata"}<button class="tekrar" onclick={() => void odalar.baslat()}>{t("eylem.tekrarDene")}</button>{/if}
   </div>
 {/if}
 
 <style>
-  .serit { flex: none; min-height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 16px; font-size: .8125rem; font-weight: 500; background: var(--yuzey-2); color: var(--yazi-2); border-bottom: 1px solid var(--kenar-ince); }
+  .serit { flex: none; min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; font-size: .8125rem; font-weight: 500; background: var(--yuzey-2); color: var(--yazi-2); border-bottom: 1px solid var(--kenar-ince); }
   .serit.sari { background: color-mix(in srgb, var(--bekliyor) 14%, var(--yuzey-1)); color: var(--bekliyor); }
   .serit.kirmizi { color: var(--hata); }
   .metin { flex: 1; min-width: 0; }

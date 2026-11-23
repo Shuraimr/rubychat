@@ -77,6 +77,9 @@ pub fn run() {
             komutlar::odayi_ac,
             komutlar::odayi_kapat,
             komutlar::geri_sayfala,
+            komutlar::mesaj_ara,
+            komutlar::dizin_durumu,
+            komutlar::olaya_git,
             komutlar::mesaj_gonder,
             komutlar::okundu_isaretle,
             komutlar::mesaj_yeniden_dene,
@@ -105,6 +108,15 @@ pub fn run() {
             komutlar::bildirim_ayarlarini_ac,
             komutlar::bildirim_bekleyen_oda,
             komutlar::uygulama_arka_planda,
+            matrix::uyeler::uyeleri_listele,
+            matrix::uyeler::benim_yetkilerim,
+            matrix::uyeler::uye_davet_et,
+            matrix::uyeler::uye_cikar,
+            matrix::uyeler::uye_yasakla,
+            matrix::uyeler::yasak_kaldir,
+            matrix::uyeler::guc_ayarla,
+            matrix::uyeler::dm_ac,
+            matrix::uyeler::oda_ayril,
         ])
         .run(tauri::generate_context!())
         .expect("rubychat başlatılamadı");

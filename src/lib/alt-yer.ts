@@ -21,7 +21,7 @@ export function altYeriOlc(): () => void {
   }
 
   const degisim = new MutationObserver(tara);
-  degisim.observe(document.body, { childList: true, subtree: true });
+  degisim.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-alt-cubuk"] });
   tara();
   return () => {
     gozlemci.disconnect();

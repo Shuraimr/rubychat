@@ -9,7 +9,7 @@ const GORUNUM_ANAHTARI = "rubychat.gorunum";
 
 export type Tema = "sistem" | "koyu" | "acik";
 export type VurguAdi = "safir" | "zumrut" | "kehribar" | "ametist" | "yakut" | "ozel";
-export type YaziTipi = "inter" | "sistem" | "atkinson" | "nunito" | "mono";
+export type YaziTipi = "inter" | "sistem" | "atkinson" | "nunito" | "mono" | "maple";
 export type YaziBoyutu = "kucuk" | "normal" | "buyuk";
 export type AzAnimasyon = "sistem" | "acik";
 
@@ -42,7 +42,7 @@ function gorunumOku(): Gorunum {
     if (typeof ham.amoled === "boolean") g.amoled = ham.amoled;
     if (["safir", "zumrut", "kehribar", "ametist", "yakut", "ozel"].includes(ham.vurgu as string)) g.vurgu = ham.vurgu as VurguAdi;
     if (typeof ham.ozelRenk === "string" && /^#[0-9a-f]{6}$/i.test(ham.ozelRenk)) g.ozelRenk = ham.ozelRenk;
-    if (["inter", "sistem", "atkinson", "nunito", "mono"].includes(ham.yaziTipi as string)) g.yaziTipi = ham.yaziTipi as YaziTipi;
+    if (["inter", "sistem", "atkinson", "nunito", "mono", "maple"].includes(ham.yaziTipi as string)) g.yaziTipi = ham.yaziTipi as YaziTipi;
     if (ham.yaziBoyutu === "kucuk" || ham.yaziBoyutu === "normal" || ham.yaziBoyutu === "buyuk") g.yaziBoyutu = ham.yaziBoyutu;
     if (ham.azAnimasyon === "sistem" || ham.azAnimasyon === "acik") g.azAnimasyon = ham.azAnimasyon;
   } catch {

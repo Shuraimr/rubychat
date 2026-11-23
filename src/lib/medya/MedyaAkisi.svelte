@@ -31,6 +31,7 @@
     type KirpAlani,
     type ResimKalitesi,
   } from "./isleme";
+  import { tercihler } from "../durum/tercihler.svelte";
   import { katmanAc } from "./katman";
   import { boyutYaz, m, sureYaz } from "./metin";
   import { kareler, metaOku, tahminiVideoBoyutu, videoAc, type VideoKalitesi } from "./video";
@@ -145,7 +146,7 @@
       bitmap: null as ImageBitmap | null,
       videoEl: null as HTMLVideoElement | null,
       duz: bosDuzenleme(),
-      kalite: "standart" as ResimKalitesi,
+      kalite: tercihler.d.resimKalitesi as ResimKalitesi,
       video: null as VideoAyari | null,
       onizlemeUrl: url,
       kareler: [] as string[],

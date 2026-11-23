@@ -50,6 +50,10 @@
   let dy = $state(0);
   let surukleniyor = $state(false);
   let baslangicY = 0;
+  // Release speed (px/ms): a fast flick closes the sheet even below 30% (> 0.5 px/ms) · Bırakma hızı (px/ms): hızlı fırlatma %30'un altında bile kapatır (> 0.5 px/ms)
+  let sonY = 0;
+  let sonT = 0;
+  let hiz = 0;
 
   function basla(e: PointerEvent) {
     if (!kapatilabilir || gezinme.genis) return;
@@ -57,16 +61,24 @@
     if ((e.target as HTMLElement).closest("button")) return;
     surukleniyor = true;
     baslangicY = e.clientY;
+    sonY = e.clientY;
+    sonT = performance.now();
+    hiz = 0;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
   function surukle(e: PointerEvent) {
-    if (surukleniyor) dy = Math.max(0, e.clientY - baslangicY);
+    if (!surukleniyor) return;
+    const simdi = performance.now();
+    if (simdi > sonT) hiz = (e.clientY - sonY) / (simdi - sonT);
+    sonY = e.clientY;
+    sonT = simdi;
+    dy = Math.max(0, e.clientY - baslangicY);
   }
   function birak() {
     if (!surukleniyor) return;
     surukleniyor = false;
     const yukseklik = kutu?.offsetHeight ?? 1;
-    if (dy >= yukseklik * 0.3 && kutu) {
+    if ((dy >= yukseklik * 0.3 || (hiz > 0.5 && dy > 24)) && kutu) {
       // >=30%: finish the motion from where the finger left it, then close (hidden so the exit transition is not seen).
       // >=%30: hareketi parmağın bıraktığı yerden bitir, sonra kapat (çıkış geçişi görünmesin diye gizlenir).
       const sure = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sure-hizli")) || 0;

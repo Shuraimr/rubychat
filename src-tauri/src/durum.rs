@@ -113,6 +113,9 @@ pub struct AppState {
     pub arama_degisti: Arc<tokio::sync::Notify>,
     pub turn: Mutex<Option<TurnOnbellek>>,
     pub oturum: RwLock<Option<AktifOturum>>,
+    /// Full-text message index of the logged-in account (None before login or if it failed to open).
+    /// Girişli hesabın tam metin mesaj dizini (giriş öncesi ya da açılamadıysa None).
+    pub dizin: std::sync::Mutex<Option<Arc<crate::matrix::dizin::Dizin>>>,
     pub zamanlar: Mutex<HashMap<OwnedRoomId, AcikZaman>>,
     /// Serializes login / restore / logout so they cannot race each other.
     /// Giriş / geri yükleme / çıkışın birbiriyle yarışmaması için sıraya dizer.

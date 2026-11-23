@@ -1,6 +1,6 @@
-// Screen transition for the room (and Ben sub-pages): it enters from the right moving 12% while fading in; going back is the reverse.
+// Screen transition for the room (and Ben sub-pages): it enters from the right moving 24px while fading in; going back is the reverse.
 // Duration and curve come from CSS tokens (--sure-ekran = 260ms, --egri-vurgulu), so "reduced motion" (0ms) turns it off by itself.
-// Oda (ve Ben alt sayfaları) için ekran geçişi: sağdan %12 kayarak ve solarak girer; geri dönüş tersidir.
+// Oda (ve Ben alt sayfaları) için ekran geçişi: sağdan 24px kayarak ve solarak girer; geri dönüş tersidir.
 // Süre ve eğri CSS değişkenlerinden gelir (--sure-ekran = 260ms, --egri-vurgulu); "azaltılmış hareket" (0ms) kendiliğinden kapatır.
 function kay(giris: boolean) {
   return (node: Element) => {
@@ -8,7 +8,7 @@ function kay(giris: boolean) {
     const sure = parseFloat(stil.getPropertyValue("--sure-ekran")) || 0;
     const egri = stil.getPropertyValue("--egri-vurgulu").trim() || "ease";
     if (sure > 0) {
-      const uzak = { transform: "translateX(12%)", opacity: 0 };
+      const uzak = { transform: "translateX(24px)", opacity: 0 };
       const yakin = { transform: "translateX(0)", opacity: 1 };
       // transform + opacity only: no layout work, 60 fps · yalnızca transform + opacity: düzen hesabı yok, 60 fps
       node.animate(giris ? [uzak, yakin] : [yakin, uzak], { duration: sure, easing: egri, fill: giris ? "backwards" : "forwards" });

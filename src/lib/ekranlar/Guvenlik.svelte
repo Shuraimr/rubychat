@@ -8,6 +8,7 @@
   import { gezinme } from "../durum/gezinme.svelte";
   import { oturum } from "../durum/oturum.svelte";
   import { sifreleme } from "../durum/sifreleme.svelte";
+  import Maskot from "../bilesenler/Maskot.svelte";
   import { t } from "../i18n";
 
   const g = $derived(sifreleme.durum);
@@ -16,6 +17,8 @@
 <div class="sayfa">
   <Baslik baslik={t("guvenlik.baslik")} geri={() => gezinme.benAltKapat()} />
   <div class="icerik">
+    <!-- The lock mascot: encryption / recovery / verification live here (design 22/13) · Kilit maskotu: şifreleme / kurtarma / doğrulama burada (tasarım 22/13) -->
+    <div class="maskot-yer"><Maskot poz="kilit" boyut={112} /></div>
     <div class="kart satirlar">
       {#if g}
         <GuvenlikSatiri
@@ -58,5 +61,6 @@
   /* Rows are rendered by a child component, so the selector must reach into it with :global. · Satırları alt bileşen çizer; seçici :global ile içeri uzanmalı. */
   .satirlar > :global(*) { padding: 14px 0; border-bottom: 1px solid var(--kenar-ince); }
   .satirlar > :global(*:last-child) { border-bottom: 0; }
+  .maskot-yer { display: flex; justify-content: center; }
   .not { font-size: .8125rem; color: var(--bekliyor); padding: 0 4px; }
 </style>

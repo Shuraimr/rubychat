@@ -1,8 +1,10 @@
 // Small date/time formatting helpers (Turkish locale). · Küçük tarih/saat biçimleme yardımcıları (Türkçe yerel ayar).
+import { tercihler } from "./durum/tercihler.svelte";
 import { t } from "./i18n";
 
+// 24h / 12h follows Görünüm › Saat biçimi · 24 / 12 saat Görünüm › Saat biçimini izler
 export const saatYaz = (ms: number): string =>
-  new Date(ms).toLocaleTimeString("tr", { hour: "2-digit", minute: "2-digit" });
+  new Date(ms).toLocaleTimeString("tr", { hour: "2-digit", minute: "2-digit", hour12: !tercihler.d.saat24 });
 
 /** "Bugün" / "Dün" / "12 Mart" (with year if not this year) · "Bugün" / "Dün" / "12 Mart" (bu yıl değilse yılıyla) */
 export function gunEtiketi(ms: number): string {

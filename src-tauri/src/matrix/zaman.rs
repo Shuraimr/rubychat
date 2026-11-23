@@ -62,6 +62,7 @@ fn sanal_oge(id: String, zaman: u64, tur: ZamanTuru) -> ZamanOgesi {
         gonderen_avatar_mxc: None,
         arama: None,
         medya: None,
+        olay_id: None,
     }
 }
 
@@ -154,6 +155,7 @@ fn esle(app: &AppHandle, oge: &TimelineItem) -> Option<ZamanOgesi> {
         },
         arama,
         medya,
+        olay_id: o.event_id().map(|e| e.to_string()),
     })
 }
 
@@ -252,6 +254,40 @@ pub async fn geri_sayfala(app: AppHandle, durum: &AppState, oda_id: &str) -> Son
     let (ogeler, _) = zaman.subscribe().await;
     yayinla(&app, oda_id, &ogeler, basa);
     Ok(())
+}
+
+/// How many backward pages `olaya_git` may load while looking for an event, and how many events per page.
+/// `olaya_git`in bir olayı ararken yükleyebileceği geri sayfa sayısı ve sayfa başına olay sayısı.
+const OLAYA_GIT_SAYFA: usize = 60;
+const OLAYA_GIT_SAYFA_BOYU: u16 = 50;
+
+/// Makes sure the live timeline contains `olay_id` (message search "jump to result"): paginates backwards until the event
+/// shows up, the start of the room is reached, or the page limit is hit. Returns whether the event is now in the timeline.
+/// Chosen over a focused timeline (`TimelineFocus::Event`) because the UI, the diff task and every command here assume ONE
+/// live timeline per room; a second, temporary timeline would have touched all of them.
+/// Canlı zaman çizelgesinin `olay_id`yi içerdiğinden emin olur (mesaj araması "sonuca atla"): olay görünene, odanın başına
+/// ulaşılana ya da sayfa sınırına varılana dek geriye sayfalar. Olay artık çizelgede mi, onu döndürür.
+/// Odaklı zaman çizelgesi (`TimelineFocus::Event`) yerine seçildi: arayüz, fark görevi ve buradaki her komut oda başına TEK
+/// canlı çizelge varsayar; ikinci geçici çizelge hepsine dokunmayı gerektirirdi.
+pub async fn olaya_git(app: AppHandle, durum: &AppState, oda_id: &str, olay_id: &str) -> Sonuc<bool> {
+    let zaman = zaman_bul(durum, oda_id).await?;
+    let var_mi = |ogeler: &Vector<Arc<TimelineItem>>| ogeler.iter().any(|o| o.as_event().and_then(|e| e.event_id()).is_some_and(|e| e.as_str() == olay_id));
+    for _ in 0..OLAYA_GIT_SAYFA {
+        let ogeler = zaman.items().await;
+        if var_mi(&ogeler) {
+            yayinla(&app, oda_id, &ogeler, false);
+            return Ok(true);
+        }
+        let basa = zaman.paginate_backwards(OLAYA_GIT_SAYFA_BOYU).await?;
+        if basa {
+            let ogeler = zaman.items().await;
+            yayinla(&app, oda_id, &ogeler, true);
+            return Ok(var_mi(&ogeler));
+        }
+    }
+    let ogeler = zaman.items().await;
+    yayinla(&app, oda_id, &ogeler, false);
+    Ok(var_mi(&ogeler))
 }
 
 /// Sends plain text. The SDK encrypts automatically in encrypted rooms and shows a local echo in the timeline.

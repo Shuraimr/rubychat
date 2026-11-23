@@ -20,7 +20,7 @@
   const sayi = $derived(oda.okunmamis > 99 ? "99+" : String(oda.okunmamis));
 </script>
 
-<button class="satir" class:secili class:okunmamis={okunmamisMi} onclick={sec}>
+<button class="satir" data-dalga class:secili class:okunmamis={okunmamisMi} onclick={sec}>
   <Avatar harf={oda.avatarHarf} mxc={oda.avatarMxc} boyut={48} />
   <span class="orta">
     <span class="ust">

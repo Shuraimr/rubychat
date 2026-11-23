@@ -11,7 +11,7 @@
 
 <div class="alanlar">
   <Baslik baslik={t("alanlar.baslik")} />
-  <BosDurum ikon="izgara" baslik={t("alanlar.bosBaslik")} metin={t("alanlar.aciklama")} />
+  <BosDurum maskot="selam" baslik={t("alanlar.bosBaslik")} metin={t("alanlar.aciklama")} />
 </div>
 
 <style>

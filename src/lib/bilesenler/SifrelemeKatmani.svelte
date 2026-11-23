@@ -9,6 +9,7 @@
   import { oturum } from "../durum/oturum.svelte";
   import { sifreleme } from "../durum/sifreleme.svelte";
   import { t } from "../i18n";
+  import Maskot from "./Maskot.svelte";
   import AltSayfa from "./AltSayfa.svelte";
   import EmojiIzgara from "./EmojiIzgara.svelte";
   import GuvenlikSatiri from "./GuvenlikSatiri.svelte";
@@ -66,7 +67,7 @@
 
 {#if sifreleme.katman === "kurulum"}
   <AltSayfa baslik={t("kurulum.baslik")} onkapat={() => sifreleme.kapat()}>
-    <span class="kutu-ikon"><Ikon ad="kalkanOnay" boyut={24} /></span>
+    <Maskot poz="kilit" boyut={96} />
     <p class="aciklama">{t("kurulum.alt")}</p>
     {#if d}
       <!-- Step 1: this device · Adım 1: bu cihaz -->
@@ -256,7 +257,6 @@
 
 <style>
   .aciklama { font-size: .875rem; line-height: 1.43; color: var(--yazi-2); }
-  .kutu-ikon { width: 48px; height: 48px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: var(--ton); color: var(--ton-ustu); }
   /* Option card: icon, title, one line of help (design section 12a) · Seçenek kartı: simge, başlık, bir satır yardım (tasarım bölüm 12a) */
   .secenek { width: 100%; min-height: 64px; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 12px; text-align: left; background: var(--yuzey-2); border: 1px solid var(--kenar-ince); transition: background var(--sure-hizli) var(--egri-cikis); }
   .secenek:active { background: var(--yuzey-3); }

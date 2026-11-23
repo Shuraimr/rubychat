@@ -80,6 +80,8 @@ export interface ZamanOgesi {
   arama: AramaSatiri | null;
   /** set for resim / video / dosya; `metin` is then only the caption · resim / video / dosya için dolu; `metin` bu durumda yalnızca açıklama */
   medya: MedyaBilgisi | null;
+  /** Matrix event id of a real event (null for local echoes / virtual rows); message search jumps to it · Gerçek olayın Matrix olay kimliği (yerel yankı / sanal satırlarda null); mesaj araması buna atlar */
+  olayId: string | null;
 }
 
 // ---- Media · Medya ----
@@ -287,4 +289,51 @@ export interface DogrulamaDurumu {
   emojiler: SasEmoji[];
   /** technical English reason when cancelled · iptalde teknik İngilizce neden */
   neden: string | null;
+}
+
+// ---- Message search · Mesaj araması ----
+
+/** A piece of a result snippet; `vurgu` = matched the query · Sonuç özetinin parçası; `vurgu` = sorguyla eşleşti */
+export interface MesajParcasi {
+  metin: string;
+  vurgu: boolean;
+}
+
+export interface MesajAramaSonucu {
+  olayId: string;
+  odaId: string;
+  gonderen: string;
+  gonderenAd: string | null;
+  /** milliseconds since epoch · epoch'tan beri milisaniye */
+  zaman: number;
+  parcalar: MesajParcasi[];
+}
+
+export interface DizinDurumu {
+  belgeSayisi: number;
+  /** the background backfill of old messages is still running · eski mesajların arka plan doldurması sürüyor */
+  dolduruluyor: boolean;
+}
+
+// ---- Room members · Oda üyeleri ----
+export type UyelikDurumu = "join" | "invite" | "ban" | "leave";
+export interface Uye {
+  kullaniciId: string;
+  ad: string;
+  avatarMxc: string | null;
+  /** power level; room creators on v12+ report 1000 · yetki düzeyi; v12+ oda kurucuları 1000 bildirir */
+  guc: number;
+  uyelik: UyelikDurumu;
+}
+export interface BenimYetkilerim {
+  guc: number;
+  atmaEsigi: number;
+  yasaklamaEsigi: number;
+  davetEsigi: number;
+  yazmaEsigi: number;
+  gucEsigi: number;
+  atabilir: boolean;
+  yasaklayabilir: boolean;
+  davetEdebilir: boolean;
+  gucDegistirebilir: boolean;
 }

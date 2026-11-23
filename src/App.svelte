@@ -13,6 +13,12 @@
   import { altYeriOlc } from "./lib/alt-yer";
   import { kayCik, kayGir } from "./lib/gecis";
   import { klavyeyiIzle } from "./lib/klavye";
+  import { dokunmaBaslat, titret } from "./lib/dokunma";
+  import Acilis from "./lib/bilesenler/Acilis.svelte";
+  import KullaniciKarti from "./lib/bilesenler/KullaniciKarti.svelte";
+  import BaglantiOnay from "./lib/bilesenler/BaglantiOnay.svelte";
+  import { kabuk } from "./lib/durum/kabuk.svelte";
+  import { tercihler } from "./lib/durum/tercihler.svelte";
   import AramaCubugu from "./lib/bilesenler/AramaCubugu.svelte";
   import AltMenu from "./lib/bilesenler/AltMenu.svelte";
   import Bildirim from "./lib/bilesenler/Bildirim.svelte";
@@ -36,7 +42,7 @@
   onMount(() => {
     gezinme.baslat();
     oturum.baslat();
-    const birak = [altYeriOlc(), klavyeyiIzle()];
+    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat()];
     return () => birak.forEach((f) => f());
   });
 
@@ -55,8 +61,12 @@
       untrack(() =>
         bildirimSistemiBaslat({
           odaAc: (id) => gezinme.odaAc(id),
-          uygulamaIci: (b) =>
-            bildirim.goster(`${b.gonderenAd}: ${b.metin}`, 4000, { eylem: { etiket: t("bildirim.ac"), calistir: () => gezinme.odaAc(b.odaId) } }),
+          uygulamaIci: (b) => {
+            // In-app banner follows Ayarlar › Bildirimler (on/off, preview, vibration, quiet hours). · Uygulama içi şerit Ayarlar › Bildirimler'i izler (aç/kapa, önizleme, titreşim, sessiz saatler).
+            if (!tercihler.d.bildirimAcik || tercihler.sessizMi()) return;
+            if (tercihler.d.bildirimTitresim) titret(15);
+            bildirim.goster(tercihler.d.bildirimOnizleme ? `${b.gonderenAd}: ${b.metin}` : b.gonderenAd, 4000, { eylem: { etiket: t("bildirim.ac"), calistir: () => gezinme.odaAc(b.odaId) } });
+          },
         })
           .then((f) => (bitti ? f() : (birak = f)))
           .catch((e) => console.error(e)),
@@ -70,12 +80,14 @@
       odalar.durdur();
       arama.durdur();
       gezinme.sifirla();
+      kabuk.sifirla();
     }
   });
 </script>
 
 {#if !oturum.hazir}
-  <div class="tam-ekran"><span class="yuklenme"></span><span class="yukleniyor">{t("uygulama.yukleniyor")}</span></div>
+  <!-- Splash only while the saved session is restored; cached rooms never wait behind it. · Açılış ekranı yalnızca kayıtlı oturum geri yüklenirken; önbellekteki odalar onun arkasında beklemez. -->
+  <Acilis />
 {:else if !oturum.ben}
   <Giris />
 {:else}
@@ -118,10 +130,11 @@
 
 <!-- Encryption sheets (verification, recovery key, ...) float above everything else. · Şifreleme sayfaları (doğrulama, kurtarma anahtarı...) her şeyin üstünde durur. -->
 {#if oturum.ben}<SifrelemeKatmani />{/if}
+<KullaniciKarti />
+<BaglantiOnay />
 <Bildirim />
 
 <style>
-  .tam-ekran { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--yazi-2); }
   .uygulama { height: 100%; display: flex; flex-direction: column; min-height: 0; }
   .kabuk { flex: 1; min-height: 0; display: flex; }
   .liste-sutunu { width: 360px; flex: none; min-width: 0; border-right: 1px solid var(--kenar-ince); background: var(--zemin); display: flex; flex-direction: column; }
@@ -130,6 +143,8 @@
   .telefon { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
   /* Landscape phone: rail on the left, the list takes the rest. · Yatay telefon: solda ray, liste kalanı alır. */
   .telefon.yatay { flex-direction: row; }
+  /* Room the floating dock (+ the search pill) needs at the bottom of scrolling lists · Yüzen menünün (+ arama hapının) kaydırılan listelerin altında istediği yer */
+  .telefon:not(.yatay) { --dock-yer: calc(64px + 24px + env(safe-area-inset-bottom)); }
   /* No z-index on purpose: a stacking context here would trap the context menu's highlighted message under its own scrim. */
   /* Bilerek z-index yok: burada bir yığın bağlamı, bağlam menüsünün vurgulu mesajını kendi perdesinin altında hapseder. */
   .oda-katman { position: absolute; inset: 0; background: var(--zemin); display: flex; flex-direction: column; }

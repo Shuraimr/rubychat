@@ -116,6 +116,11 @@ pub struct ZamanOgesi {
     /// Set for image / video / file messages (`metin` then holds the caption, if any).
     /// Resim / video / dosya mesajlarında dolu (`metin` bu durumda varsa açıklamayı taşır).
     pub medya: Option<MedyaBilgisi>,
+    /// Matrix event id of a real (remote) event; `None` for local echoes and virtual rows. Message search jumps to it
+    /// (`id` above is the SDK's unique id, which is NOT the event id).
+    /// Gerçek (uzak) olayın Matrix olay kimliği; yerel yankı ve sanal satırlarda `None`. Mesaj araması buna atlar
+    /// (yukarıdaki `id` SDK'nın benzersiz kimliğidir, olay kimliği DEĞİL).
+    pub olay_id: Option<String>,
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -435,4 +440,72 @@ pub struct UygulamaIciBildirim {
     pub metin: String,
     pub avatar_mxc: Option<String>,
     pub arama: bool,
+}
+
+// ---- Message search · Mesaj araması ----
+
+/// A piece of a result snippet; `vurgu` = it matched the query (the UI draws it highlighted).
+/// Sending pieces instead of offsets avoids the UTF-8 byte vs UTF-16 index mismatch between Rust and JS.
+/// Sonuç özetinin bir parçası; `vurgu` = sorguyla eşleşti (arayüz vurgulu çizer).
+/// Konum yerine parça göndermek, Rust (UTF-8 bayt) ile JS (UTF-16) indeks uyuşmazlığını önler.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MesajParcasi {
+    pub metin: String,
+    pub vurgu: bool,
+}
+
+/// One message search hit. (Named `MesajAramaSonucu` because `AramaSonucu` already means "call outcome".)
+/// Bir mesaj arama sonucu. (`AramaSonucu` zaten "arama (telefon) sonucu" olduğu için `MesajAramaSonucu` adı verildi.)
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MesajAramaSonucu {
+    pub olay_id: String,
+    pub oda_id: String,
+    pub gonderen: String,
+    pub gonderen_ad: Option<String>,
+    /// Milliseconds since the Unix epoch · Unix epoch'tan beri milisaniye
+    pub zaman: i64,
+    pub parcalar: Vec<MesajParcasi>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DizinDurumu {
+    pub belge_sayisi: u64,
+    /// The background backfill (walking old history) is still running · Arka plandaki geçmiş doldurma sürüyor
+    pub dolduruluyor: bool,
+}
+
+// ---- Room members · Oda üyeleri ----
+
+/// One member of a room. `uyelik` = "join" | "invite" | "ban" | "leave". `guc` = power level (room creators on v12+ report 1000).
+/// Bir odanın üyesi. `uyelik` = "join" | "invite" | "ban" | "leave". `guc` = yetki düzeyi (v12+ oda kurucuları 1000 bildirir).
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Uye {
+    pub kullanici_id: String,
+    pub ad: String,
+    pub avatar_mxc: Option<String>,
+    pub guc: i64,
+    pub uyelik: String,
+}
+
+/// What the signed-in user may do in a room, plus the thresholds the UI needs to decide what to show.
+/// Oturum sahibinin bir odada neler yapabileceği ve arayüzün neyi göstereceğine karar vermek için eşikler.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BenimYetkilerim {
+    pub guc: i64,
+    pub atma_esigi: i64,
+    pub yasaklama_esigi: i64,
+    pub davet_esigi: i64,
+    /// Level needed to send messages (events_default); below it a member is "muted" · Mesaj göndermek için gereken düzey (events_default); altındaki üye "susturulmuş" sayılır
+    pub yazma_esigi: i64,
+    /// Level needed to change power levels · Yetki düzeylerini değiştirmek için gereken düzey
+    pub guc_esigi: i64,
+    pub atabilir: bool,
+    pub yasaklayabilir: bool,
+    pub davet_edebilir: bool,
+    pub guc_degistirebilir: bool,
 }

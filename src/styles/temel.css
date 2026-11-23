@@ -108,3 +108,30 @@ a { color: var(--vurgu); }
 .rozet.sessiz { background: var(--yuzey-3); color: var(--yazi-2); }
 
 .gorunmez-etiket { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* Ripple targets and press feedback live in lib/dokunma.ts; these rules only make the ripple clip to the row. */
+/* Dalga hedefleri ve basma geri bildirimi lib/dokunma.ts'te; bu kurallar yalnızca dalganın satıra kırpılmasını sağlar. */
+[data-dalga] { position: relative; overflow: hidden; }
+/* Skeleton shimmer: a light band sweeps across; only shown after a 400ms wait (see screens). --hareket 0 = still. */
+/* İskelet parıltısı: açık bir bant süpürür; yalnızca 400ms beklemeden sonra gösterilir (ekranlara bak). --hareket 0 = durağan. */
+.parilti { position: relative; overflow: hidden; background: var(--yuzey-2); }
+.parilti::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--yazi) 8%, transparent), transparent); transform: translateX(-100%); animation: parilti calc(1400ms * var(--hareket)) ease-in-out infinite; }
+@keyframes parilti { to { transform: translateX(100%); } }
+/* Inline / block code and mxids use the monospace family (Maple Mono by default). · Satır içi / blok kod ve mxid'ler tek aralıklı aileyi kullanır (varsayılan Maple Mono). */
+code, kbd, pre, .mono { font-family: var(--mono-tipi); }
+
+/* ---- Settings pages (Sohbet, Bildirimler, Hakkında): shared layout · Ayar sayfaları: ortak yerleşim ---- */
+.ay-sayfa { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--zemin); }
+.ay-icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 16px calc(24px + env(safe-area-inset-bottom)); display: grid; gap: 20px; align-content: start; }
+.ay-bolum { display: grid; gap: 8px; }
+.ay-bolum > h2 { font-family: var(--yazi-tipi); font-size: .8125rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--yazi-2); padding: 0 4px; }
+.ay-not { font-size: .8125rem; color: var(--yazi-2); padding: 0 4px; }
+.ay-kart { display: grid; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); border-radius: 16px; overflow: hidden; }
+.ay-satir { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 4px 4px 4px 16px; border-bottom: 1px solid var(--kenar-ince); text-align: left; width: 100%; }
+.ay-satir:last-child { border-bottom: 0; }
+.ay-satir > .ay-metin { flex: 1; min-width: 0; display: grid; }
+.ay-satir > .ay-metin strong { font-size: .9375rem; font-weight: 500; }
+.ay-satir > .ay-metin span { font-size: .8125rem; color: var(--yazi-2); }
+.ay-satir.dugme { padding-right: 16px; }
+.ay-satir.dugme:active { background: var(--yuzey-2); }
+.ay-secici { padding: 8px 12px 12px; }

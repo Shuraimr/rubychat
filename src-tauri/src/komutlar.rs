@@ -10,9 +10,9 @@ use crate::{
     bildirim,
     durum::{AktifOturum, AppState},
     hata::{Hata, Sonuc},
-    matrix::{arama, esitleme, medya, odalar, oturum, sifreleme, zaman},
+    matrix::{arama, dizin, esitleme, medya, odalar, oturum, sifreleme, zaman},
     tipler::{
-        AramaGonderIstegi, Ben, DogrulamaDurumu, GirisIstegi, MedyaGonderIstegi, MedyaYetenekleri, OdaBilgisi, OdaOzeti, SifrelemeDurumu,
+        AramaGonderIstegi, Ben, DizinDurumu, DogrulamaDurumu, MesajAramaSonucu, GirisIstegi, MedyaGonderIstegi, MedyaYetenekleri, OdaBilgisi, OdaOzeti, SifrelemeDurumu,
         TurnSunucu, VideoSikistirIstegi, VideoSonucu,
     },
 };
@@ -30,6 +30,14 @@ async fn oturumu_baslat(app: &AppHandle, durum: &AppState, client: matrix_sdk::C
     let (servis, mut gorevler) = esitleme::baslat(app.clone(), client.clone()).await?;
     gorevler.push(oturum::token_izle(veri, client.clone()));
     gorevler.extend(sifreleme::baslat(app.clone(), client.clone()));
+    // The search index is optional: a failure must not stop the login. · Arama dizini isteğe bağlıdır: hata girişi durdurmamalı.
+    match dizin::baslat(&client, &veri_dizini(app)?).await {
+        Ok((d, g)) => {
+            gorevler.extend(g);
+            *durum.dizin.lock().unwrap_or_else(|e| e.into_inner()) = Some(d);
+        }
+        Err(e) => warn!("mesaj arama dizini başlatılamadı: {e}"),
+    }
     *durum.oturum.write().await = Some(AktifOturum { client, esitleme: servis, gorevler });
     Ok(())
 }
@@ -71,6 +79,11 @@ pub async fn cikis(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<()> {
     sifreleme::temizle(&durum).await;
     if let Some(o) = durum.oturum.write().await.take() {
         esitleme::durdur(o.esitleme, o.gorevler).await;
+        // The writer must release the index files before `oturum::cikis` deletes the folder. · Yazıcı, `oturum::cikis` klasörü silmeden önce dizin dosyalarını bırakmalı.
+        let d = durum.dizin.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(d) = d {
+            d.durdur().await;
+        }
         oturum::cikis(&veri, &o.client).await;
     } else {
         warn!("çıkış istendi ama açık oturum yok");
@@ -120,6 +133,29 @@ pub async fn odayi_kapat(durum: State<'_, AppState>, oda_id: String) -> Sonuc<()
 #[tauri::command]
 pub async fn geri_sayfala(app: AppHandle, durum: State<'_, AppState>, oda_id: String) -> Sonuc<()> {
     zaman::geri_sayfala(app, &durum, &oda_id).await
+}
+
+/// Message search. `sinir` defaults to 50. Returns an empty list when the index is not ready.
+/// Mesaj araması. `sinir` varsayılanı 50. Dizin hazır değilse boş liste döner.
+#[tauri::command]
+pub async fn mesaj_ara(durum: State<'_, AppState>, sorgu: String, oda_id: Option<String>, sinir: Option<u32>) -> Sonuc<Vec<MesajAramaSonucu>> {
+    let d = durum.dizin.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some(d) = d else { return Ok(Vec::new()) };
+    let sinir = sinir.unwrap_or(50) as usize;
+    tokio::task::spawn_blocking(move || d.ara(&sorgu, oda_id.as_deref(), sinir)).await.map_err(|e| Hata::Diger(e.to_string()))?
+}
+
+#[tauri::command]
+pub fn dizin_durumu(durum: State<'_, AppState>) -> DizinDurumu {
+    let d = durum.dizin.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    DizinDurumu { belge_sayisi: d.as_ref().map(|d| d.belge_sayisi()).unwrap_or(0), dolduruluyor: d.is_some_and(|d| d.dolduruluyor()) }
+}
+
+/// Loads history until `olay_id` is in the open room's timeline (jump to a search result). `false` = not found within the limit.
+/// `olay_id` açık odanın çizelgesine girene dek geçmişi yükler (arama sonucuna atlama). `false` = sınır içinde bulunamadı.
+#[tauri::command]
+pub async fn olaya_git(app: AppHandle, durum: State<'_, AppState>, oda_id: String, olay_id: String) -> Sonuc<bool> {
+    zaman::olaya_git(app, &durum, &oda_id, &olay_id).await
 }
 
 #[tauri::command]

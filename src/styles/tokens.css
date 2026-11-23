@@ -27,7 +27,7 @@
   --sure-orta: 200ms;    /* new message, nav pill · yeni mesaj, sekme hapı */
   --sure-bildirim: 200ms; /* toast in · bildirim girişi */
   --sure-bildirim-cik: 150ms; /* toast out · bildirim çıkışı */
-  --sure-ekran: 260ms;   /* list → room · liste → oda */
+  --sure-ekran: 240ms;   /* list → room · liste → oda */
   --sure-sayfa: 280ms;   /* bottom sheet · alt sayfa */
   --sure-pop: 300ms;     /* reaction pop · tepki yaylanması */
   --sure-yavas: 320ms;
@@ -41,7 +41,7 @@
 
   --yazi-tipi: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --baslik-tipi: "Space Grotesk", "Inter", system-ui, sans-serif;
-  --mono-tipi: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --mono-tipi: "Maple Mono", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   /* Root text scale (Görünüm › Yazı boyutu) · Kök yazı ölçeği (Görünüm › Yazı boyutu) */
   --yazi-olcegi: 1;
   /* Height of fixed bottom bars, measured at runtime by the app (toasts sit above it) */
@@ -114,6 +114,7 @@
 :root[data-font="sistem"] { --yazi-tipi: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --baslik-tipi: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 :root[data-font="atkinson"] { --yazi-tipi: "Atkinson Hyperlegible", system-ui, sans-serif; }
 :root[data-font="nunito"] { --yazi-tipi: "Nunito", system-ui, sans-serif; }
+:root[data-font="maple"] { --yazi-tipi: "Maple Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
 :root[data-font="mono"] { --yazi-tipi: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
 
 /* ---- Text size ---- */

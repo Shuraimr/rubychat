@@ -11,6 +11,7 @@
   import MedyaAkisi from "../medya/MedyaAkisi.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { odalar } from "../durum/odalar.svelte";
+  import { tercihler } from "../durum/tercihler.svelte";
   import { t } from "../i18n";
   import EkSayfasi, { type EkKaynagi } from "./EkSayfasi.svelte";
   import EmojiSayfasi from "./EmojiSayfasi.svelte";
@@ -41,6 +42,12 @@
     boyutla();
   });
 
+  // The draft can change from outside (user card › Bahset): mirror it into the open composer. · Taslak dışarıdan değişebilir (kullanıcı kartı › Bahset): açık yazma alanına yansıt.
+  $effect(() => {
+    const tas = odalar.taslaklar[odaId] ?? "";
+    if (tas !== untrack(() => deger)) deger = tas;
+  });
+
   function degisti() {
     odalar.taslakYaz(odaId, deger);
   }
@@ -56,7 +63,8 @@
   function tus(e: KeyboardEvent) {
     // isComposing: do not send while an IME (e.g. mobile keyboard) is still composing a word
     // isComposing: telefon klavyesi gibi bir giriş yöntemi hâlâ kelime oluşturuyorken gönderme
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    // With "Enter ile gönder" off, Enter inserts a newline and only the arrow sends. · "Enter ile gönder" kapalıyken Enter satır ekler, yalnızca ok gönderir.
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && tercihler.d.enterGonder) {
       e.preventDefault();
       yolla();
     }

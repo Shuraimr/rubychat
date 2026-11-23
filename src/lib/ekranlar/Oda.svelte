@@ -12,9 +12,17 @@
   import { onDestroy, tick, untrack } from "svelte";
   import type { ZamanOgesi } from "../api/tipler";
   import Avatar from "../bilesenler/Avatar.svelte";
+  import BosDurum from "../bilesenler/BosDurum.svelte";
+  import OzellestirSayfasi from "../bilesenler/OzellestirSayfasi.svelte";
+  import OdaBilgisi from "./OdaBilgisi.svelte";
+  import Uyeler from "./Uyeler.svelte";
+  import OdaIciArama from "../arama-mesaj/OdaIciArama.svelte";
+  import { uzunBasma } from "../dokunma";
+  import { gorunumStili, sohbetGorunumu } from "../durum/sohbetGorunum.svelte";
   import BaglamMenusu, { type MenuEylemi } from "../bilesenler/BaglamMenusu.svelte";
   import EsitlemeSeridi from "../bilesenler/EsitlemeSeridi.svelte";
   import Ikon from "../bilesenler/Ikon.svelte";
+  import OdaAramasi from "../arama-mesaj/OdaAramasi.svelte";
   import MesajBalonu, { type Konum } from "../bilesenler/MesajBalonu.svelte";
   import MedyaBekleyenler from "../medya/MedyaBekleyenler.svelte";
   import YazmaAlani from "../bilesenler/YazmaAlani.svelte";
@@ -45,14 +53,14 @@
   let yeniGelenler = $state<Record<string, true>>({});
   let kendiGonderildi = false;
 
-  // Skeleton only after 300 ms of waiting (no flash on a quick open). · İskelet yalnızca 300 ms beklenince (hızlı açılışta yanıp sönme olmasın).
+  // Skeleton only after 400 ms of waiting (no flash on a quick open). · İskelet yalnızca 400 ms beklenince (hızlı açılışta yanıp sönme olmasın).
   let iskeletZamani = $state(false);
   $effect(() => {
     if (!zaman.yukleniyor) {
       iskeletZamani = false;
       return;
     }
-    const z = setTimeout(() => (iskeletZamani = true), 300);
+    const z = setTimeout(() => (iskeletZamani = true), 400);
     return () => clearTimeout(z);
   });
 
@@ -185,6 +193,15 @@
     }
   }
 
+  // ---- Layers owned by the room: info, members, customize sheet, in-chat search · Odanın sahip olduğu katmanlar: bilgi, üyeler, özelleştir sayfası, sohbet içi arama ----
+  let bilgiAcik = $state(false);
+  let uyelerAcik = $state(false);
+  let ozellestirAcik = $state(false);
+  let aramaAcik = $state(false);
+  let aktifOlay = $state<string | null>(null);
+  let aramaSorgu = $state("");
+  const gorunum = $derived(sohbetGorunumu.al(odaId));
+
   // ---- Context menu: only actions that really work · Bağlam menüsü: yalnızca gerçekten çalışan eylemler ----
   let menu = $state<{ x: number; y: number; oge: ZamanOgesi } | null>(null);
 
@@ -261,24 +278,29 @@
   const aranabilir = $derived(!!zaman.bilgi && zaman.bilgi.uyeSayisi === 2 && !!zaman.bilgi.karsiKullanici);
 </script>
 
-<div class="oda">
+<div class="oda" data-balon={gorunum.balon} data-saat={gorunum.saat ? undefined : "yok"} data-avatar={gorunum.avatar ? undefined : "yok"} style={gorunumStili(gorunum)}>
   <header class="ust">
     {#if !gezinme.genis}
       <button class="simge-dugme geri" aria-label={t("oda.geri")} onclick={() => gezinme.odaKapat()}><Ikon ad="geri" /></button>
     {/if}
+    <!-- Tap = room info, long press = customize sheet (both tactile) · Dokun = oda bilgisi, uzun bas = özelleştir sayfası (ikisi de dokunsal) -->
     {#if zaman.bilgi}
-      <Avatar harf={zaman.bilgi.avatarHarf} mxc={zaman.bilgi.avatarMxc} boyut={36} />
-      <div class="adlar">
-        <span class="ad">{zaman.bilgi.ad}</span>
-        <span class="alt">
-          <!-- Encryption is said once, here, as a small chip with a shield-like lock · Şifreleme burada bir kez, kilitli küçük çiple söylenir -->
-          {#if zaman.bilgi.sifreli}<span class="sifre-cip"><Ikon ad="kilit" boyut={12} />{t("oda.sifreli")}</span>{:else}<span class="sifre-cip yok">{t("oda.sifreSiz")}</span>{/if}
-          <span class="uye">{t("oda.uyeler", { n: zaman.bilgi.uyeSayisi })}</span>
+      <button class="kimlik" aria-label={t("oda.bilgiAc")} onclick={() => (bilgiAcik = true)} use:uzunBasma={{ ac: () => (ozellestirAcik = true) }}>
+        <Avatar harf={zaman.bilgi.avatarHarf} mxc={zaman.bilgi.avatarMxc} boyut={40} />
+        <span class="adlar">
+          <span class="ad">{zaman.bilgi.ad}</span>
+          <span class="alt">
+            <!-- Encryption is said once, here, as a small chip with a shield-like lock · Şifreleme burada bir kez, kilitli küçük çiple söylenir -->
+            {#if zaman.bilgi.sifreli}<span class="sifre-cip"><Ikon ad="kilit" boyut={12} />{t("oda.sifreli")}</span>{:else}<span class="sifre-cip yok">{t("oda.sifreSiz")}</span>{/if}
+            <span class="uye">{t("oda.uyeler", { n: zaman.bilgi.uyeSayisi })}</span>
+          </span>
         </span>
-      </div>
+      </button>
     {:else}
       <div class="adlar"></div>
     {/if}
+    <OdaAramasi {odaId} />
+    <button class="simge-dugme" class:tonlu={aramaAcik} aria-label={t("mesajAra.odadaAra")} aria-pressed={aramaAcik} onclick={() => (aramaAcik = true)}><Ikon ad="ara" /></button>
     {#if aranabilir && zaman.bilgi}
       <button
         class="simge-dugme"
@@ -295,7 +317,7 @@
     <div class="zaman" bind:this={kutu} onscroll={kaydir}>
       <div class="sutun">
         {#if zaman.hata}
-          <p class="orta hata">{t("oda.acilamadi")}</p>
+          <BosDurum maskot="hata" baslik={t("oda.acilamadi")} metin={t("oda.acilamadiAlt")} eylem={t("oda.yeniden")} onEylem={() => { void zaman.kapat().then(() => zaman.ac(odaId)); }} />
         {:else}
           {#if zaman.eskiYukleniyor}<p class="orta">{t("oda.eskiYukleniyor")}</p>{/if}
           {#if zaman.basaUlasildi && zaman.ogeler.length > 0 && zaman.bilgi}
@@ -310,7 +332,7 @@
           {#if zaman.yukleniyor && zaman.ogeler.length === 0 && iskeletZamani}
             <!-- Skeleton while the first page loads · İlk sayfa yüklenirken iskelet -->
             {#each [0, 1, 2, 3, 4] as i (i)}
-              <div class="iskelet" class:sag={i % 2 === 1}><span style:width="{i % 2 ? 46 : 62}%"></span></div>
+              <div class="iskelet" class:sag={i % 2 === 1}><span class="parilti" style:width="{i % 2 ? 46 : 62}%"></span></div>
             {/each}
           {/if}
 
@@ -321,7 +343,7 @@
                 {#if s.tur === "yeni"}
                   <div class="yeni" data-yeni><span>{t("oda.yeniMesajlar")}</span></div>
                 {:else}
-                  <MesajBalonu oge={s.oge} konum={konumu(s)} gonderenGoster={grupOdasi} yeni={!!yeniGelenler[s.oge.id]} vurgulu={menu?.oge.id === s.oge.id} {yenidenDene} {menuAc} />
+                  <MesajBalonu oge={s.oge} konum={konumu(s)} gonderenGoster={grupOdasi} yeni={!!yeniGelenler[s.oge.id]} vurgulu={menu?.oge.id === s.oge.id} eslesme={aramaAcik && !!aktifOlay && s.oge.olayId === aktifOlay} vurguSorgu={aramaAcik ? aramaSorgu : ""} {yenidenDene} {menuAc} />
                 {/if}
               {/each}
             </section>
@@ -341,28 +363,40 @@
     {/if}
   </div>
 
-  <YazmaAlani {odaId} sifreli={zaman.bilgi?.sifreli ?? false} {gonder} />
+  {#if aramaAcik}
+    <OdaIciArama {odaId} onkapat={() => (aramaAcik = false)} bind:aktifOlay bind:sorgu={aramaSorgu} />
+  {:else}
+    <YazmaAlani {odaId} sifreli={zaman.bilgi?.sifreli ?? false} {gonder} />
+  {/if}
+
+  {#if bilgiAcik}
+    <OdaBilgisi {odaId} onkapat={() => (bilgiAcik = false)} uyelerAc={() => (uyelerAcik = true)} gorunumAc={() => (ozellestirAcik = true)} ara={() => { bilgiAcik = false; aramaAcik = true; }} />
+  {/if}
+  {#if uyelerAcik}<Uyeler {odaId} onkapat={() => (uyelerAcik = false)} />{/if}
 </div>
+
+{#if ozellestirAcik}<OzellestirSayfasi {odaId} onkapat={() => (ozellestirAcik = false)} />{/if}
 
 {#if menu && menuEylemleri.length > 0}
   <BaglamMenusu x={menu.x} y={menu.y} eylemler={menuEylemleri} onkapat={() => (menu = null)} />
 {/if}
 
 <style>
-  .oda { flex: 1; min-height: 0; display: flex; flex-direction: column; min-width: 0; height: 100%; background: var(--zemin); }
+  .oda { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; min-width: 0; height: 100%; background: var(--zemin); }
   .ust {
     flex: none; height: 56px; display: flex; align-items: center; gap: 10px; box-sizing: content-box;
     padding: env(safe-area-inset-top) calc(8px + env(safe-area-inset-right)) 0 calc(12px + env(safe-area-inset-left));
     background: var(--yuzey-1); border-bottom: 1px solid var(--kenar-ince);
   }
   .geri { margin-left: -8px; }
+  .kimlik { flex: 1; min-width: 0; min-height: 52px; display: flex; align-items: center; gap: 10px; text-align: left; border-radius: 12px; }
   .adlar { flex: 1; min-width: 0; display: grid; }
   .ad { font-weight: 600; font-size: 1rem; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .alt { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: .75rem; color: var(--yazi-2); white-space: nowrap; overflow: hidden; }
   .sifre-cip { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--cozum); font-weight: 500; }
   .sifre-cip.yok { color: var(--yazi-2); }
   .uye { overflow: hidden; text-overflow: ellipsis; }
-  .zaman-sarmal { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .zaman-sarmal { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--sohbet-zemin, var(--zemin)); }
   .zaman { flex: 1; min-height: 0; overflow-y: auto; padding: 0 12px 12px; overscroll-behavior: contain; }
   /* Landscape phone (height <= 500px): header 48px, message column at most 680px and centred (design section 15). */
   /* Yatay telefon (yükseklik <= 500px): başlık 48px, mesaj sütunu en fazla 680px ve ortalı (tasarım bölüm 15). */
@@ -372,7 +406,6 @@
     .sutun { max-width: 680px; margin: 0 auto; }
   }
   .orta { text-align: center; font-size: .8125rem; color: var(--yazi-2); padding: 12px; }
-  .orta.hata { color: var(--hata); }
   .basi { display: grid; justify-items: center; gap: 6px; padding: 24px 24px 8px; text-align: center; font-size: .875rem; color: var(--yazi-2); }
   .basi strong { font-family: var(--baslik-tipi); font-size: 1.0625rem; color: var(--yazi); }
   .basi-kutu { width: 48px; height: 48px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: var(--ton); color: var(--ton-ustu); margin-bottom: 4px; }
@@ -387,8 +420,7 @@
 
   .iskelet { display: flex; margin-top: 10px; }
   .iskelet.sag { justify-content: flex-end; }
-  .iskelet span { height: 40px; border-radius: 16px; background: var(--yuzey-2); animation: nabiz calc(1200ms * var(--hareket)) ease-in-out infinite alternate; }
-  @keyframes nabiz { from { opacity: .5; } to { opacity: 1; } }
+  .iskelet span { height: 40px; border-radius: 16px; }
 
   .asagi {
     position: absolute; right: 12px; bottom: 12px; width: 44px; height: 44px; border-radius: 22px;

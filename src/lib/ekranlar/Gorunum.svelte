@@ -8,12 +8,19 @@
   import Anahtar from "../bilesenler/Anahtar.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
   import Ikon from "../bilesenler/Ikon.svelte";
+  import OzellestirSayfasi from "../bilesenler/OzellestirSayfasi.svelte";
   import Secici from "../bilesenler/Secici.svelte";
+  import { tercihler } from "../durum/tercihler.svelte";
   import { ayarlar, type AzAnimasyon, type Tema, type VurguAdi, type YaziBoyutu, type YaziTipi } from "../durum/ayarlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { t } from "../i18n";
 
   let kenar = $state(false);
+  let sohbetGorunumuAcik = $state(false);
+  const saatler = $derived<{ id: "24" | "12"; ad: string }[]>([
+    { id: "24", ad: t("ayar.saat24") },
+    { id: "12", ad: t("ayar.saat12") },
+  ]);
 
   const temalar = $derived<{ id: Tema; ad: string }[]>([
     { id: "sistem", ad: t("gorunum.sistem") },
@@ -32,6 +39,7 @@
     { id: "sistem", ad: t("gorunum.fontSistem"), not: t("gorunum.fontSistemNot") },
     { id: "atkinson", ad: "Atkinson Hyperlegible", not: t("gorunum.fontOkunakli") },
     { id: "nunito", ad: "Nunito", not: t("gorunum.fontYuvarlak") },
+    { id: "maple", ad: "Maple Mono", not: t("gorunum.fontMono") },
     { id: "mono", ad: "JetBrains Mono", not: t("gorunum.fontMono") },
   ]);
   const boyutlar = $derived<{ id: YaziBoyutu; ad: string }[]>([
@@ -105,12 +113,35 @@
     </section>
 
     <section>
+      <h2>{t("ayar.sohbetGorunumu")}</h2>
+      <button class="satir dugme" onclick={() => (sohbetGorunumuAcik = true)}>
+        <div class="metin"><strong>{t("ayar.sohbetGorunumu")}</strong><span>{t("ayar.sohbetGorunumuAlt")}</span></div>
+        <Ikon ad="sagOk" boyut={20} />
+      </button>
+    </section>
+
+    <section>
+      <h2>{t("ayar.saatBicimi")}</h2>
+      <Secici secenekler={saatler} deger={tercihler.d.saat24 ? "24" : "12"} sec={(id) => tercihler.yaz("saat24", id === "24")} etiket={t("ayar.saatBicimi")} />
+    </section>
+
+    <section>
+      <h2>{t("ayar.titresim")}</h2>
+      <div class="satir">
+        <div class="metin"><strong>{t("ayar.titresim")}</strong><span>{t("ayar.titresimAlt")}</span></div>
+        <Anahtar acik={tercihler.d.titresim} degis={(v) => tercihler.yaz("titresim", v)} etiket={t("ayar.titresim")} />
+      </div>
+    </section>
+
+    <section>
       <h2>{t("gorunum.animasyon")}</h2>
       <Secici secenekler={hareketler} deger={ayarlar.azAnimasyon} sec={(id) => ayarlar.gorunumYaz("azAnimasyon", id)} etiket={t("gorunum.animasyon")} />
       <p class="not">{t("gorunum.animasyonAlt")}</p>
     </section>
   </div>
 </div>
+
+{#if sohbetGorunumuAcik}<OzellestirSayfasi onkapat={() => (sohbetGorunumuAcik = false)} />{/if}
 
 <style>
   .sayfa { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--zemin); }
@@ -125,6 +156,7 @@
   .giden { background: var(--ton); color: var(--ton-ustu); border-bottom-right-radius: 4px; justify-self: end; }
 
   .satir { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 4px 4px 4px 16px; border-radius: 16px; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); }
+  .dugme { width: 100%; text-align: left; padding-right: 16px; }
   .metin { flex: 1; min-width: 0; display: grid; }
   .metin strong { font-size: .9375rem; font-weight: 500; }
   .metin span { font-size: .8125rem; color: var(--yazi-2); }
@@ -152,5 +184,6 @@
   [data-f="sistem"] { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   [data-f="atkinson"] { font-family: "Atkinson Hyperlegible", system-ui, sans-serif; }
   [data-f="nunito"] { font-family: "Nunito", system-ui, sans-serif; }
+  [data-f="maple"] { font-family: "Maple Mono", ui-monospace, monospace; }
   [data-f="mono"] { font-family: "JetBrains Mono", ui-monospace, monospace; }
 </style>
