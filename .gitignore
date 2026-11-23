@@ -6,3 +6,6 @@ src-tauri/gen/android/app/build
 src-tauri/gen/android/.gradle
 src-tauri/gen/schemas
 .direnv
+
+# Copied from node_modules at build time by vite.config.ts (Element Call embedded build)
+public/element-call

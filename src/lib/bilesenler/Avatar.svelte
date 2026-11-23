@@ -1,4 +1,5 @@
 <!--
+  Rounded-square avatar (sized in rem so it grows with the text size / Android font scale; the image request still uses px):
   Rounded-square avatar: the Matrix image (served by the Rust `medya` scheme) with an initial fallback while loading or on error.
   Yuvarlatılmış kare avatar: Matrix resmi (Rust `medya` şemasından gelir); yüklenirken ya da hatada baş harf yedeği.
 -->
@@ -19,10 +20,10 @@
 
 <span
   class="avatar"
-  style:width="{boyut}px"
-  style:height="{boyut}px"
-  style:border-radius="{yaricap}px"
-  style:font-size="{Math.round(boyut * 0.42)}px"
+  style:width="{boyut / 16}rem"
+  style:height="{boyut / 16}rem"
+  style:border-radius="{yaricap / 16}rem"
+  style:font-size="{(boyut * 0.42) / 16}rem"
   aria-hidden="true"
 >
   {harf}

@@ -6,7 +6,7 @@ import { arama } from "./arama.svelte";
 
 export type Sekme = "sohbetler" | "alanlar" | "ben";
 /** Sub-pages under "Ben" · "Ben" altındaki alt sayfalar */
-export type BenAlt = "gorunum" | "sohbet" | "bildirimler" | "guvenlik" | "hakkinda";
+export type BenAlt = "gorunum" | "sohbet" | "bildirimler" | "guvenlik" | "hakkinda" | "profil" | "hesap";
 /**
  * Layout by SHAPE, not by width alone (design section 15):
  *  - yatay   = height <= 500px (a landscape phone, even if it is 844px wide): 64px rail, room replaces the list
@@ -44,8 +44,11 @@ class Gezinme {
   #bekleyenEklemeler: { id: number; ekle: () => void }[] = [];
   #odaKatmani = 0;
   #benAltKatmani = 0;
+  #sekmeKatmani = 0;
 
   baslat() {
+    // A reload keeps the old entry's layer id; new ids start from 1 again, so forget it. · Yeniden yükleme eski girdinin katman kimliğini korur; yeni kimlikler 1'den başlar, unut.
+    if (history.state) history.replaceState(null, "");
     const yatay = window.matchMedia(YATAY_SORGU);
     const tablet = window.matchMedia(TABLET_SORGU);
     const guncelle = () => (this.sekil = yatay.matches ? "yatay" : tablet.matches ? "tablet" : "telefon");
@@ -165,12 +168,46 @@ class Gezinme {
 
   sekmeSec(s: Sekme) {
     this.benAltKapat();
-    this.sekme = s;
+    this.#sekmeyeGec(s);
     // Where a room covers the tab panels (phone, landscape phone), leaving to a tab closes it. · Odanın sekme panellerini örttüğü yerde (telefon, yatay) sekmeye geçmek odayı kapatır.
     if (!this.genis) this.odaKapat();
   }
 
-  odaAc(id: string) {
+  /**
+   * On phones any main page other than Sohbetler is one back-button layer: back returns to Sohbetler instead of leaving the app.
+   * Telefonda Sohbetler dışındaki her ana sayfa tek bir geri tuşu katmanıdır: geri, uygulamadan çıkmak yerine Sohbetler'e döner.
+   */
+  #sekmeyeGec(s: Sekme) {
+    this.sekme = s;
+    if (this.sekil !== "telefon") return;
+    if (s === "sohbetler") this.#sekmeBirak();
+    else if (!this.#sekmeKatmani) {
+      this.#sekmeKatmani = this.katmanAc(() => {
+        this.#sekmeKatmani = 0;
+        this.#benAltKatmani = 0;
+        this.benAlt = null;
+        this.sekme = "sohbetler";
+      });
+    }
+  }
+
+  /** Is the open room / the Ben sub-page the top-most layer? Then a swipe to the right may close it. · Açık oda / Ben alt sayfası en üst katman mı? Öyleyse sağa kaydırma kapatabilir. */
+  ustKatmanMi(hangi: "oda" | "benAlt"): boolean {
+    const k = hangi === "oda" ? this.#odaKatmani : this.#benAltKatmani;
+    return !!k && this.#katmanlar.at(-1)?.id === k;
+  }
+
+  /**
+   * Open a room. `sekmeyiKoru`: stay on the current tab (a room opened from inside a space must return to that space on back,
+   * not to the chat list).
+   * Bir odayı aç. `sekmeyiKoru`: mevcut sekmede kal (bir alanın içinden açılan oda geri dönüşte sohbet listesine değil o alana dönmeli).
+   */
+  odaAc(id: string, sekmeyiKoru = false) {
+    // Phone: opening a room (a notification tap, a search hit) also leaves the other main page. · Telefon: oda açmak (bildirime dokunma, arama sonucu) diğer ana sayfadan da çıkarır.
+    if (!sekmeyiKoru) {
+      this.benAltKapat();
+      this.#sekmeyeGec("sohbetler");
+    }
     // Where the room replaces the list it is a layer, so the hardware back button closes it. · Oda listenin yerini aldığı yerde bir katmandır; donanım geri tuşu onu kapatır.
     if (!this.genis && !this.#odaKatmani) {
       this.#odaKatmani = this.katmanAc(() => {
@@ -179,7 +216,6 @@ class Gezinme {
       });
     }
     this.acikOdaId = id;
-    this.sekme = "sohbetler";
   }
 
   odaKapat() {
@@ -191,8 +227,15 @@ class Gezinme {
     } else this.acikOdaId = null;
   }
 
+  #sekmeBirak() {
+    if (!this.#sekmeKatmani) return;
+    const k = this.#sekmeKatmani;
+    this.#sekmeKatmani = 0;
+    this.katmanBirak(k);
+  }
+
   benAltAc(ad: BenAlt) {
-    this.sekme = "ben";
+    this.#sekmeyeGec("ben");
     if (this.#benAltKatmani) this.katmanBirak(this.#benAltKatmani);
     this.benAlt = ad;
     this.#benAltKatmani = this.katmanAc(() => {
@@ -219,6 +262,7 @@ class Gezinme {
     this.#katmanlar = [];
     this.#odaKatmani = 0;
     this.#benAltKatmani = 0;
+    this.#sekmeKatmani = 0;
   }
 }
 

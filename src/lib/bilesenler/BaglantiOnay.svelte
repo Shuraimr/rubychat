@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
   import { baglantiOnay } from "../durum/baglantiOnay.svelte";
+  import { disariAc } from "../disAc";
   import { bildirim } from "../durum/bildirim.svelte";
   import { t } from "../i18n";
   import AltSayfa from "./AltSayfa.svelte";
@@ -19,10 +20,15 @@
     }
     kapat();
   }
-  function ac() {
-    // noopener: the page we open must not get a handle to this window · noopener: açılan sayfa bu pencereye erişemesin
-    window.open(baglantiOnay.url ?? "", "_blank", "noopener,noreferrer");
+  async function ac() {
+    const url = baglantiOnay.url;
     kapat();
+    if (!url) return;
+    try {
+      await disariAc(url);
+    } catch {
+      bildirim.goster(t("baglanti.acilamadi"), 4000, { tur: "hata" });
+    }
   }
 </script>
 

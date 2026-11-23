@@ -25,23 +25,7 @@ pub fn oda_adi(room: &Room) -> String {
 fn onizleme(deger: &LatestEventValue) -> Option<String> {
     match deger {
         LatestEventValue::Remote(olay) => {
-            let ham = olay.raw();
-            let tur = ham.get_field::<String>("type").ok().flatten()?;
-            match tur.as_str() {
-                "m.room.message" => {
-                    let icerik = ham.get_field::<serde_json::Value>("content").ok().flatten()?;
-                    match icerik.get("msgtype").and_then(|m| m.as_str()) {
-                        Some("m.image") => Some("Fotoğraf".to_owned()),
-                        Some("m.video") => Some("Video".to_owned()),
-                        Some("m.audio") => Some("Ses".to_owned()),
-                        Some("m.file") => Some("Dosya".to_owned()),
-                        _ => icerik.get("body").and_then(|b| b.as_str()).map(|b| b.lines().next().unwrap_or("").to_owned()),
-                    }
-                }
-                "m.room.encrypted" => Some("Şifreli mesaj".to_owned()),
-                "m.sticker" => Some("Çıkartma".to_owned()),
-                _ => None,
-            }
+            ham_onizleme(olay.raw())
         }
         LatestEventValue::LocalIsSending(v) | LatestEventValue::LocalCannotBeSent(v) | LatestEventValue::LocalHasBeenSent { value: v, .. } => {
             let json = serde_json::to_value(&v.content).ok()?;
@@ -49,6 +33,47 @@ fn onizleme(deger: &LatestEventValue) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// The preview text of one raw event (None = not something a chat list shows).
+/// Tek bir ham olayın önizleme metni (None = sohbet listesinin göstereceği bir şey değil).
+fn ham_onizleme<T>(ham: &matrix_sdk::ruma::serde::Raw<T>) -> Option<String> {
+    let tur = ham.get_field::<String>("type").ok().flatten()?;
+    match tur.as_str() {
+        "m.room.message" => {
+            let icerik = ham.get_field::<serde_json::Value>("content").ok().flatten()?;
+            match icerik.get("msgtype").and_then(|m| m.as_str()) {
+                Some("m.image") => Some("Fotoğraf".to_owned()),
+                Some("m.video") => Some("Video".to_owned()),
+                Some("m.audio") => Some("Ses".to_owned()),
+                Some("m.file") => Some("Dosya".to_owned()),
+                _ => icerik.get("body").and_then(|b| b.as_str()).map(|b| b.lines().next().unwrap_or("").to_owned()),
+            }
+        }
+        "m.room.encrypted" => Some("Şifreli mesaj".to_owned()),
+        "m.sticker" => Some("Çıkartma".to_owned()),
+        _ => None,
+    }
+}
+
+/// The SDK has no latest event for some rooms (it starts empty, and it skips messages it cannot decrypt): then look at the newest
+/// events the event cache already holds. Never goes to the network.
+/// SDK bazı odalar için son olay tutmaz (boş başlar ve çözemediği mesajları atlar): o zaman olay önbelleğinin elindeki en yeni
+/// olaylara bakılır. Ağa hiç çıkmaz.
+async fn onbellekten(room: &Room) -> Option<(String, MilliSecondsSinceUnixEpoch)> {
+    let (onbellek, _birak) = room.event_cache().await.ok()?;
+    // Walks backwards and stops at the first hit; nothing is cloned (an empty room costs one short walk). · Sondan yürür, ilk bulunanda durur; hiçbir şey kopyalanmaz.
+    let bul = onbellek.rfind_map_event_in_memory_by(|o| {
+        let ham = o.raw();
+        // An edit repeats the old message with a "* " prefix: skip it, the original is older in the list. · Düzenleme eski mesajı "* " önekiyle yineler: atla.
+        let icerik = ham.get_field::<serde_json::Value>("content").ok().flatten()?;
+        if icerik.pointer("/m.relates_to/rel_type").and_then(|r| r.as_str()) == Some("m.replace") {
+            return None;
+        }
+        let zaman = ham.get_field::<MilliSecondsSinceUnixEpoch>("origin_server_ts").ok().flatten()?;
+        Some((ham_onizleme(ham)?, zaman))
+    });
+    bul.await.ok()?
 }
 
 /// Room avatar `mxc://`; in a DM without its own avatar, the other person's avatar.
@@ -77,7 +102,14 @@ pub async fn karsi_kullanici(room: &Room) -> Option<String> {
 pub async fn ozetle(room: &Room) -> OdaOzeti {
     let ad = oda_adi(room);
     let davet = room.state() == RoomState::Invited;
-    let son: Option<MilliSecondsSinceUnixEpoch> = room.latest_event_timestamp();
+    let mut son: Option<MilliSecondsSinceUnixEpoch> = room.latest_event_timestamp();
+    let mut son_mesaj = onizleme(&room.latest_event());
+    if son_mesaj.is_none() && !davet && !room.is_space() {
+        if let Some((metin, zaman)) = onbellekten(room).await {
+            son_mesaj = Some(metin);
+            son = son.or(Some(zaman));
+        }
+    }
     let bahsedilme = room.num_unread_mentions();
     let mut okunmamis = room.num_unread_notifications().max(bahsedilme);
     if okunmamis == 0 {
@@ -92,13 +124,14 @@ pub async fn ozetle(room: &Room) -> OdaOzeti {
         avatar_mxc: avatar_mxc(room, dm).await,
         avatar_harf: bas_harf(&ad),
         ad,
-        son_mesaj: onizleme(&room.latest_event()),
+        son_mesaj,
         son_zaman: son.map(|t| t.0.into()),
         okunmamis,
         bahsedilme,
         sifreli: room.encryption_state().is_encrypted(),
         dm,
         davet,
+        alan: room.is_space(),
     }
 }
 

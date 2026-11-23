@@ -154,6 +154,6 @@
   .tutamak { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--kenar); margin: 8px auto 0; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 4px 20px; min-height: 56px; }
   h2 { font-size: 1.25rem; line-height: 1.3; font-weight: 600; }
-  .icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 16px; display: grid; gap: 16px; align-content: start; }
+  .icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 16px; display: grid; grid-auto-rows: max-content; gap: 16px; align-content: start; }
   footer { flex: none; display: grid; gap: 8px; padding: 8px 20px 16px; border-top: 1px solid var(--kenar-ince); }
 </style>

@@ -15,3 +15,13 @@ export function avatarUrl(mxc: string | null | undefined, boyut: number): string
   const px = Math.min(512, Math.ceil((boyut * 2) / 48) * 48);
   return `${KOK}/${m[1]}/${m[2]}?b=${px}`;
 }
+
+/** mxc://server/id → a thumbnail that keeps the aspect ratio (custom emoji, sticker pickers), `boyut` CSS px on a 2x screen. null if not a valid mxc. */
+/** mxc://sunucu/id → oranı koruyan küçük resim (özel emoji, çıkartma seçicileri), 2x ekranda `boyut` CSS px. Geçerli mxc değilse null. */
+export function gorselUrl(mxc: string | null | undefined, boyut: number): string | null {
+  const m = mxc?.match(/^mxc:\/\/([^/]+)\/([^/?#]+)$/);
+  if (!m) return null;
+  const px = Math.min(512, Math.ceil((boyut * 2) / 48) * 48);
+  // `o=1` asks the backend to SCALE (keep the ratio) instead of cropping to a square · `o=1` arka uçtan kare kırpmak yerine ÖLÇEKLEMESİNİ (oranı korumasını) ister
+  return `${KOK}/${m[1]}/${m[2]}?b=${px}&o=1`;
+}

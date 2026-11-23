@@ -12,7 +12,6 @@ class Odalar {
   esitleme = $state<EsitlemeDurumu>({ durum: "basliyor", mesaj: null });
   /** true after the first room list arrived (to show a skeleton before) · ilk liste gelince true (öncesinde iskelet gösterilir) */
   ilkListeGeldi = $state(false);
-  arama = $state("");
   suzgec = $state<Suzgec>("tumu");
   /** Unsent composer text per room (memory only, lost on restart) → "Taslak:" in the chat row. · Oda başına gönderilmemiş yazı (yalnızca bellek, yeniden başlatınca gider) → sohbet satırında "Taslak:". */
   taslaklar = $state<Record<string, string>>({});
@@ -21,21 +20,21 @@ class Odalar {
 
   davetler = $derived(this.liste.filter((o) => o.davet));
   /** Number of rooms with something unread (chip + nav badge) · Okunmamış bir şeyi olan oda sayısı (çip + menü rozeti) */
-  okunmamisOda = $derived(this.liste.filter((o) => !o.davet && (o.okunmamis > 0 || o.bahsedilme > 0)).length);
+  okunmamisOda = $derived(this.liste.filter((o) => !o.davet && !o.alan && (o.okunmamis > 0 || o.bahsedilme > 0)).length);
+  /** Joined spaces are not chats: they live under "Alanlar" and have no message timeline · Katılınan alanlar sohbet değildir: "Alanlar"da durur ve mesaj çizelgeleri yoktur */
+  alanlar = $derived(this.liste.filter((o) => o.alan && !o.davet));
 
-  /** Invites are shown in their own card (and under the "Davetler" filter), so the main list excludes them. · Davetler kendi kartında (ve "Davetler" süzgecinde) gösterilir; ana liste onları içermez. */
-  gorunen = $derived.by(() => {
-    const aranan = this.arama.trim().toLocaleLowerCase("tr");
+  /** Invites are shown in their own card (and under the "Davetler" filter), so the other lists exclude them. · Davetler kendi kartında (ve "Davetler" süzgecinde) gösterilir; diğer listeler onları içermez. */
+  suz(suzgec: Suzgec): OdaOzeti[] {
     return this.liste.filter((o) => {
-      if (this.suzgec === "davetler") return o.davet && (!aranan || o.ad.toLocaleLowerCase("tr").includes(aranan));
-      if (o.davet) return false;
-      if (aranan && !o.ad.toLocaleLowerCase("tr").includes(aranan)) return false;
-      if (this.suzgec === "okunmamis") return o.okunmamis > 0 || o.bahsedilme > 0;
-      if (this.suzgec === "kisiler") return o.dm;
-      if (this.suzgec === "gruplar") return !o.dm;
+      if (suzgec === "davetler") return o.davet;
+      if (o.davet || o.alan) return false;
+      if (suzgec === "okunmamis") return o.okunmamis > 0 || o.bahsedilme > 0;
+      if (suzgec === "kisiler") return o.dm;
+      if (suzgec === "gruplar") return !o.dm;
       return true;
     });
-  });
+  }
 
   taslakYaz(odaId: string, metin: string) {
     if (metin.trim()) this.taslaklar[odaId] = metin;

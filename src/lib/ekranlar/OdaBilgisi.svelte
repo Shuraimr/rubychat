@@ -107,7 +107,7 @@
 
 <style>
   .ekran { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--zemin); }
-  .icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 16px calc(24px + env(safe-area-inset-bottom)); display: grid; gap: 20px; align-content: start; }
+  .icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 16px calc(24px + env(safe-area-inset-bottom)); display: grid; grid-auto-rows: max-content; gap: 20px; align-content: start; }
   .kimlik { display: grid; justify-items: center; gap: 8px; padding-top: 8px; text-align: center; }
   h2 { font-size: 1.5rem; }
   .sifre { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px 0 6px; border-radius: 16px; background: color-mix(in srgb, var(--cozum) 16%, var(--zemin)); color: var(--cozum); font-size: .8125rem; font-weight: 600; }

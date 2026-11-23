@@ -17,6 +17,8 @@
   import { odalar } from "../durum/odalar.svelte";
   import { oturum } from "../durum/oturum.svelte";
   import { rolAdi, uyeler } from "../durum/uyeler.svelte";
+  import { profilYerel } from "../durum/profilYerel.svelte";
+  import { zeminUrl } from "../durum/zeminResmi";
   import { t } from "../i18n";
   import AltSayfa from "./AltSayfa.svelte";
   import Avatar from "./Avatar.svelte";
@@ -31,6 +33,12 @@
   const ad = $derived(uye?.ad ?? hedef?.ad ?? (hedef?.kullaniciId ?? "").replace(/^@/, "").split(":")[0]);
   const avatarMxc = $derived(uye?.avatarMxc ?? hedef?.avatarMxc ?? null);
 
+  // My own card shows my app-local banner (Matrix has none) · Kendi kartım uygulamaya yerel banner'ımı gösterir (Matrix'te yok)
+  let bannerUrl = $state<string | null>(null);
+  $effect(() => {
+    if (ben && profilYerel.resim) void zeminUrl("banner").then((u) => (bannerUrl = u));
+    else bannerUrl = null;
+  });
   let yasakAcik = $state(false);
   let ozelAcik = $state(false);
   let ozelDeger = $state("");
@@ -111,7 +119,12 @@
 
 {#if hedef}
   <AltSayfa baslik={ad} onkapat={kapat}>
-    <div class="kimlik">
+    {#if ben}
+      <div class="banner" style:--banner-renk={profilYerel.renk || undefined} aria-hidden="true">
+        {#if bannerUrl}<img src={bannerUrl} alt="" draggable="false" />{/if}
+      </div>
+    {/if}
+    <div class="kimlik" class:bannerli={ben}>
       <Avatar harf={ad.charAt(0).toUpperCase() || "#"} mxc={avatarMxc} boyut={72} />
       <div class="adlar">
         <strong>{ad}</strong>
@@ -168,6 +181,10 @@
 {/if}
 
 <style>
+  .banner { position: relative; height: 5rem; margin: -.25rem 0 0; border-radius: 1rem; overflow: hidden; background: color-mix(in srgb, var(--banner-renk, var(--vurgu)) 45%, var(--yuzey-2)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .08); }
+  .banner img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .kimlik.bannerli { margin-top: -2.25rem; padding: 0 .75rem; position: relative; }
+  .kimlik.bannerli :global(.avatar) { box-shadow: 0 0 0 3px var(--yuzey-1); }
   .kimlik { display: flex; align-items: center; gap: 16px; }
   .adlar { display: grid; gap: 4px; min-width: 0; justify-items: start; }
   .adlar strong { font-family: var(--baslik-tipi); font-size: 1.25rem; line-height: 1.3; }
@@ -181,7 +198,7 @@
   .sayi { color: var(--yazi-2); font-size: .875rem; }
   .ozel { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
   .ozel input { min-height: 48px; padding: 0 14px; border-radius: 14px; background: var(--yuzey-2); border: 1px solid var(--kenar); outline: none; color: var(--yazi); }
-  .ozel .buton { width: auto; height: 48px; }
+  .ozel .buton { width: auto; min-height: 3rem; }
   .satir { min-height: 48px; text-align: left; padding: 0 4px; font-size: 1rem; font-weight: 500; }
   .kirmizi { color: var(--hata); font-weight: 600; }
 </style>

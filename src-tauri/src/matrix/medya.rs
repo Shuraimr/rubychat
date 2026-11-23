@@ -161,6 +161,28 @@ pub fn esle(app: &AppHandle, tur: &MessageType, ilerleme: Option<MedyaIlerleme>)
     Some((zt, aciklama, bilgi))
 }
 
+/// Maps an `m.sticker` event to the same media description the UI already knows how to draw (image, registered for `medya://localhost/m/<id>`).
+/// `m.sticker` olayını arayüzün zaten çizmeyi bildiği medya tarifine eşler (resim; `medya://localhost/m/<id>` için kaydedilir).
+pub fn cikartma_esle(app: &AppHandle, s: &matrix_sdk::ruma::events::sticker::StickerEventContent) -> MedyaBilgisi {
+    // `StickerMediaSource` → `MediaSource` (plain URL or, with compat-encrypted-stickers, an encrypted file).
+    // `StickerMediaSource` → `MediaSource` (düz adres ya da compat-encrypted-stickers ile şifreli dosya).
+    let kaynak: MediaSource = s.source.clone().into();
+    let i = &s.info;
+    let mime = i.mimetype.clone();
+    MedyaBilgisi {
+        tur: MedyaTuru::Resim,
+        kaynak_id: kaydet(app, kaynak, mime.as_deref(), &s.body),
+        kucuk_id: None,
+        genislik: sayi(i.width).and_then(|v| u32::try_from(v).ok()),
+        yukseklik: sayi(i.height).and_then(|v| u32::try_from(v).ok()),
+        sure_ms: None,
+        boyut: sayi(i.size),
+        dosya_adi: s.body.clone(),
+        mime,
+        ilerleme: None,
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Chunked upload from the webview · Webview'den parçalı yükleme
 // ---------------------------------------------------------------------------------------------------------------------

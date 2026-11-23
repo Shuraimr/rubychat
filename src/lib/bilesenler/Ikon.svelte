@@ -15,6 +15,9 @@
     onay: '<path d="M20 6 9 17l-5-5"/>',
     yukari: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
     kapat: '<path d="M18 6 6 18M6 6l12 12"/>',
+    klavye: '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12.500h.01M18 12.500h.01M10 12.500h4M8 16h8"/>',
+    geriSil: '<path d="M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6-7z"/><path d="m12 9.500 5 5m0-5-5 5"/>',
+    ayar: '<path d="M4 7h9m5 0h2M4 17h2m5 0h9"/><circle cx="15.500" cy="7" r="2.500"/><circle cx="8.500" cy="17" r="2.500"/>',
     // Not in rubyyard's set: written in the same style · rubyyard setinde yok: aynı stilde yazıldı
     geri: '<path d="m15 18-6-6 6-6"/>',
     artik: '<path d="M12 5v14M5 12h14"/>',
@@ -35,6 +38,8 @@
     kopya: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     galeri: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
     kamera: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+    atac: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+    gonder: '<path fill="currentColor" d="M3.71 3.05a.5.5 0 0 0-.68.63l2.84 7.62a2 2 0 0 1 0 1.4l-2.84 7.62a.5.5 0 0 0 .68.63l18-8.5a.5.5 0 0 0 0-.9z"/><path d="M7 12h6" stroke="var(--vurgu)"/>',
     dosya: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
     bulutYok: '<path d="M22.6 17A5 5 0 0 0 18 10h-1.3A8 8 0 0 0 9.7 4M5 5a8 8 0 0 0 4 15h9a5 5 0 0 0 1.7-.3"/><path d="m2 2 20 20"/>',
     zil: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
@@ -46,25 +51,53 @@
     yenile: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
     tikCift: '<path d="M2 12.5 6.5 17 15 7"/><path d="M11 15.5 12.5 17 21 7"/>',
     yazi: '<path d="M4 7V4h16v3M9 20h6M12 4v16"/>',
+    // Message actions (same style) · Mesaj eylemleri (aynı stil)
+    yanitla: '<path d="M9 14 4 9l5-5"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+    ilet: '<path d="m15 14 5-5-5-5"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/>',
+    sabitle: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
+    cop: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+    // Added for design D (GIF, sticker/GIF making, devices, backup) · D tasarımı için eklendi (GIF, çıkartma/GIF yapma, cihazlar, yedek)
+    gif: '<rect x="2" y="6" width="20" height="12" rx="3"/><path d="M8.5 10.5H7a1.5 1.5 0 0 0 0 3h1.5V12M12 10v4M15 14v-4h2.5M15 12h2"/>',
+    makas: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/>',
+    cihaz: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
+    bulut: '<path d="M17.5 19a4.5 4.5 0 1 0-1-8.9A6 6 0 1 0 6 17.5"/><path d="m12 12 0 8M9 15l3-3 3 3"/>',
+    yildiz: '<path d="m12 2 3 6.5 7 .9-5.2 4.8 1.4 7L12 17.8 5.8 21.2l1.4-7L2 9.4l7-.9Z"/>',
+    anket: '<path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-3"/>',
   } as const;
   export type IkonAdi = keyof typeof YOLLAR;
 </script>
 
 <script lang="ts">
-  let { ad, boyut = 24 }: { ad: IkonAdi; boyut?: number } = $props();
+  import { lucide } from "../ikonlar/lucide";
+  import { material } from "../ikonlar/material";
+  import { phosphor } from "../ikonlar/phosphor";
+  import { tabler } from "../ikonlar/tabler";
+  import type { SimgePaketi } from "../ikonlar/tip";
+  import { tercihler } from "../durum/tercihler.svelte";
+
+  const PAKETLER: Record<string, SimgePaketi> = { material, lucide, phosphor, tabler };
+
+  /** `dolu` = the filled variant for an active state (Material Symbols has it; other packs ignore it) · `dolu` = etkin hal için dolu varyant (Material Symbols'ta var; diğer paketler yok sayar) */
+  let { ad, boyut = 24, dolu = false }: { ad: IkonAdi; boyut?: number; dolu?: boolean } = $props();
+  // The selected pack is read live from the preferences, so switching it redraws every icon at once (no reload).
+  // Seçili paket tercihlerden canlı okunur; değiştirmek bütün simgeleri bir anda yeniden çizer (yeniden yükleme yok).
+  const paket = $derived(PAKETLER[tercihler.d.simgeSeti] ?? material);
+  const govde = $derived((dolu && paket.dolu[ad]) || paket.simgeler[ad] || null);
+  const cizgi = $derived(paket.mod === "cizgi");
 </script>
 
 <svg
-  width={boyut}
-  height={boyut}
-  viewBox="0 0 24 24"
-  fill="none"
-  stroke="currentColor"
+  style:width="{boyut / 16}rem"
+  style:height="{boyut / 16}rem"
+  style:flex="none"
+  viewBox={govde ? paket.viewBox : "0 0 24 24"}
+  fill={govde && !cizgi ? "currentColor" : "none"}
+  stroke={!govde || cizgi ? "currentColor" : "none"}
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
   aria-hidden="true"
 >
-  <!-- eslint-disable-next-line svelte/no-at-html-tags: static trusted constants above, never user input -->
-  {@html YOLLAR[ad]}
+  <!-- eslint-disable-next-line svelte/no-at-html-tags: vendored SVG constants (src/lib/ikonlar), never user input -->
+  {@html govde ?? YOLLAR[ad]}
 </svg>

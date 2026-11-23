@@ -34,6 +34,9 @@ pub struct OdaOzeti {
     pub sifreli: bool,
     pub dm: bool,
     pub davet: bool,
+    /// The room is a space (`m.space`): it has no message timeline, so the UI shows it under "Alanlar" and never opens it as a chat.
+    /// Oda bir alan (`m.space`): mesaj çizelgesi yoktur; arayüz onu "Alanlar"da gösterir, asla sohbet olarak açmaz.
+    pub alan: bool,
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +71,12 @@ pub enum ZamanTuru {
     OkunmamisAyirici,
     /// A call (m.call.invite) shown as a system line · Sistem satırı olarak gösterilen arama (m.call.invite)
     Arama,
+    /// A deleted (redacted) message: "Bu mesaj silindi" · Silinmiş (redact edilmiş) mesaj: "Bu mesaj silindi"
+    Silindi,
+    /// An `m.sticker` event: just the image, no bubble · `m.sticker` olayı: yalnızca resim, balon yok
+    Cikartma,
+    /// A poll (`m.poll.start`, MSC3381 unstable form) · Anket (`m.poll.start`, MSC3381 kararsız biçim)
+    Anket,
 }
 
 /// How a call ended, as far as we know. `bilinmiyor` = we never saw its answer/hangup events (old history).
@@ -121,6 +130,81 @@ pub struct ZamanOgesi {
     /// Gerçek (uzak) olayın Matrix olay kimliği; yerel yankı ve sanal satırlarda `None`. Mesaj araması buna atlar
     /// (yukarıdaki `id` SDK'nın benzersiz kimliğidir, olay kimliği DEĞİL).
     pub olay_id: Option<String>,
+    /// Raw `formatted_body` (HTML) of a text / notice / emote message; the UI sanitizes it before drawing.
+    /// Metin / bildirim / emote mesajının ham `formatted_body`si (HTML); arayüz çizmeden önce temizler.
+    pub html: Option<String>,
+    /// The message was edited ("düzenlendi") · Mesaj düzenlendi ("düzenlendi")
+    pub duzenlendi: bool,
+    pub tepkiler: Vec<Tepki>,
+    /// The message this one replies to · Bu mesajın yanıtladığı mesaj
+    pub yanit: Option<YanitBilgisi>,
+    /// People whose latest read receipt is on this message (small rooms only; never me)
+    /// Son okundu bilgisi bu mesajda olan kişiler (yalnızca küçük odalar; ben asla)
+    pub okuyanlar: Vec<KisiBilgisi>,
+    /// Set when `tur == Anket` · `tur == Anket` iken dolu
+    pub anket: Option<AnketBilgisi>,
+    /// I may delete it (own message, or others' when my power level allows) · Silebilirim (kendi mesajım, ya da yetkim varsa başkalarınınki)
+    pub silinebilir: bool,
+    /// It is in the room's pinned list · Odanın sabit listesinde
+    pub sabit: bool,
+    /// It can be edited (own text message) · Düzenlenebilir (kendi metin mesajım)
+    pub duzenlenebilir: bool,
+}
+
+/// One person (reactor, reader, typer) · Bir kişi (tepki veren, okuyan, yazan)
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct KisiBilgisi {
+    pub id: String,
+    pub ad: String,
+    pub avatar_mxc: Option<String>,
+}
+
+/// One reaction key under a message, aggregated · Bir mesajın altındaki toplanmış tek tepki anahtarı
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Tepki {
+    /// The emoji (or an `mxc://` URI for a custom-emoji reaction) · Emoji (özel emoji tepkisinde `mxc://` adresi)
+    pub anahtar: String,
+    pub sayi: u32,
+    /// I reacted with it · Ben bu tepkiyi verdim
+    pub benim: bool,
+    pub kisiler: Vec<KisiBilgisi>,
+}
+
+/// The quote of a reply. `yukleniyor`: the SDK has not fetched the replied-to event yet. · Yanıtın alıntısı. `yukleniyor`: SDK yanıtlanan olayı henüz getirmedi.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct YanitBilgisi {
+    pub olay_id: String,
+    pub gonderen: Option<String>,
+    pub gonderen_ad: Option<String>,
+    pub metin: Option<String>,
+    pub yukleniyor: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AnketSecenegi {
+    pub id: String,
+    pub metin: String,
+    pub oy: u32,
+    pub benim: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AnketBilgisi {
+    pub soru: String,
+    pub secenekler: Vec<AnketSecenegi>,
+    pub toplam_oy: u32,
+    /// The poll was ended · Anket bitirildi
+    pub bitti: bool,
+    /// `m.disclosed`: results are visible while voting · `m.disclosed`: oy verirken sonuçlar görünür
+    pub acik: bool,
+    pub maks_secim: u32,
+    /// I created it (so I may end it) · Ben oluşturdum (bitirebilirim)
+    pub benim_anketim: bool,
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,6 +265,130 @@ pub struct ZamanGuncelleme {
     pub ogeler: Vec<ZamanOgesi>,
     /// True when the start of the room history was reached · Odanın geçmişinin başına ulaşıldıysa true
     pub basa_ulasildi: bool,
+    /// Event ids in the room's `m.room.pinned_events` · Odanın `m.room.pinned_events` listesindeki olay kimlikleri
+    pub sabitler: Vec<String>,
+    /// May I pin / unpin here? · Burada sabitleyebilir / kaldırabilir miyim?
+    pub sabitleyebilir: bool,
+}
+
+/// Who is typing in a room right now (me excluded) · Bir odada şu an kimler yazıyor (ben hariç)
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct YaziyorGuncelleme {
+    pub oda_id: String,
+    pub kisiler: Vec<KisiBilgisi>,
+}
+
+/// A pinned message as the pinned bar shows it · Sabit çubuğunun gösterdiği sabit mesaj
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SabitMesaj {
+    pub olay_id: String,
+    pub gonderen_ad: Option<String>,
+    pub metin: Option<String>,
+}
+
+/// UI → Rust: send a text message, optionally as a reply and/or with an HTML body.
+/// Arayüzden Rust'a: metin mesajı gönder; isteğe bağlı olarak yanıt ve/veya HTML gövdeli.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MesajGonderIstegi {
+    pub oda_id: String,
+    pub metin: String,
+    pub html: Option<String>,
+    pub yanit_olay_id: Option<String>,
+}
+
+/// UI → Rust: create a poll · Arayüzden Rust'a: anket oluştur
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnketIstegi {
+    pub oda_id: String,
+    pub soru: String,
+    pub secenekler: Vec<String>,
+    /// true = `m.disclosed` (results visible while voting) · true = `m.disclosed` (oy verirken sonuçlar görünür)
+    pub acik: bool,
+    pub coklu: bool,
+}
+
+/// UI → Rust: send a sticker from an image pack · Arayüzden Rust'a: görsel paketinden çıkartma gönder
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CikartmaIstegi {
+    pub oda_id: String,
+    pub mxc: String,
+    pub metin: String,
+    pub genislik: Option<u32>,
+    pub yukseklik: Option<u32>,
+    pub mime: Option<String>,
+    /// Replied-to event · Yanıtlanan olay
+    #[serde(default)]
+    pub yanit_olay_id: Option<String>,
+}
+
+/// One image of an MSC2545 pack · MSC2545 paketinin tek görseli
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PaketGorseli {
+    pub kisa_kod: String,
+    pub mxc: String,
+    pub metin: String,
+    pub genislik: Option<u32>,
+    pub yukseklik: Option<u32>,
+    pub mime: Option<String>,
+    /// May be used as inline custom emoji / as a sticker (pack or image `usage`) · Satır içi özel emoji / çıkartma olarak kullanılabilir
+    pub emoji: bool,
+    pub cikartma: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GorselPaketi {
+    /// "oda" (room pack), "kullanici" (my own pack) or "baska_oda" (a room pack I enabled in `emote_rooms`)
+    /// "oda" (oda paketi), "kullanici" (kendi paketim) ya da "baska_oda" (`emote_rooms`ta açtığım oda paketi)
+    pub kaynak: String,
+    pub ad: String,
+    pub avatar_mxc: Option<String>,
+    pub gorseller: Vec<PaketGorseli>,
+}
+
+/// A child of a space, or the space itself · Bir alanın çocuğu ya da alanın kendisi
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AlanOgesi {
+    pub id: String,
+    pub ad: String,
+    pub avatar_harf: String,
+    pub avatar_mxc: Option<String>,
+    pub konu: Option<String>,
+    pub uye_sayisi: u64,
+    /// It is itself a space (can be opened as a space view) · Kendisi bir alan (alan görünümü olarak açılabilir)
+    pub alan: bool,
+    /// How many children it has (spaces only) · Kaç çocuğu var (yalnızca alanlar)
+    pub alt_sayisi: u64,
+    /// I am joined (opens normally); otherwise the "Katıl" button shows · Katılmışım (normal açılır); değilse "Katıl" düğmesi çıkar
+    pub katildi: bool,
+    pub dm: bool,
+    pub onerilen: bool,
+    /// Homeserver names to join through (the `via` of the `m.space.child` event) · Katılırken kullanılacak sunucu adları
+    pub via: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AlanIcerigi {
+    pub alan: Option<AlanOgesi>,
+    pub cocuklar: Vec<AlanOgesi>,
+}
+
+/// Presence of a person, when the server tells us · Sunucu söylerse bir kişinin varlık durumu
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct VarlikDurumu {
+    /// "cevrimici" | "bosta" | "cevrimdisi" · "cevrimici" | "bosta" | "cevrimdisi"
+    pub durum: String,
+    /// Milliseconds since the person was last active · Kişinin son etkinliğinden beri geçen milisaniye
+    pub son_etkinlik_ms: Option<u64>,
 }
 
 /// Login request from the UI (the only DTO that goes UI → Rust).
@@ -508,4 +716,40 @@ pub struct BenimYetkilerim {
     pub yasaklayabilir: bool,
     pub davet_edebilir: bool,
     pub guc_degistirebilir: bool,
+}
+
+/// One of my login sessions (device) for Ben › Güvenlik ve anahtarlar. `son_gorulme` = ms since epoch.
+/// Ben › Güvenlik ve anahtarlar için oturum açtığım bir cihaz. `son_gorulme` = epoch'tan beri ms.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OturumCihazi {
+    pub cihaz_id: String,
+    pub ad: Option<String>,
+    pub son_gorulme: Option<u64>,
+    pub son_ip: Option<String>,
+    /// Cross-signed by me (trusted) · Bana ait çapraz imzayla doğrulanmış (güvenilir)
+    pub dogrulandi: bool,
+    /// This very device · Şu an kullandığım cihaz
+    pub bu_cihaz: bool,
+}
+
+/// Ben › Hesap: what the server offers (see `hesap_bilgisi`) · Ben › Hesap: sunucunun sunduğu (bkz. `hesap_bilgisi`)
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct HesapBilgisi {
+    pub sunucu: String,
+    /// account lives behind OAuth/OIDC (account web page) · hesap OAuth/OIDC'nin arkasında (hesap web sayfası)
+    pub oidc: bool,
+    pub hesap_url: Option<String>,
+    /// `account_management_actions_supported`, e.g. "org.matrix.profile" · örn. "org.matrix.profile"
+    pub eylemler: Vec<String>,
+    pub surumler: Vec<String>,
+    pub sliding_sync: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct EpostaAdresi {
+    pub adres: String,
+    pub dogrulandi: bool,
 }

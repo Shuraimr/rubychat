@@ -19,22 +19,36 @@
   import MedyaIcerik from "../medya/MedyaIcerik.svelte";
   import { baglantilar, parcala } from "../baglanti/bul";
   import { kartGoster } from "../baglanti/onizleme";
+  import { klipyBaglantisi } from "../gif/klipy";
+  import { tercihler } from "../durum/tercihler.svelte";
   import { baglantiAc } from "../durum/baglantiOnay.svelte";
   import BaglantiKarti from "./BaglantiKarti.svelte";
   import { uzunBasma } from "../dokunma";
+  import { ciftDokun } from "../ciftDokun";
+  import { kaydirYanit } from "../kaydirYanit";
+  import { mesajaGit } from "../arama-mesaj/atla";
+  import { tepkiVer } from "../mesaj/eylemler";
+  import type { Tepki } from "../api/tipler";
   import { kullaniciKartiAc } from "../durum/kullaniciKarti.svelte";
   import { sifreleme } from "../durum/sifreleme.svelte";
   import { zaman } from "../durum/zaman.svelte";
   import { t } from "../i18n";
   import { saatYaz } from "../zaman-bicim";
+  import AnketKarti from "./AnketKarti.svelte";
   import Avatar from "./Avatar.svelte";
+  import BicimliMetin from "./BicimliMetin.svelte";
+  import CikartmaGorsel from "./CikartmaGorsel.svelte";
   import DurumIkonu from "./DurumIkonu.svelte";
+  import OkuyanAvatarlar from "./OkuyanAvatarlar.svelte";
+  import TepkiSatiri from "./TepkiSatiri.svelte";
+  import YanitAlintisi from "./YanitAlintisi.svelte";
   import Maskot from "./Maskot.svelte";
   import Ikon from "./Ikon.svelte";
 
   let {
     oge,
     konum,
+    uzak = false,
     gonderenGoster = false,
     yeni = false,
     vurgulu = false,
@@ -42,9 +56,16 @@
     menuAc,
     eslesme = false,
     vurguSorgu = "",
+    dm = false,
+    okundu = false,
+    yanitla,
+    tepkiKimleri,
+    okuyanlarAc,
   }: {
     oge: ZamanOgesi;
     konum: Konum;
+    /** Far above the newest messages: painting may be skipped while off screen · En yeni mesajların epey üstünde: ekran dışındayken boyanmayabilir */
+    uzak?: boolean;
     /** Show the sender name above the first bubble of a group (group rooms) · Grubun ilk balonunun üstünde gönderen adını göster (grup odaları) */
     gonderenGoster?: boolean;
     /** Arrived after the room was opened: plays the rise animation once · Oda açıldıktan sonra geldi: yükselme animasyonu bir kez oynar */
@@ -57,6 +78,16 @@
     eslesme?: boolean;
     /** In-chat search text: its words are highlighted in the message · Sohbet içi arama metni: kelimeleri mesajda vurgulanır */
     vurguSorgu?: string;
+    /** 1:1 chat: my messages show a double tick once read; group rooms show read avatars instead · 1:1 sohbet: mesajlarım okununca çift tik gösterir; grup odalarında onun yerine okundu avatarları çıkar */
+    dm?: boolean;
+    /** (DM) the other person has read up to this message · (DM) karşı kişi bu mesaja kadar okudu */
+    okundu?: boolean;
+    /** Swipe-right-to-reply fired · Sağa kaydırarak yanıtla çalıştı */
+    yanitla: (oge: ZamanOgesi) => void;
+    /** Long press on a reaction chip: who reacted · Tepki çipine uzun basma: kimler tepki verdi */
+    tepkiKimleri: (oge: ZamanOgesi, tepki: Tepki) => void;
+    /** Tap on the read avatars · Okundu avatarlarına dokunma */
+    okuyanlarAc: (oge: ZamanOgesi) => void;
   } = $props();
 
   const ilkMi = $derived(konum === "tek" || konum === "ilk");
@@ -69,7 +100,7 @@
   const medya = $derived(MEDYA.has(oge.tur));
   const metin = $derived(oge.tur === "diger" ? (oge.metin ?? t("oda.desteklenmeyen")) : (oge.metin ?? ""));
   // Anything that is not text, media, call or undecryptable (a future kind) shows a plain line instead of an empty bubble. · Metin, medya, arama ya da çözülemeyen dışındaki (gelecekteki) türler boş balon yerine düz satır gösterir.
-  const bilinmeyen = $derived(!medya && !METIN.has(oge.tur) && oge.tur !== "sifre_cozulemedi" && oge.tur !== "arama");
+  const bilinmeyen = $derived(!medya && !METIN.has(oge.tur) && !["sifre_cozulemedi", "arama", "silindi", "cikartma", "anket"].includes(oge.tur));
 
   // "Sesli arama · 3 dk" / "Cevapsız arama" / "Arama reddedildi"
   const aramaMetni = $derived.by(() => {
@@ -98,48 +129,125 @@
   // Rich cards for the first two links of a text message (network parts are gated inside the card) · Metin mesajındaki ilk iki bağlantı için zengin kartlar (ağ kısımları kartın içinde sınırlanır)
   const kartlar = $derived(oge.tur === "metin" && kartGoster() ? baglantilar(oge.metin) : []);
   const odaId = $derived(zaman.bilgi?.id);
+  // A bare KLIPY link is drawn as a muted, looping picture (respects the link-preview privacy settings: off = plain link; encrypted rooms need "önizle")
+  // Yalın bir KLIPY bağlantısı sessiz, döngülü resim olarak çizilir (bağlantı önizleme gizlilik ayarlarına uyar: kapalı = düz bağlantı; şifreli odalar "önizle" ister)
+  const gifUrl = $derived(oge.tur === "metin" && tercihler.d.baglantiOnizleme === "hepsi" && (!zaman.bilgi?.sifreli || tercihler.d.sifreliOnizle) ? klipyBaglantisi(oge.metin) : null);
+
+  // A message can be replied to when it is a real, delivered event (not deleted / undecryptable / a system line). · Gerçek, ulaşmış bir olay yanıtlanabilir (silinmiş / çözülemeyen / sistem satırı değil).
+  const yanitlanabilir = $derived(!!oge.olayId && oge.durum === "gonderildi" && !["silindi", "sifre_cozulemedi", "arama", "tarih_ayirici", "okunmamis_ayirici"].includes(oge.tur));
+  const cikartma = $derived(oge.tur === "cikartma");
+  const yanitAlintisiVar = $derived(!!oge.yanit && !["silindi", "sifre_cozulemedi"].includes(oge.tur));
+
+  // Double tap = ❤️ (adds only; taking it back is a tap on the reaction chip, so an accidental third tap removes nothing).
+  // Çift dokunma = ❤️ (yalnızca ekler; geri almak tepki çipine dokunmaktır, yanlışlıkla üçüncü dokunuş bir şey silmez).
+  let kalp = $state(0);
+  function kalpBirak() {
+    kalp++;
+    if (!oge.tepkiler.some((r) => r.anahtar === "❤️" && r.benim)) void tepkiVer(oge, "❤️");
+  }
 </script>
+
+{#snippet saatSatiri(sinif: string)}
+  <span class={sinif}>{#if oge.duzenlendi}<span class="duzenlendi">{t("mesaj.duzenlendi")}</span>{/if}<span>{saatYaz(oge.zaman)}</span>{#if oge.kendi}<DurumIkonu durum={oge.durum} okundu={dm && okundu} />{/if}</span>
+{/snippet}
 
 {#if oge.tur === "arama"}
   <div class="sistem" class:cevapsiz={oge.arama?.sonuc === "cevapsiz"}>
     <Ikon ad="telefon" boyut={14} /><span>{aramaMetni}</span><span class="saat">{saatYaz(oge.zaman)}</span>
   </div>
 {:else}
-  <div class="satir {konum}" class:kendi={oge.kendi} class:yeni class:vurgulu>
+  <!-- data-olay-id: the jump logic (search result, reply quote, pinned bar) finds the row through it · data-olay-id: atlama mantığı (arama sonucu, yanıt alıntısı, sabit çubuğu) satırı bununla bulur -->
+  <div
+    class="satir {konum}"
+    class:kendi={oge.kendi}
+    class:yeni
+    class:vurgulu
+    class:uzak={uzak && !vurgulu}
+    data-olay-id={oge.olayId ?? undefined}
+    use:kaydirYanit={{ ac: () => yanitla(oge), etkin: yanitlanabilir }}
+    use:ciftDokun={{ ac: kalpBirak, etkin: yanitlanabilir }}
+  >
+    <span class="yanit-ipucu" aria-hidden="true"><Ikon ad="yanitla" boyut={20} /></span>
     {#if !oge.kendi}
       <span class="avatar-yer">{#if sonMu}<button class="avatar-dugme" aria-label={oge.gonderenAd} onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}><Avatar harf={oge.gonderenAd.charAt(0).toUpperCase() || "#"} mxc={oge.gonderenAvatarMxc} boyut={32} /></button>{/if}</span>
     {/if}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="balon {konum}"
-      class:kendi={oge.kendi}
-      class:sifre-yok={oge.tur === "sifre_cozulemedi"}
-      class:medyali={medya}
-      class:eslesme
-      use:uzunBasma={{ ac: (x, y) => menuAc(x, y, oge) }}
-    >
-      {#if !oge.kendi && gonderenGoster && ilkMi}<button class="gonderen" onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}>{oge.gonderenAd}</button>{/if}
-
-      {#if oge.tur === "sifre_cozulemedi"}
-        <!-- Undecryptable (design: yellow card) · Çözülemiyor (tasarım: sarı kart) -->
-        <div class="sifre-baslik"><Ikon ad="kilit" boyut={16} />{t("oda.sifreCozulemediBaslik")}</div>
-        <div class="metin soluk">{t("oda.sifreCozulemedi")}</div>
-        <!-- This device could unlock itself with the recovery key · Bu cihaz kurtarma anahtarıyla kendi kilidini açabilir -->
-        {#if sifreleme.durum?.kurtarma === "eksik"}
-          <button class="baglanti" onclick={() => sifreleme.ac("kurtarma-gir")}>{t("oda.anahtarGir")}</button>
-        {/if}
-      {:else if medya}
-        <MedyaIcerik {oge} />
-        <div class="meta alt-satir"><span>{saatYaz(oge.zaman)}</span>{#if oge.kendi}<DurumIkonu durum={oge.durum} />{/if}</div>
-      {:else if bilinmeyen}
-        <div class="metin soluk">{t("oda.desteklenmeyen")}</div>
+    <div class="kolon">
+      {#if kalp}{#key kalp}<span class="kalp" aria-hidden="true"><svg viewBox="0 0 24 24" width="56" height="56"><path fill="currentColor" d="M12 21s-8.5-5.2-8.5-11.4A4.9 4.9 0 0 1 12 6.6a4.9 4.9 0 0 1 8.5 3C20.500 15.800 12 21 12 21Z"/></svg></span>{/key}{/if}
+      {#if cikartma}
+        <!-- A sticker has no bubble: just the image with a small time chip -->
+        <!-- Çıkartmanın balonu yok: yalnızca resim ve küçük bir saat çipi -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="cikartma-kap" use:uzunBasma={{ ac: (x, y) => menuAc(x, y, oge) }}>
+          {#if !oge.kendi && gonderenGoster && ilkMi}<button class="gonderen" onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}>{oge.gonderenAd}</button>{/if}
+          {#if oge.yanit}<div class="cikartma-yanit"><YanitAlintisi yanit={oge.yanit} git={(id) => odaId && void mesajaGit(odaId, id)} /></div>{/if}
+          <CikartmaGorsel {oge} />
+          {@render saatSatiri("cikartma-saat")}
+        </div>
       {:else}
-        <div class="metin" class:soluk={oge.tur === "diger"}>{#each parcalar as p, i (i)}{#if p.url}<button class="baglanti-metin" onclick={() => baglantiAc(p.m)}>{p.m}</button>{:else if p.v}<mark>{p.m}</mark>{:else}{p.m}{/if}{/each}<span class="meta"><span>{saatYaz(oge.zaman)}</span>{#if oge.kendi}<DurumIkonu durum={oge.durum} />{/if}</span></div>
-        {#each kartlar as k (k.url)}<BaglantiKarti b={k} sifreli={zaman.bilgi?.sifreli ?? false} />{/each}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="balon {konum}"
+          class:kendi={oge.kendi}
+          class:sifre-yok={oge.tur === "sifre_cozulemedi"}
+          class:medyali={medya}
+          class:eslesme
+          use:uzunBasma={{ ac: (x, y) => menuAc(x, y, oge) }}
+        >
+          {#if !oge.kendi && gonderenGoster && ilkMi}<button class="gonderen" onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}>{oge.gonderenAd}</button>{/if}
+
+          {#if yanitAlintisiVar && oge.yanit}<YanitAlintisi yanit={oge.yanit} git={(id) => odaId && void mesajaGit(odaId, id)} />{/if}
+
+          {#if oge.tur === "sifre_cozulemedi"}
+            <!-- Undecryptable (design: yellow card) · Çözülemiyor (tasarım: sarı kart) -->
+            <div class="sifre-baslik"><Ikon ad="kilit" boyut={16} />{t("oda.sifreCozulemediBaslik")}</div>
+            <div class="metin soluk">{t("oda.sifreCozulemedi")}</div>
+            <!-- This device could unlock itself with the recovery key · Bu cihaz kurtarma anahtarıyla kendi kilidini açabilir -->
+            {#if sifreleme.durum?.kurtarma === "eksik"}
+              <button class="baglanti" onclick={() => sifreleme.ac("kurtarma-gir")}>{t("oda.anahtarGir")}</button>
+            {/if}
+          {:else if oge.tur === "silindi"}
+            <!-- Deleted: the row stays so the conversation still makes sense -->
+            <!-- Silinmiş: konuşma anlamlı kalsın diye satır durur -->
+            <div class="metin soluk silindi"><Ikon ad="cop" boyut={14} />{t("mesaj.silindi")}{@render saatSatiri("meta")}</div>
+          {:else if oge.tur === "anket"}
+            <AnketKarti {oge} />
+            {@render saatSatiri("meta alt-satir")}
+          {:else if medya}
+            <MedyaIcerik {oge} />
+            {@render saatSatiri("meta alt-satir")}
+          {:else if gifUrl}
+            <div class="gif-kart">
+              {#if /\.(mp4|webm)$/i.test(gifUrl)}
+                <!-- svelte-ignore a11y_media_has_caption -->
+                <video src={gifUrl} autoplay muted loop playsinline preload="metadata"></video>
+              {:else}
+                <img src={gifUrl} alt="GIF" loading="lazy" draggable="false" />
+              {/if}
+              <span class="klipy">KLIPY</span>
+            </div>
+            {@render saatSatiri("meta alt-satir")}
+          {:else if bilinmeyen}
+            <div class="metin soluk">{t("oda.desteklenmeyen")}</div>
+          {:else}
+            <div class="metin" class:soluk={oge.tur === "diger"}>
+              <!-- In-chat search highlights work on the plain text, so a formatted message shows its HTML only while no search is active. · Sohbet içi arama vurgusu düz metinde çalışır; biçimli mesaj HTML'ini yalnızca arama etkin değilken gösterir. -->
+              {#if oge.html && !vurguSorgu.trim()}<BicimliMetin html={oge.html} {odaId} />{:else}{#each parcalar as p, i (i)}{#if p.url}<button class="baglanti-metin" onclick={() => baglantiAc(p.m)}>{p.m}</button>{:else if p.v}<mark>{p.m}</mark>{:else}{p.m}{/if}{/each}{/if}
+              {@render saatSatiri("meta")}
+            </div>
+            {#each kartlar as k (k.url)}<BaglantiKarti b={k} sifreli={zaman.bilgi?.sifreli ?? false} />{/each}
+          {/if}
+
+          {#if oge.durum === "hata" && oge.kendi}
+            <button class="tekrar" onclick={() => yenidenDene(oge.id)}><Maskot poz="hata" boyut={28} /><span class="kirmizi">{t("oda.gonderilemedi")}</span><span class="nokta-ayrac">·</span><span class="eylem">{t("eylem.yenidenDene")}</span></button>
+          {/if}
+        </div>
       {/if}
 
-      {#if oge.durum === "hata" && oge.kendi}
-        <button class="tekrar" onclick={() => yenidenDene(oge.id)}><Maskot poz="hata" boyut={28} /><span class="kirmizi">{t("oda.gonderilemedi")}</span><span class="nokta-ayrac">·</span><span class="eylem">{t("eylem.yenidenDene")}</span></button>
+      {#if oge.tepkiler.length > 0}
+        <TepkiSatiri tepkiler={oge.tepkiler} tikla={(k) => void tepkiVer(oge, k)} uzun={(r) => tepkiKimleri(oge, r)} />
+      {/if}
+      {#if !dm && oge.okuyanlar.length > 0}
+        <OkuyanAvatarlar kisiler={oge.okuyanlar} ac={() => okuyanlarAc(oge)} />
       {/if}
     </div>
   </div>
@@ -153,7 +261,13 @@
   .sistem.cevapsiz { color: var(--hata); }
   .sistem .saat { opacity: .75; }
 
-  .satir { display: flex; align-items: flex-end; gap: 8px; margin-top: calc(var(--balon-aralik, 2px) * 4); }
+  .satir { position: relative; display: flex; align-items: flex-end; gap: 8px; margin-top: calc(var(--balon-aralik, 2px) * 4); }
+  /* The column holds the bubble and what hangs under it (reactions, read avatars). It also moves with the swipe-to-reply drag.
+     Sütun balonu ve altında asılı olanları (tepkiler, okundu avatarları) taşır. Yanıt için kaydırma sürüklemesiyle de kayar. */
+  .kolon { position: relative; display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: min(78%, 560px); transform: translateX(var(--kay-x, 0px)); transition: transform var(--sure-ekran) var(--egri-yay); }
+  .satir.kendi .kolon { align-items: flex-end; }
+  .satir:global(.kayiyor) .kolon { transition: none; }
+  .yanit-ipucu { position: absolute; right: 6px; top: 50%; margin-top: -12px; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; color: var(--vurgu); background: var(--yuzey-3); opacity: var(--kay-o, 0); pointer-events: none; }
   .satir.orta, .satir.son { margin-top: var(--balon-aralik, 2px); }
   .satir.kendi { justify-content: flex-end; }
   .avatar-yer { width: 32px; flex: none; }
@@ -162,30 +276,49 @@
   /* "Gruplarda avatar" off: the column disappears · "Gruplarda avatar" kapalı: sütun kaybolur */
   :global(.oda[data-avatar="yok"]) .avatar-yer { display: none; }
   :global(.oda[data-saat="yok"]) .meta { display: none; }
+  /* Off-screen old rows cost nothing. The clip margin keeps tails, hearts and reactions that stick out of the row. */
+  /* Ekran dışı eski satırlar bedava. Kırpma payı satırdan taşan kuyruk, kalp ve tepkileri korur. */
+  .satir.uzak { content-visibility: auto; contain-intrinsic-size: auto 4rem; overflow-clip-margin: 32px; }
   .satir.vurgulu { position: relative; z-index: 32; }
 
   /* Rise: a new message comes up 8px and fades in (200ms); own messages rise from the composer, a bit further. */
   /* Yükselme: yeni mesaj 8px aşağıdan yükselir ve solarak gelir (200ms); giden mesaj yazma alanından, biraz daha uzaktan yükselir. */
-  .satir.yeni { animation: yuksel var(--sure-orta) var(--egri-cikis); }
-  .satir.yeni.kendi { animation-name: yuksel-kendi; animation-duration: calc(180ms * var(--hareket)); }
-  @keyframes yuksel { from { transform: translateY(8px); opacity: 0; } }
-  @keyframes yuksel-kendi { from { transform: translateY(24px) scale(.9); opacity: 0; } }
+  .satir.yeni { animation: yuksel var(--sure-yay) var(--egri-yay-sakin); }
+  .satir.yeni.kendi { animation-name: yuksel-kendi; animation-duration: var(--sure-yay); animation-timing-function: var(--egri-yay-yumusak); }
+  @keyframes yuksel { from { transform: translate3d(0, 14px, 0) scale(.98); opacity: 0; } }
+  @keyframes yuksel-kendi { from { transform: translate3d(0, 3rem, 0) scale(.88); opacity: 0; transform-origin: 100% 100%; } }
 
   .balon {
-    max-width: min(78%, 560px); min-width: 0; padding: var(--balon-dolgu, 8px 12px); border-radius: var(--balon-r, 16px);
-    background: var(--yuzey-2); color: var(--yazi);
+    --balon-bg: var(--gelen-dolgu);
+    position: relative; max-width: 100%; min-width: 0; padding: var(--balon-dolgu, 8px 12px); border-radius: var(--balon-r, 16px);
+    background: var(--balon-bg); color: var(--yazi); box-shadow: var(--kat-1);
   }
+  /* TAIL (Telegram style): the last bubble of a group (and a lone one) gets a small curved tail at its bottom outer corner. It is a
+     masked square filled with the bubble colour, so it follows every theme; the bubble's own corner there is square so they join.
+     KUYRUK (Telegram tarzı): grubun son balonu (ve tek balon) alt dış köşesinde küçük kıvrımlı bir kuyruk alır. Balon rengiyle dolu maskeli
+     bir karedir, her temayı izler; balonun o köşesi kare olur, böylece birleşirler. */
+  .balon.tek:not(.medyali)::after, .balon.son:not(.medyali)::after {
+    content: ""; position: absolute; bottom: 0; width: .75rem; height: .875rem; background: var(--balon-bg); pointer-events: none;
+    left: -.6875rem; -webkit-mask: var(--kuyruk-sol) no-repeat center / 100% 100%; mask: var(--kuyruk-sol) no-repeat center / 100% 100%;
+  }
+  .balon.kendi.tek:not(.medyali)::after, .balon.kendi.son:not(.medyali)::after { left: auto; right: -.6875rem; -webkit-mask-image: var(--kuyruk-sag); mask-image: var(--kuyruk-sag); }
+  .balon.tek:not(.kendi):not(.medyali), .balon.son:not(.kendi):not(.medyali) { border-bottom-left-radius: 0; }
+  .balon.tek.kendi:not(.medyali), .balon.son.kendi:not(.medyali) { border-bottom-right-radius: 0; }
+  :global(.oda[data-balon="cizgisiz"]) .balon::after { display: none; }
   .balon.medyali { padding: 4px; }
+  .gif-kart { position: relative; border-radius: .75rem; overflow: hidden; max-width: min(100%, 16rem); }
+  .gif-kart img, .gif-kart video { display: block; width: 100%; height: auto; }
+  .klipy { position: absolute; left: .375rem; bottom: .375rem; padding: .0625rem .375rem; border-radius: .375rem; font-size: .625rem; font-weight: 700; letter-spacing: .04em; background: rgb(0 0 0 / .55); color: #fff; }
   /* Corners that join a neighbouring bubble are 4px. Others: left side, own: right side. */
   /* Komşu balona bağlanan köşeler 4px. Başkalarınınki: sol taraf, kendininki: sağ taraf. */
   .balon.ilk { border-bottom-left-radius: 4px; }
   .balon.orta { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
   .balon.son { border-top-left-radius: 4px; }
-  .balon.kendi { background: var(--giden-bg, var(--ton)); color: var(--giden-yazi, var(--ton-ustu)); }
+  .balon.kendi { --balon-bg: var(--giden-bg, var(--giden-dolgu)); color: var(--giden-yazi, var(--yazi)); }
   .balon.kendi.ilk { border-bottom-left-radius: var(--balon-r, 16px); border-bottom-right-radius: 4px; }
   .balon.kendi.orta { border-top-left-radius: var(--balon-r, 16px); border-bottom-left-radius: var(--balon-r, 16px); border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
   .balon.kendi.son { border-top-left-radius: var(--balon-r, 16px); border-top-right-radius: 4px; }
-  .balon.sifre-yok { background: color-mix(in srgb, var(--bekliyor) 14%, var(--yuzey-1)); border: 1px solid color-mix(in srgb, var(--bekliyor) 30%, transparent); }
+  .balon.sifre-yok { --balon-bg: color-mix(in srgb, var(--bekliyor) 14%, var(--yuzey-1)); border: 1px solid color-mix(in srgb, var(--bekliyor) 30%, transparent); }
 
   .gonderen { display: block; min-height: 28px; margin: -4px 0 -2px; font-size: .8125rem; font-weight: 600; color: var(--vurgu); text-align: left; }
   /* In-chat search: the current match is outlined, search words highlighted · Sohbet içi arama: şu anki eşleşme çerçeveli, aranan kelimeler vurgulu */
@@ -196,7 +329,7 @@
   :global(.oda[data-balon="cizgisiz"]) .balon.kendi { background: color-mix(in srgb, var(--giden-bg, var(--ton)) 55%, transparent); }
   /* Text: on phones it is NOT selectable (long press opens the menu); with a mouse it is. Long words/links wrap. */
   /* Metin: telefonda seçilemez (uzun basma menüyü açar); fare ile seçilebilir. Uzun kelime/bağlantılar satır kırar. */
-  .metin { font-size: calc(.9375rem * var(--sohbet-yazi, 1)); line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+  .metin { font-size: calc(.9375rem * var(--sohbet-yazi, 1)); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
   @media (hover: hover) and (pointer: fine) { .metin { -webkit-user-select: text; user-select: text; } }
   .metin.soluk { color: var(--yazi-2); font-style: italic; }
   .balon.kendi .metin.soluk { color: inherit; opacity: .8; }
@@ -205,8 +338,16 @@
 
   /* Time + status: floats to the right so it shares the last text line when there is room, else drops below. */
   /* Saat + durum: sağa yüzer; yer varsa son metin satırını paylaşır, yoksa alta düşer. */
-  .meta { float: right; display: inline-flex; align-items: center; gap: 4px; margin: 6px 0 -2px 10px; font-size: .6875rem; line-height: 1; color: inherit; opacity: .7; font-style: normal; white-space: nowrap; }
+  .meta { float: right; display: inline-flex; align-items: center; gap: 4px; margin: 6px 0 -2px 10px; font-size: .6875rem; line-height: 1; color: inherit; opacity: .78; font-style: normal; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .meta.alt-satir { float: none; justify-content: flex-end; margin: 2px 4px 2px 0; }
+  .duzenlendi { font-style: italic; }
+  .silindi { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .silindi .meta { margin-left: auto; }
+  /* Sticker: no bubble; a small chip with the time sits over its corner · Çıkartma: balon yok; saat küçük bir çipte köşesinde durur */
+  .cikartma-kap { position: relative; max-width: 100%; }
+  .cikartma-yanit { max-width: 16rem; margin-bottom: 4px; padding: 6px 8px; border-radius: 12px; background: var(--yuzey-1); box-shadow: var(--kat-1); }
+  .cikartma-kap .gonderen { margin: 0 0 2px; }
+  .cikartma-kap :global(.cikartma-saat) { position: absolute; right: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 8px; font-size: .6875rem; line-height: 1.2; color: var(--yazi); background: color-mix(in srgb, var(--zemin) 72%, transparent); }
 
   .baglanti-metin { display: inline; padding: 0; text-align: left; color: inherit; text-decoration: underline; text-underline-offset: 2px; font: inherit; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
   .baglanti { display: block; min-height: 44px; margin-top: 4px; padding: 0; color: var(--vurgu); font-size: .8125rem; font-weight: 600; text-align: left; }
@@ -219,4 +360,13 @@
   .kirmizi { color: var(--hata); }
   .nokta-ayrac { opacity: .6; }
   .eylem { color: var(--vurgu); }
+  /* Double-tap heart: pops in the middle of the bubble and floats away · Çift dokunma kalbi: balonun ortasında patlar ve uçar */
+  .kalp { position: absolute; z-index: 3; left: 50%; top: 50%; margin: -28px 0 0 -28px; color: var(--hata); pointer-events: none; opacity: 0; filter: drop-shadow(0 4px 12px rgb(0 0 0 / .35)); animation: kalp calc(900ms * var(--hareket)) var(--egri-cikis); }
+  @keyframes kalp {
+    0% { opacity: 0; transform: scale(.2) rotate(-12deg); }
+    18% { opacity: 1; transform: scale(1.25) rotate(-6deg); }
+    32% { transform: scale(.95) rotate(-4deg); }
+    45%, 70% { opacity: 1; transform: scale(1) rotate(-4deg); }
+    100% { opacity: 0; transform: translateY(-48px) scale(.8); }
+  }
 </style>

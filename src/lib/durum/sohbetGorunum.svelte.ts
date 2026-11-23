@@ -8,6 +8,9 @@ export type BalonStili = "yuvarlak" | "koseli" | "cizgisiz";
 export type Yogunluk = "rahat" | "siki";
 export type SohbetZemini = "varsayilan" | "amoled" | "mavi" | "kirmizi" | "yesil";
 export type SohbetRengi = "vurgu" | "mor" | "mavi" | "yesil" | "sari" | "gri";
+/** Crystal background effect behind the messages (styles/kristal.css) · Mesajların arkasındaki kristal arka plan efekti (styles/kristal.css) */
+export type ZeminEfekti = "izgara" | "yakut" | "isik" | "kapali";
+export const EFEKTLER: ZeminEfekti[] = ["izgara", "yakut", "isik", "kapali"];
 
 export interface OdaGorunumu {
   balon: BalonStili;
@@ -18,9 +21,19 @@ export interface OdaGorunumu {
   renk: SohbetRengi;
   saat: boolean;
   avatar: boolean;
+  /** animated crystal effect · hareketli kristal efekt */
+  efekt: ZeminEfekti;
+  /** the static hexagon-ruby wallpaper pattern · durağan altıgen-yakut duvar kâğıdı deseni */
+  duvar: boolean;
+  /** a photo from the device is the background (stored in IndexedDB by zeminResmi.ts, never uploaded) · cihazdan bir fotoğraf arka plan (zeminResmi.ts ile IndexedDB'de, asla yüklenmez) */
+  resim: boolean;
+  /** blur 0..20 px · bulanıklık 0..20 px */
+  bulanik: number;
+  /** dim 0..80 % · karartma 0..80 % */
+  karart: number;
 }
 
-export const VARSAYILAN_GORUNUM: OdaGorunumu = { balon: "yuvarlak", yazi: 1, yogunluk: "rahat", zemin: "varsayilan", renk: "vurgu", saat: true, avatar: true };
+export const VARSAYILAN_GORUNUM: OdaGorunumu = { balon: "yuvarlak", yazi: 1, yogunluk: "rahat", zemin: "varsayilan", renk: "vurgu", saat: true, avatar: true, efekt: "izgara", duvar: true, resim: false, bulanik: 0, karart: 25 };
 
 /** Swatch colours (also used by the sheet) · Örnek renkleri (sayfa da kullanır) */
 export const ZEMIN_RENKLERI: Record<SohbetZemini, string> = {
@@ -47,6 +60,11 @@ function temizle(h: unknown): OdaGorunumu {
   if (RENKLER.includes(o.renk as string)) g.renk = o.renk as SohbetRengi;
   if (typeof o.saat === "boolean") g.saat = o.saat;
   if (typeof o.avatar === "boolean") g.avatar = o.avatar;
+  if (EFEKTLER.includes(o.efekt as ZeminEfekti)) g.efekt = o.efekt as ZeminEfekti;
+  if (typeof o.duvar === "boolean") g.duvar = o.duvar;
+  if (typeof o.resim === "boolean") g.resim = o.resim;
+  if (typeof o.bulanik === "number" && o.bulanik >= 0 && o.bulanik <= 20) g.bulanik = o.bulanik;
+  if (typeof o.karart === "number" && o.karart >= 0 && o.karart <= 80) g.karart = o.karart;
   return g;
 }
 

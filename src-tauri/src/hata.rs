@@ -17,6 +17,8 @@ pub enum Hata {
     OturumYok,
     #[error("oda bulunamadı")]
     OdaBulunamadi,
+    #[error("bu oda türü sohbet olarak açılamaz")]
+    OdaTuru,
     #[error("depolama hatası: {0}")]
     Depolama(String),
     #[error("matrix hatası: {0}")]
@@ -37,6 +39,7 @@ impl Hata {
             Hata::SunucuBulunamadi(_) => "sunucu_bulunamadi",
             Hata::OturumYok => "oturum_yok",
             Hata::OdaBulunamadi => "oda_bulunamadi",
+            Hata::OdaTuru => "oda_turu",
             Hata::Depolama(_) => "depolama",
             Hata::Matrix(_) => "matrix",
             Hata::Sifreleme(_) => "sifreleme",

@@ -56,6 +56,10 @@ export class Motor {
 
     this.#ses.autoplay = true;
     this.#ses.setAttribute("playsinline", "");
+    // Old-call fix: some WebView versions do not play remote WebRTC audio from an element that is not in the DOM (research: docs/arastirma/element-call.md §3).
+    // Eski arama düzeltmesi: bazı WebView sürümleri DOM dışındaki öğeden uzak WebRTC sesini çalmaz (araştırma: docs/arastirma/element-call.md §3).
+    this.#ses.hidden = true;
+    document.body.appendChild(this.#ses);
     this.#pc.ontrack = (e) => {
       this.#ses.srcObject = e.streams[0] ?? new MediaStream([e.track]);
       void this.#ses.play().catch(() => {});
@@ -166,5 +170,6 @@ export class Motor {
     this.#pc.close();
     for (const iz of this.#yerel.getTracks()) iz.stop();
     this.#ses.srcObject = null;
+    this.#ses.remove();
   }
 }

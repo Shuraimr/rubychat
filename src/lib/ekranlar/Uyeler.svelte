@@ -141,7 +141,7 @@
 <style>
   .ekran { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--zemin); }
   .hapler { flex: none; display: flex; gap: 8px; padding: 4px 16px 12px; overflow-x: auto; scrollbar-width: none; }
-  .hap { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; margin: 2px 0; border-radius: 20px; background: var(--yuzey-2); font-size: .875rem; font-weight: 500; position: relative; }
+  .hap { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 2.5rem; padding: 0 .875rem; margin: 2px 0; border-radius: 20px; background: var(--yuzey-2); font-size: .875rem; font-weight: 500; position: relative; }
   .hap::after { content: ""; position: absolute; inset: -2px 0; }
   .hap.aktif { background: color-mix(in srgb, var(--vurgu) 18%, var(--zemin)); color: var(--vurgu); font-weight: 600; }
   .sayi { color: var(--yazi-2); font-weight: 400; }
@@ -152,7 +152,7 @@
   .davet-satir { width: 100%; min-height: 56px; padding: 0 16px; display: flex; align-items: center; gap: 8px; color: var(--vurgu); font-weight: 600; text-align: left; }
   .davet-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 0 12px 12px; }
   .davet-form input { min-height: 48px; padding: 0 14px; border-radius: 14px; background: var(--yuzey-2); border: 1px solid var(--kenar); outline: none; color: var(--yazi); }
-  .davet-form .buton { width: auto; height: 48px; }
+  .davet-form .buton { width: auto; min-height: 3rem; }
   .alan-hata { padding: 0 16px 12px; }
   .iskelet { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 16px; }
   .av { width: 48px; height: 48px; border-radius: 12px; }

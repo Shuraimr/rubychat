@@ -20,13 +20,13 @@
 
 <style>
   .baslik {
-    flex: none; display: flex; align-items: center; gap: 4px; min-height: 56px; box-sizing: content-box;
-    padding: env(safe-area-inset-top) 12px 0 16px; border-bottom: 1px solid transparent;
+    flex: none; display: flex; align-items: center; gap: 4px; min-height: 4.25rem; box-sizing: content-box;
+    padding: env(safe-area-inset-top) 12px 0 20px; border-bottom: 1px solid transparent;
     transition: border-color var(--sure-hizli) var(--egri-cikis);
   }
   .baslik.kenar { border-bottom-color: var(--kenar-ince); }
-  .geri { margin-left: -8px; }
-  h1 { flex: 1; min-width: 0; font-size: 1.75rem; line-height: 1.215; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  h1.alt { font-size: 1.25rem; line-height: 1.3; }
+  .geri { margin-left: -12px; }
+  h1 { flex: 1; min-width: 0; font-size: 1.625rem; line-height: 1.2; font-weight: 700; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  h1.alt { font-size: 1.25rem; line-height: 1.3; font-weight: 600; letter-spacing: 0; }
   .eylemler { display: flex; align-items: center; gap: 0; }
 </style>

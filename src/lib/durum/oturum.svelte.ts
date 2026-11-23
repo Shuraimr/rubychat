@@ -41,6 +41,16 @@ class Oturum {
       })
       .catch(() => (this.#profilIstendi = false));
   }
+  /** Set name / avatar after the user edited them (also remembered for the next start) · Kullanıcı düzenleyince ad / avatarı yaz (sonraki açılış için de hatırlanır) */
+  profilYaz(k: Partial<Profil>) {
+    const p: Profil = { ad: this.profil?.ad ?? null, avatarMxc: this.profil?.avatarMxc ?? null, ...k };
+    this.profil = p;
+    try {
+      localStorage.setItem(PROFIL_ANAHTARI, JSON.stringify(p));
+    } catch {
+      /* not persisted · saklanamadı */
+    }
+  }
   /** false until the first restore attempt finished · ilk geri yükleme denemesi bitene kadar false */
   hazir = $state(false);
   mesgul = $state(false);

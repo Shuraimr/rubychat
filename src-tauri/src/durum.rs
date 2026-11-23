@@ -4,7 +4,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{ruma::OwnedRoomId, Client};
-use matrix_sdk_ui::{sync_service::SyncService, Timeline};
+use matrix_sdk_ui::{spaces::SpaceService, sync_service::SyncService, Timeline};
 use tokio::{sync::{Mutex, RwLock}, task::JoinHandle};
 
 /// Everything that exists only while a user is logged in.
@@ -117,6 +117,9 @@ pub struct AppState {
     /// Girişli hesabın tam metin mesaj dizini (giriş öncesi ya da açılamadıysa None).
     pub dizin: std::sync::Mutex<Option<Arc<crate::matrix::dizin::Dizin>>>,
     pub zamanlar: Mutex<HashMap<OwnedRoomId, AcikZaman>>,
+    /// matrix-sdk-ui's space graph, created on first use after login and dropped at logout.
+    /// matrix-sdk-ui'nin alan grafiği; girişten sonra ilk kullanımda kurulur, çıkışta bırakılır.
+    pub alan_servisi: Mutex<Option<Arc<SpaceService>>>,
     /// Serializes login / restore / logout so they cannot race each other.
     /// Giriş / geri yükleme / çıkışın birbiriyle yarışmaması için sıraya dizer.
     pub kilit: Mutex<()>,

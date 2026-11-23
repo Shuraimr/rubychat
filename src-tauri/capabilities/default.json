@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Main window: core events + our own commands (commands need no extra permission).",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "opener:default"]
 }

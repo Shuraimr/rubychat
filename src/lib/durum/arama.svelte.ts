@@ -11,6 +11,7 @@ import { Motor, MikrofonHatasi, mikrofonAl } from "../arama/motor";
 import { ayarlar } from "./ayarlar.svelte";
 import { bildirim } from "./bildirim.svelte";
 import { odalar } from "./odalar.svelte";
+import { ec } from "../arama-ec/ec.svelte";
 import { t, type Anahtar } from "../i18n";
 
 export type Asama = "bos" | "ariyor" | "caliyor" | "baglaniyor" | "bagli" | "bitti";
@@ -59,11 +60,14 @@ class Arama {
 
   async baslat(kendiKullanici: string) {
     this.#kendiKullanici = kendiKullanici;
+    // Element Call (the main call path) starts listening together with the old signalling (receive-only now). · Element Call (ana arama yolu) eski sinyalleşmeyle birlikte dinlemeye başlar (artık yalnız alma).
+    void ec.baslat();
     this.#abone?.();
     this.#abone = await aramaOlayiDinle((o) => this.olayIsle(o));
   }
 
   durdur() {
+    ec.durdur();
     this.#abone?.();
     this.#abone = null;
     this.#temizle();
@@ -72,11 +76,29 @@ class Arama {
 
   // ---------- user actions · kullanıcı eylemleri ----------
 
+  /**
+   * Entry point of every call button. Calls go through Element Call (MatrixRTC): DM = voice call, group room = video-capable call.
+   * Only when EC cannot be used (the homeserver has no MatrixRTC backend, or it failed to start) a DM falls back to the old 1:1
+   * WebRTC call below (Matrix VoIP v1), which also keeps working with clients that cannot do MatrixRTC.
+   * Her arama düğmesinin giriş noktası. Aramalar Element Call (MatrixRTC) üzerinden gider: DM = sesli arama, grup odası = görüntü de açılabilen arama.
+   * Yalnızca EC kullanılamıyorsa (anasunucuda MatrixRTC arka ucu yok ya da başlatılamadı) DM, aşağıdaki eski 1:1 WebRTC aramasına
+   * (Matrix VoIP v1) düşer; o, MatrixRTC bilmeyen istemcilerle de çalışmayı sürdürür.
+   */
   async ara(oda: { id: string; ad: string; avatarHarf: string; avatarMxc: string | null }) {
     if (this.etkin) {
       this.ekranAc();
       return;
     }
+    if (ec.etkin) {
+      ec.ekranAc();
+      return;
+    }
+    const dm = !!odalar.liste.find((r) => r.id === oda.id)?.dm;
+    if (await ec.ara({ ...oda, dm, sesli: dm })) return;
+    if (dm) await this.#eskiAra(oda);
+  }
+
+  async #eskiAra(oda: { id: string; ad: string; avatarHarf: string; avatarMxc: string | null }) {
     this.#basla(oda, false);
     this.#aramaId = yeniId();
     this.#tarafId = yeniId();
@@ -211,8 +233,8 @@ class Arama {
   }
 
   #davetGeldi(o: AramaOlayi) {
-    // Busy: tell the caller and ignore. · Meşgul: arayana bildir ve yok say.
-    if (this.etkin) {
+    // Busy: tell the caller and ignore. (An Element Call call in progress also counts as busy.) · Meşgul: arayana bildir ve yok say. (Süren bir Element Call araması da meşgul sayılır.)
+    if (this.etkin || ec.etkin) {
       // Glare (we both called the same room at once): the call with the lower id survives.
       // Çakışma (aynı odayı aynı anda aradık): kimliği küçük olan arama yaşar.
       if (this.asama === "ariyor" && this.odaId === o.odaId && o.aramaId < this.#aramaId) {
@@ -335,7 +357,8 @@ class Arama {
     this.#sayac = undefined;
     this.#motor?.kapat();
     this.#motor = null;
-    aramaSesiBasladi(false);
+    // Do not reset the audio mode under a running Element Call call. · Süren Element Call aramasının ses modunu sıfırlama.
+    if (!ec.etkin) aramaSesiBasladi(false);
   }
 
   /** Ends locally: stops media, shows the reason for a moment, then returns to idle. · Yerelde bitirir: medyayı durdurur, nedeni bir an gösterir, sonra boşa döner. */

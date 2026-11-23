@@ -8,6 +8,7 @@ ayarlar.uygula();
 import "./styles/fontlar.css";
 import "./styles/tokens.css";
 import "./styles/temel.css";
+import "./styles/kristal.css";
 import { mount } from "svelte";
 import App from "./App.svelte";
 

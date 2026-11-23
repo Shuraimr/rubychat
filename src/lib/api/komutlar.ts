@@ -3,8 +3,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AramaGonderIstegi,
+  AlanIcerigi,
+  AlanOgesi,
+  AnketIstegi,
   Ben,
+  CikartmaIstegi,
   DizinDurumu,
+  GorselPaketi,
+  MesajGonderIstegi,
+  SabitMesaj,
+  VarlikDurumu,
   DogrulamaDurumu,
   MesajAramaSonucu,
   GirisIstegi,
@@ -15,12 +23,16 @@ import type {
   MedyaYetenekleri,
   OdaBilgisi,
   OdaOzeti,
+  OturumCihazi,
+  HesapBilgisi,
+  EpostaAdresi,
   SifrelemeDurumu,
   TurnSunucu,
   Uye,
   VideoSikistirIstegi,
   VideoSonucu,
 } from "./tipler";
+import type { EcAcIstegi, EcAcilis, EcAramaDurumu } from "../arama-ec/tipler";
 
 /** Tauri rejects with whatever the command returned in Err; normalise it to our Hata shape. */
 /** Tauri, komutun Err'ünü olduğu gibi reddeder; onu Hata biçimine düzeltiriz. */
@@ -51,7 +63,29 @@ export const mesajAra = (sorgu: string, odaId?: string, sinir?: number) =>
 export const dizinDurumu = () => cagir<DizinDurumu>("dizin_durumu");
 /** Loads history until the event is in the open room's timeline; false = not found within the limit · Olay açık odanın çizelgesine girene dek geçmişi yükler; false = sınır içinde bulunamadı */
 export const olayaGit = (odaId: string, olayId: string) => cagir<boolean>("olaya_git", { odaId, olayId });
-export const mesajGonder = (odaId: string, metin: string) => cagir<void>("mesaj_gonder", { odaId, metin });
+export const mesajGonder = (istek: MesajGonderIstegi) => cagir<void>("mesaj_gonder", { istek });
+// ---- Message actions · Mesaj eylemleri ----
+/** Toggles my reaction; true = added, false = removed · Tepkimi açıp kapatır; true = eklendi, false = kaldırıldı */
+export const tepkiDegistir = (odaId: string, olayId: string, anahtar: string) => cagir<boolean>("tepki_degistir", { odaId, olayId, anahtar });
+export const mesajSil = (odaId: string, olayId: string) => cagir<void>("mesaj_sil", { odaId, olayId });
+export const mesajDuzenle = (odaId: string, olayId: string, metin: string, html: string | null) =>
+  cagir<void>("mesaj_duzenle", { odaId, olayId, metin, html });
+export const yaziyorBildir = (odaId: string, yaziyor: boolean) => cagir<void>("yaziyor_bildir", { odaId, yaziyor });
+export const mesajSabitle = (odaId: string, olayId: string, sabitle: boolean) => cagir<void>("mesaj_sabitle", { odaId, olayId, sabitle });
+export const sabitMesajlar = (odaId: string) => cagir<SabitMesaj[]>("sabit_mesajlar", { odaId });
+export const anketOlustur = (istek: AnketIstegi) => cagir<void>("anket_olustur", { istek });
+export const anketOyVer = (odaId: string, anketOlayId: string, secenekler: string[]) => cagir<void>("anket_oy_ver", { odaId, anketOlayId, secenekler });
+export const anketBitir = (odaId: string, anketOlayId: string) => cagir<void>("anket_bitir", { odaId, anketOlayId });
+export const mesajIlet = (kaynakOdaId: string, olayId: string, hedefOdaId: string) => cagir<void>("mesaj_ilet", { kaynakOdaId, olayId, hedefOdaId });
+export const cikartmaGonder = (istek: CikartmaIstegi) => cagir<void>("cikartma_gonder", { istek });
+/** Fails on servers that switched presence off; callers just show nothing then · Varlığı kapatan sunucularda hata verir; çağıranlar o zaman bir şey göstermez */
+export const varlikDurumu = (kullaniciId: string) => cagir<VarlikDurumu>("varlik_durumu", { kullaniciId });
+export const emojiPaketleri = (odaId: string) => cagir<GorselPaketi[]>("emoji_paketleri", { odaId });
+// ---- Spaces · Alanlar ----
+export const alanlariAl = () => cagir<AlanOgesi[]>("alanlari_al");
+export const alanIcerigi = (alanId: string) => cagir<AlanIcerigi>("alan_icerigi", { alanId });
+/** Joins by room id or alias through the given servers; returns the room id · Verilen sunucular üzerinden oda kimliği ya da takma adla katılır; oda kimliğini döndürür */
+export const alanaKatil = (kimlik: string, via: string[]) => cagir<string>("alana_katil", { kimlik, via });
 export const okunduIsaretle = (odaId: string) => cagir<void>("okundu_isaretle", { odaId });
 export const mesajYenidenDene = (odaId: string, ogeId: string) => cagir<void>("mesaj_yeniden_dene", { odaId, ogeId });
 export const aramaTurnSunuculari = () => cagir<TurnSunucu[]>("arama_turn_sunuculari");
@@ -106,5 +140,34 @@ export const uyeYasakla = (odaId: string, kullaniciId: string, sebep: string | u
 export const yasakKaldir = (odaId: string, kullaniciId: string) => cagir<void>("yasak_kaldir", { odaId, kullaniciId });
 export const gucAyarla = (odaId: string, kullaniciId: string, guc: number) => cagir<void>("guc_ayarla", { odaId, kullaniciId, guc });
 /** Opens (or creates) the DM with a person; returns the room id · Kişiyle DM'i açar (yoksa kurar); oda kimliğini döndürür */
+/** Private encrypted group, or a space; returns the room id · Özel şifreli grup ya da alan; oda kimliğini döndürür */
+export const odaOlustur = (ad: string, alan: boolean) => cagir<string>("oda_olustur", { ad, alan });
 export const dmAc = (kullaniciId: string) => cagir<string>("dm_ac", { kullaniciId });
 export const odaAyril = (odaId: string) => cagir<void>("oda_ayril", { odaId });
+
+// ---- Element Call (calls) · Element Call (aramalar) ----
+/** Builds the widget URL and starts the Matrix side of the call; returns the URL for the iframe · Widget adresini kurar, aramanın Matrix tarafını başlatır; iframe adresini döndürür */
+export const ecAc = (i: EcAcIstegi) => cagir<EcAcilis>("ec_ac", { ...i });
+/** One widget API message from the iframe to the Rust driver · iframe'den Rust sürücüsüne bir widget API mesajı */
+export const ecGonder = (widgetId: string, mesaj: string) => cagir<void>("ec_gonder", { widgetId, mesaj });
+export const ecKapat = (widgetId: string) => cagir<void>("ec_kapat", { widgetId });
+export const ecAktifAramalar = () => cagir<EcAramaDurumu[]>("ec_aktif_aramalar");
+/** Does the homeserver publish a MatrixRTC backend? · Anasunucu bir MatrixRTC arka ucu yayımlıyor mu? */
+export const ecSunucuDestekliyor = () => cagir<boolean>("ec_sunucu_destekliyor");
+
+// ---- Profile, sessions, backup, personal sticker pack (src-tauri/src/matrix/profil.rs) · Profil, oturumlar, yedek, kişisel çıkartma paketi ----
+export const profilAdAyarla = (ad: string | null) => cagir<void>("profil_ad_ayarla", { ad });
+export const profilAvatarAyarla = (kimlik: string, mime: string) => cagir<string>("profil_avatar_ayarla", { kimlik, mime });
+export const profilAvatarKaldir = () => cagir<void>("profil_avatar_kaldir");
+export const oturumlarListele = () => cagir<OturumCihazi[]>("oturumlar_listele");
+export const cihazYenidenAdlandir = (cihazId: string, ad: string) => cagir<void>("cihaz_yeniden_adlandir", { cihazId, ad });
+export const cihazCikis = (cihazId: string, parola: string | null) => cagir<void>("cihaz_cikis", { cihazId, parola });
+export const yedekAyarla = (acik: boolean) => cagir<void>("yedek_ayarla", { acik });
+export const kurtarmaSifirla = () => cagir<string>("kurtarma_sifirla");
+export const cikartmaPaketineEkle = (kimlik: string, mime: string, kisaKod: string, genislik: number, yukseklik: number) =>
+  cagir<string>("cikartma_paketine_ekle", { kimlik, mime, kisaKod, genislik, yukseklik });
+export const hesapBilgisi = () => cagir<HesapBilgisi>("hesap_bilgisi");
+export const sifreDegistir = (eski: string, yeni: string) => cagir<void>("sifre_degistir", { eski, yeni });
+export const epostalarListele = () => cagir<EpostaAdresi[]>("epostalar_listele");
+export const epostaSil = (adres: string) => cagir<void>("eposta_sil", { adres });
+export const hesapKapat = (parola: string, veriyiSil: boolean) => cagir<void>("hesap_kapat", { parola, veriyiSil });

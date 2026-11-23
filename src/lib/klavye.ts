@@ -7,7 +7,32 @@ export function klavyeyiIzle(): () => void {
   const vv = window.visualViewport;
   if (!vv) return () => {};
   const kok = document.documentElement;
+  // Keyboard height now (--klavye-simdi) and last known (--klavye-son): the emoji panel takes exactly the keyboard's place.
+  // Klavyenin şimdiki (--klavye-simdi) ve bilinen son (--klavye-son) yüksekliği: emoji paneli tam klavyenin yerini alır.
+  const ANAHTAR = "rubychat.klavye";
+  let enBuyuk = 0;
+  let genislik = 0;
+  let son = 0;
+  try {
+    son = Number(localStorage.getItem(ANAHTAR)) || 0;
+  } catch { /* storage unavailable · depolama yok */ }
+  if (son) kok.style.setProperty("--klavye-son", `${son}px`);
+  function klavyeOlc(h: number, w: number) {
+    if (w !== genislik) enBuyuk = 0;
+    genislik = w;
+    enBuyuk = Math.max(enBuyuk, h);
+    const k = enBuyuk - h > 120 ? Math.round(enBuyuk - h) : 0;
+    kok.style.setProperty("--klavye-simdi", `${k}px`);
+    if (k > 180 && k !== son && w < 600) {
+      son = k;
+      kok.style.setProperty("--klavye-son", `${k}px`);
+      try {
+        localStorage.setItem(ANAHTAR, String(k));
+      } catch { /* same · aynı */ }
+    }
+  }
   const guncelle = () => {
+    klavyeOlc(vv.height, vv.width);
     kok.style.setProperty("--gorunen-yukseklik", `${Math.round(vv.height)}px`);
     // The browser may scroll the page to reveal the focused input; the app never scrolls as a page.
     // Tarayıcı odaktaki girdiyi göstermek için sayfayı kaydırabilir; uygulama hiç sayfa gibi kaymaz.

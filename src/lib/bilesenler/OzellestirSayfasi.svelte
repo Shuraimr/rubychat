@@ -5,11 +5,14 @@
   arka plan, sohbet rengi, saat/okundu bilgisi ve gruplarda avatar. Her şey anında kaydedilir (sohbetGorunum ile localStorage) ve odaya uygulanır.
 -->
 <script lang="ts">
-  import { gorunumStili, SOHBET_RENKLERI, sohbetGorunumu, ZEMIN_RENKLERI, type BalonStili, type SohbetRengi, type SohbetZemini, type Yogunluk } from "../durum/sohbetGorunum.svelte";
+  import { EFEKTLER, gorunumStili, type ZeminEfekti, SOHBET_RENKLERI, sohbetGorunumu, ZEMIN_RENKLERI, type BalonStili, type SohbetRengi, type SohbetZemini, type Yogunluk } from "../durum/sohbetGorunum.svelte";
   import { t, type Anahtar as TrAnahtar } from "../i18n";
   import AltSayfa from "./AltSayfa.svelte";
   import Anahtar from "./Anahtar.svelte";
   import Ikon from "./Ikon.svelte";
+  import KristalZemin from "./KristalZemin.svelte";
+  import { zeminKaydet, zeminSil } from "../durum/zeminResmi";
+  import { bildirim } from "../durum/bildirim.svelte";
 
   /** odaId null = global only (Ayarlar › Görünüm) · odaId null = yalnızca genel (Ayarlar › Görünüm) */
   let { odaId = null, onkapat }: { odaId?: string | null; onkapat: () => void } = $props();
@@ -32,6 +35,19 @@
   const yogunluklar: Yogunluk[] = ["rahat", "siki"];
   const zeminler: SohbetZemini[] = ["varsayilan", "amoled", "mavi", "kirmizi", "yesil"];
   const renkler: SohbetRengi[] = ["vurgu", "mor", "mavi", "yesil", "sari", "gri"];
+  // Photo background: picked from the device, compressed and kept ONLY on this device (IndexedDB), never uploaded.
+  // Fotoğraf arka planı: cihazdan seçilir, sıkıştırılır ve YALNIZCA bu cihazda (IndexedDB) durur, asla yüklenmez.
+  async function fotoSec(e: Event) {
+    const f = (e.currentTarget as HTMLInputElement).files?.[0];
+    (e.currentTarget as HTMLInputElement).value = "";
+    if (!f) return;
+    if (await zeminKaydet(hedef ?? "genel", f)) yaz("resim", true);
+    else bildirim.goster(t("kirp.hata"), 4000, { tur: "hata" });
+  }
+  async function fotoKaldir() {
+    await zeminSil(hedef ?? "genel");
+    yaz("resim", false);
+  }
   const renkDeger = (r: SohbetRengi) => (r === "vurgu" ? "var(--vurgu)" : SOHBET_RENKLERI[r]);
 </script>
 
@@ -52,6 +68,7 @@
 
   <!-- Live preview: the same variables the room uses · Canlı önizleme: odanın kullandığı aynı değişkenler -->
   <div class="onizleme oda" data-balon={g.balon} data-saat={g.saat ? undefined : "yok"} style={gorunumStili(g)} style:background={ZEMIN_RENKLERI[g.zemin]}>
+    <KristalZemin efekt={g.efekt} duvar={g.duvar} resim={g.resim} resimAnahtari={hedef ?? "genel"} bulanik={g.bulanik} karart={g.karart} />
     <div class="o-gelen" style:font-size="calc(.9375rem * {g.yazi})">{t("ozellestir.onizGelen")}</div>
     <div class="o-giden" style:font-size="calc(.9375rem * {g.yazi})">{t("ozellestir.onizGiden")}</div>
   </div>
@@ -85,6 +102,27 @@
   </section>
 
   <section>
+    <h3>{t("ozellestir.efekt")}</h3>
+    <div class="secenekler dort" role="radiogroup" aria-label={t("ozellestir.efekt")}>
+      {#each EFEKTLER as ef (ef)}<button class="secenek" role="radio" aria-checked={g.efekt === ef} class:aktif={g.efekt === ef} onclick={() => yaz("efekt", ef as ZeminEfekti)}>{t(`efekt.${ef}` as TrAnahtar)}</button>{/each}
+    </div>
+    <div class="satir"><span>{t("ozellestir.duvar")}</span><Anahtar acik={g.duvar} degis={(v) => yaz("duvar", v)} etiket={t("ozellestir.duvar")} /></div>
+  </section>
+
+  <section>
+    <h3>{t("ozellestir.foto")}</h3>
+    <div class="foto-satir">
+      <label class="buton tonlu foto-sec"><Ikon ad="galeri" boyut={20} />{t("ozellestir.fotoSec")}<input type="file" accept="image/*" onchange={fotoSec} /></label>
+      {#if g.resim}<button class="buton cizgili kirmizi" onclick={fotoKaldir}>{t("ozellestir.fotoKaldir")}</button>{/if}
+    </div>
+    {#if g.resim}
+      <label class="kaydirici"><span>{t("ozellestir.bulanik")}</span><input class="aralik" type="range" min="0" max="20" step="1" value={g.bulanik} aria-label={t("ozellestir.bulanik")} oninput={(e) => yaz("bulanik", Number(e.currentTarget.value))} /></label>
+      <label class="kaydirici"><span>{t("ozellestir.karart")}</span><input class="aralik" type="range" min="0" max="80" step="5" value={g.karart} aria-label={t("ozellestir.karart")} oninput={(e) => yaz("karart", Number(e.currentTarget.value))} /></label>
+    {/if}
+    <p class="foto-not">{t("ozellestir.fotoNot")}</p>
+  </section>
+
+  <section>
     <h3>{t("ozellestir.renk")}</h3>
     <div class="renkler" role="radiogroup" aria-label={t("ozellestir.renk")}>
       {#each renkler as r (r)}
@@ -104,17 +142,25 @@
   @keyframes ac { from { transform: scale(.92); opacity: 0; } }
   .kapsam-menu button { width: 100%; min-height: 44px; padding: 0 12px; text-align: left; border-radius: 10px; }
   .kapsam-menu button[aria-selected="true"] { color: var(--vurgu); font-weight: 600; }
-  .onizleme { display: grid; gap: 8px; padding: 16px; border-radius: 16px; border: 1px solid var(--kenar-ince); }
-  .o-gelen, .o-giden { max-width: 78%; padding: var(--balon-dolgu); border-radius: var(--balon-r); }
+  .onizleme { position: relative; overflow: hidden; isolation: isolate; display: grid; gap: 8px; padding: 16px; border-radius: 16px; border: 1px solid var(--kenar-ince); }
+  .o-gelen, .o-giden { position: relative; z-index: 1; max-width: 78%; padding: var(--balon-dolgu); border-radius: var(--balon-r); }
   .o-gelen { background: var(--yuzey-2); justify-self: start; }
   .o-giden { background: var(--giden-bg, var(--ton)); color: var(--giden-yazi, var(--ton-ustu)); justify-self: end; }
   .onizleme[data-balon="cizgisiz"] .o-gelen { background: transparent; padding-left: 0; }
   h3 { font-size: .8125rem; font-weight: 600; color: var(--yazi-2); margin-bottom: 8px; }
   .secenekler { display: grid; gap: 8px; }
   .secenekler.uc { grid-template-columns: repeat(3, 1fr); }
+  .secenekler.dort { grid-template-columns: repeat(2, 1fr); }
   .secenekler.iki { grid-template-columns: repeat(2, 1fr); }
-  .secenek { min-height: 52px; border-radius: 14px; background: var(--yuzey-2); font-weight: 500; }
+  .secenek { min-height: 3.25rem; padding: .25rem .5rem; line-height: 1.25; border-radius: .875rem; background: var(--yuzey-2); font-weight: 500; }
   .secenek.aktif { background: color-mix(in srgb, var(--vurgu) 18%, var(--zemin)); color: var(--vurgu); font-weight: 600; }
+  .foto-satir { display: flex; flex-wrap: wrap; gap: .5rem; }
+  .foto-satir .buton { width: auto; flex: 1 1 9rem; }
+  .foto-sec { position: relative; cursor: pointer; }
+  .foto-sec input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .kaydirici { display: grid; gap: .125rem; font-size: .8125rem; color: var(--yazi-2); }
+  .foto-not { font-size: .75rem; color: var(--yazi-2); margin-top: .5rem; }
+  .kirmizi { color: var(--hata); }
   .aralik { width: 100%; height: 44px; accent-color: var(--vurgu); }
   .renkler { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px; }
   .orneg { width: 48px; height: 48px; border: 1px solid var(--kenar); outline: 2px solid transparent; outline-offset: 3px; transition: outline-color var(--sure-hizli) var(--egri-cikis); }

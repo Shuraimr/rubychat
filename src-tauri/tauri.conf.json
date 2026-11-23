@@ -14,7 +14,7 @@
       { "title": "rubychat", "width": 1100, "height": 760, "minWidth": 360, "minHeight": 520 }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: medya: http://medya.localhost https://i.ytimg.com https://opengraph.githubassets.com; connect-src 'self' ipc: http://ipc.localhost https://www.youtube.com https://api.github.com; frame-src https://www.youtube-nocookie.com"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: medya: http://medya.localhost https://i.ytimg.com https://opengraph.githubassets.com https://static.klipy.com https://static1.klipy.com https://static2.klipy.com; connect-src 'self' ipc: http://ipc.localhost https://www.youtube.com https://api.github.com https://api.klipy.com; media-src 'self' blob: medya: http://medya.localhost https://static.klipy.com https://static1.klipy.com https://static2.klipy.com; frame-src https://www.youtube-nocookie.com https: ec: http://ec.localhost https://call.element.io"
     }
   },
   "bundle": {

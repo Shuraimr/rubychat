@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
@@ -47,7 +48,7 @@ tantivy = { version = "0.26", default-features = false, features = ["mmap", "lz4
 
 # default-features = false so we choose the TLS backend ourselves: rustls (NOT OpenSSL) cross-compiles to Android easily.
 # default-features = false: TLS arka ucunu biz seçeriz; rustls (OpenSSL DEĞİL) Android için kolay derlenir.
-matrix-sdk = { version = "0.19", default-features = false, features = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "bundled-sqlite", "rustls-aws-lc-rs"] }
+matrix-sdk = { version = "0.19", default-features = false, features = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "bundled-sqlite", "rustls-aws-lc-rs", "experimental-widgets"] }
 matrix-sdk-ui = { version = "0.19", default-features = false, features = ["rustls-aws-lc-rs"] }
 
 # Secret storage backends (see src/gizli_depo.rs). The OS keyring on desktop, the Android Keystore (via JNI) on Android.
@@ -55,6 +56,11 @@ matrix-sdk-ui = { version = "0.19", default-features = false, features = ["rustl
 # keyring: MIT OR Apache-2.0. `crypto-rust` = pure-Rust transport encryption for the Secret Service (no OpenSSL).
 # keyring: MIT OR Apache-2.0. `crypto-rust` = Secret Service için saf Rust taşıma şifrelemesi (OpenSSL yok).
 [target.'cfg(target_os = "linux")'.dependencies]
+# WebKitGTK bindings, same version as the one wry/tauri already pull in (MIT). We need the traits to switch on WebRTC / media capture
+# and to answer microphone permission requests (src/matrix/ec.rs `linux_medya_ac`). Nothing new is downloaded.
+# wry/tauri'nin zaten çektiği sürümle aynı WebKitGTK bağları (MIT). WebRTC / medya yakalamayı açmak ve mikrofon izin isteklerini
+# yanıtlamak için trait'ler gerekir (src/matrix/ec.rs `linux_medya_ac`). Yeni bir şey inmez.
+webkit2gtk = "2.0.2"
 keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["apple-native"] }

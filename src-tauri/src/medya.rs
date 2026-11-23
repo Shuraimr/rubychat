@@ -136,10 +136,13 @@ pub async fn sun(app: &AppHandle, istek: Request<Vec<u8>>) -> Response<Vec<u8>> 
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(96)
         .clamp(32, 512);
+    // `o=1`: keep the aspect ratio (custom emoji / stickers) instead of the square crop avatars use.
+    // `o=1`: avatarların kullandığı kare kırpma yerine en-boy oranını koru (özel emoji / çıkartmalar).
+    let olcekle = istek.uri().query().is_some_and(|q| q.split('&').any(|p| p == "o=1"));
     let Ok(client) = app.state::<AppState>().client().await else { return yanit(401, "text/plain", vec![]) };
     let params = MediaRequestParameters {
         source: MediaSource::Plain(OwnedMxcUri::from(format!("mxc://{sunucu}/{medya_id}"))),
-        format: MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(Method::Crop, boyut.into(), boyut.into())),
+        format: MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(if olcekle { Method::Scale } else { Method::Crop }, boyut.into(), boyut.into())),
     };
     match client.media().get_media_content(&params, true).await {
         Ok(bayt) => yanit(200, tur_bul(&bayt), bayt),

@@ -25,3 +25,20 @@
 ## 4. Arayüz hâlâ kötü
 - Kullanıcı: "UI hâlâ korkunç". Telefonda ekran görüntüleriyle tek tek ele alınacak; dosya yükleme ekranı öncelikli.
 - Yeni APK'yı adb ile YÜKLEME: 190 MB aktarım USB internet paylaşımını düşürüyor. Bunun yerine: `cd src-tauri/target/apk-sun && python3 -m http.server 8765 --bind <USB ağ IP>` → telefonda tarayıcıdan indir.
+
+## 5. Mesajlaşma özellikleri + Alanlar hatası — KODLANDI (2026-11-23), DERLENMEDİ / telefonda denenmedi
+- **Hata (Alanlar)**: alan oda gibi listeleniyordu, dokununca siyah ekran. Düzeltildi: `OdaOzeti.alan`, alanlar sohbet listesinden çıktı, "Alanlar" sekmesi gerçek (liste + alan görünümü +
+  alt alanlar + katıl), `zaman::ac` alanı reddeder, `Oda.svelte` hiçbir koşulda siyah kalmaz (hata durumu + zaman aşımı + boundary). Ayrıntı: `docs/MIMARI.md` "Mesajlaşma özellikleri ve Alanlar".
+- **Ayrıca bulunan hata**: mesaj satırlarında `data-olay-id` yoktu; arama sonucuna "atla" kaydırıp vurgulamıyordu. Eklendi.
+- Yapıldı: tepkiler, silme, yanıt (+ kaydırarak yanıt), düzenleme, emoji seçici, özel emoji + çıkartma (MSC2545), biçimli mesaj (Markdown → HTML, güvenli gösterim),
+  yazıyor göstergesi, okundu bilgisi, sabit mesajlar, anketler, iletme, varlık, bağlam menüsü.
+- Telefonda denenecek: her şey (hiçbiri çalıştırılmadı); özellikle özel emoji / çıkartma paketleri (sunucuya `/state` isteği), sabit mesaj metinleri, sağa kaydırma ile yanıt.
+- Kalan: mention gönderme (`m.mentions`), thread görünümü, özel emoji ile tepki verme, medyaya açıklama düzenleme, anket düzenleme, tepki / yanıt için çevrimdışı kuyruk davranışının sınanması.
+
+## 6. Aramalar: Element Call — KODLANDI (2026-11-23), DERLENMEDİ / hiçbir yerde denenmedi
+Ayrıntı: `docs/MIMARI.md` "Aramalar: Element Call". Kullanıcının yapması gerekenler:
+- `npm install` (package.json'a `@element-hq/element-call-embedded` 0.28.2 eklendi, kurulum yapılmadı; kurulana dek yedek olarak call.element.io kullanılır). Paketin klasör düzeni (`dist/index.html`?) doğrulanmadı; `vite.config.ts` `dist/` ya da kökü arar.
+- Derle (`cargo`: `experimental-widgets` ve linux `webkit2gtk` eklendi; `Cargo.lock` güncellenecek). Derleme hatası olursa özellikle `ec.rs`teki ruma tür adlarına (`MemberHints`, `RtcDecline`, `OriginalSyncCallMemberEvent`) bak.
+- Linux: `gst-inspect-1.0 nicesrc` (yoksa `libnice-gstreamer1`); WebRTC/ses ve `getDisplayMedia` denemesi; Wayland + X11.
+- Android: ses (ahize/hoparlör/Bluetooth), kilit ekranı/arka plan, mikrofon ve kamera izni akışı, "Kapat" bildirim eylemi, Bluetooth için BLUETOOTH_CONNECT çalışma anı izni (şimdilik istenmiyor).
+- Eksik: uygulama arka plandayken gelen DM araması için sistem bildirimi/zil (yalnızca uygulama içi şerit + titreşim var); `m.rtc.notification` zili; EC adresini Ayarlar'dan değiştirme (sabit: `ec.rs` `EC_YEDEK_URL`); EC 0.28.x ↔ matrix-sdk 0.19.1 yetki uyumsuzluğu (`rtc_livekit_*`) gerçek aramada izlenmeli.

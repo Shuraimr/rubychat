@@ -9,8 +9,10 @@ import type {
   OdaOzeti,
   SifrelemeDurumu,
   UygulamaIciBildirim,
+  YaziyorGuncelleme,
   ZamanGuncelleme,
 } from "./tipler";
+import type { EcAramaDurumu, EcBitti, EcGelen } from "../arama-ec/tipler";
 
 export const odalarGuncellendi = (isle: (odalar: OdaOzeti[]) => void): Promise<UnlistenFn> =>
   listen<OdaOzeti[]>("odalar-guncellendi", (e) => isle(e.payload));
@@ -36,3 +38,13 @@ export const medyaIlerleme = (isle: (o: MedyaIlerlemeOlayi) => void): Promise<Un
 /** A message arrived in a room that is not open and the app is visible: show an in-app banner. · Açık olmayan odaya mesaj geldi ve uygulama görünür: uygulama içi şerit göster. */
 export const uygulamaIciBildirim = (isle: (b: UygulamaIciBildirim) => void): Promise<UnlistenFn> =>
   listen<UygulamaIciBildirim>("uygulama-ici-bildirim", (e) => isle(e.payload));
+
+/** Who is typing in a room changed · Bir odada kimlerin yazdığı değişti */
+export const yaziyorGuncellendi = (isle: (g: YaziyorGuncelleme) => void): Promise<UnlistenFn> =>
+  listen<YaziyorGuncelleme>("yaziyor-guncellendi", (e) => isle(e.payload));
+
+// ---- Element Call ----
+export const ecGelen = (isle: (g: EcGelen) => void): Promise<UnlistenFn> => listen<EcGelen>("ec-gelen", (e) => isle(e.payload));
+export const ecBitti = (isle: (b: EcBitti) => void): Promise<UnlistenFn> => listen<EcBitti>("ec-bitti", (e) => isle(e.payload));
+export const ecAramaDurumu = (isle: (d: EcAramaDurumu) => void): Promise<UnlistenFn> =>
+  listen<EcAramaDurumu>("ec-arama-durumu", (e) => isle(e.payload));

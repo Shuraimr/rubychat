@@ -25,7 +25,10 @@ Svelte 5 arayüzü  ──invoke──▶  src-tauri/src/komutlar.rs  ──▶ 
 | `matrix/oturum.rs` | Şifreyle giriş, oturumu diske yazma/geri yükleme, çıkış, belirteç yenileme izleyicisi |
 | `matrix/esitleme.rs` | Eşitleme: sliding sync (`SyncService`) ya da klasik `sync` yedeği; oda listesi yayıncısı |
 | `matrix/odalar.rs` | `Room` → `OdaOzeti` dönüşümü, sıralı liste |
-| `matrix/zaman.rs` | `Timeline`: aç, akıt, geriye sayfala, metin gönder, okundu işaretle, gönderilemeyeni yeniden dene; arama ve "yeni mesajlar" satırları |
+| `matrix/zaman.rs` | `Timeline`: aç, akıt, geriye sayfala, metin gönder (düz / HTML / yanıt), düzenle, sil, tepki, okundu işaretle, gönderilemeyeni yeniden dene; arama, "yeni mesajlar", tepki, yanıt, anket, çıkartma, okundu bilgisi eşlemesi |
+| `matrix/eylemler.rs` | Mesaj eylemleri: tepki, silme, düzenleme, "yazıyor", sabitleme, anket, iletme, çıkartma gönderme, varlık durumu (komutlar burada; çizelge işi `zaman.rs`te) |
+| `matrix/paketler.rs` | MSC2545 özel emoji / çıkartma paketleri (oda, kişisel, `emote_rooms`), ham JSON olarak |
+| `matrix/alanlar.rs` | Alanlar (`m.space`): üst düzey liste (`SpaceService`), bir alanın çocukları (`SpaceRoomList` = `/hierarchy`), katılma |
 | `matrix/arama.rs` | 1:1 sesli arama sinyalleşmesi: TURN bilgisi, `m.call.*` gönder, gelen olayları `arama-olayi` ile ilet |
 | `matrix/sifreleme.rs` | Uçtan uca şifreleme: çapraz imza kurulumu, SAS emoji doğrulaması, kurtarma anahtarı (gizli depo + yedek), `sifreleme-durumu` / `dogrulama-guncellendi` olayları |
 | `gizli_depo.rs` | `GizliDepo` trait'i: masaüstünde `keyring` (anahtarlık), Android'de Keystore (JNI → `GizliKasa.kt`) |
@@ -54,7 +57,7 @@ Her değişiklikte tüm öğe listesi arayüze gönderilir (basit ve sağlam). Y
 ## Arayüz (`src/`)
 
 - `lib/durum/*.svelte.ts`: Svelte 5 rune durumları (oturum, odalar, zaman, gezinme, bildirim).
-- `lib/ekranlar/`: Giris, Sohbetler, Oda, Alanlar (yer tutucu), Ben.
+- `lib/ekranlar/`: Giris, Sohbetler, Oda, Alanlar + AlanGorunumu, Ben.
 - `lib/bilesenler/`: Avatar, Ikon, SohbetSatiri, MesajBalonu, YazmaAlani, AltMenu (telefon), Ray (geniş), Bildirim.
 - `lib/i18n`: `t()`; yalnızca Türkçe şimdilik, İngilizce için `tr.ts` aynı anahtarlarla kopyalanır.
 - `styles/tokens.css`: rubyyard tasarım değişkenleri. Renk ve süre YALNIZCA bunlarla kullanılır.
@@ -151,15 +154,14 @@ durumu `lib/durum/sifreleme.svelte.ts`, sayfalar `bilesenler/SifrelemeKatmani.sv
    Şifreli odalarda bildirim içeriği için bildirim istemcisi (matrix-sdk-ui `NotificationClient`) kullanılır.
 4. **Cihaz doğrulama**: YAPILDI (yukarıdaki "Uçtan uca şifreleme"). Sırada: QR doğrulama, başkalarını doğrulama.
 5. **Medya**: `Timeline::send_attachment`, `Media` API'si; depolama ve küçültme rubyyard'ın `yukleme` mantığına benzer. Şimdi resim yalnızca etiketle gösterilir.
-6. **Alanlar (Spaces)**: `matrix-sdk-ui::spaces::SpaceService`; "Alanlar" sekmesi hazır.
+6. **Alanlar (Spaces)**: YAPILDI (aşağıdaki "Mesajlaşma özellikleri ve Alanlar").
 7. **1:1 görüşme**: YAPILDI (yukarıdaki "Sesli arama"). Sırada: görüntülü arama (aynı motor + video izi).
 8. **Grup görüşmesi** (sonra): MatrixRTC + LiveKit (`m.rtc.*`); LiveKit sunucusu gerekir (ayrı maliyet).
 9. **rubyyard bağlantısı**: rubyyard SSO ve rubyyard topluluklarıyla Matrix odaları arasında köprü (konu ↔ oda).
 
 ## Bilinen eksikler (v0.1.0)
 
-Yalnızca metin gönderilir/gösterilir; yeni sohbet başlatma, davet kabulü, doğrulama, medya, düzenleme/silme, tepki, yanıt, bildirim ve
-kayıt yoktur. Sliding sync olmayan sunucuda zaman çizelgesi SDK'nın yedek yoluna bağlıdır (gerçek sunucuda sınanmadı).
+(Eski not; çoğu sonradan eklendi.) Mesajlaşma özellikleri için aşağıdaki "Mesajlaşma özellikleri ve Alanlar" bölümüne bak. Sliding sync olmayan sunucuda zaman çizelgesi SDK'nın yedek yoluna bağlıdır (gerçek sunucuda sınanmadı).
 
 ## Yapılacaklar (v0.2'den)
 
@@ -168,3 +170,90 @@ kayıt yoktur. Sliding sync olmayan sunucuda zaman çizelgesi SDK'nın yedek yol
 - Arama sonucu geçmişi yalnızca bellekte (yeniden başlatınca eski aramalar "Sesli arama" olur); kalıcı yapmak için veritabanı ya da `m.call.hangup`ları geri sayfalama sırasında okumak gerekir.
 - Sürüm-0 (eski istemci) davetleri desteklenmiyor. Birden çok cihazımız aynı anda çalarsa "başka cihazda yanıtlandı" mantığı gerçek sunucuda sınanmadı.
 - Hoparlör köprüsü (`RubySes`) ve mikrofon izni akışı gerçek Android cihazda sınanmadı.
+
+
+## Mesajlaşma özellikleri ve Alanlar (2026-11-23)
+
+**Durum: KODLANDI, DERLENMEDİ / cihazda denenmedi.** `npx svelte-check` 0 hata, `npx vite build` tamam; Rust yalnızca `rustfmt` ile söz dizimi
+denetiminden geçti (cargo çalıştırılmadı). Kullandığımız her SDK API'si ruma/matrix-sdk kaynağında doğrulandı (liste: bu işin raporunda).
+
+### Alanlar (Spaces)
+- `OdaOzeti.alan` (`Room::is_space()`): alanlar sohbet listesinde GÖRÜNMEZ (`odalar.gorunen` süzer), "Alanlar" sekmesinde görünür.
+- `alanlari_al` (üst düzey katılınmış alanlar, `SpaceService::top_level_joined_spaces`), `alan_icerigi` (bir alanın doğrudan çocukları,
+  `SpaceRoomList::paginate` = sunucunun `/hierarchy`si; katılınmayan odalar da ad / konu / üye sayısıyla gelir), `alana_katil`
+  (`join_room_by_id_or_alias` + `m.space.child`ın `via` sunucuları). `SpaceService` oturum başına bir kez kurulur (`AppState.alan_servisi`).
+- Arayüz: `Alanlar.svelte` (liste; önce oda listesinden, sonra grafikle inceltilir), `AlanGorunumu.svelte` (bir alanın içi), `AlanSatiri.svelte`,
+  `durum/alanlar.svelte.ts` (alan yığını; her düzey bir geri tuşu katmanı). Katılınmış oda `gezinme.odaAc(id, true)` ile sekme değişmeden açılır
+  (geri → o alana döner). Alt alan aynı görünümü bir düzey derinde açar. Çevrimdışı / sunucu hatası: maskotlu hata durumu + "Tekrar dene".
+- **Siyah ekran güvencesi**: `zaman::ac` alanı `Hata::OdaTuru` ("oda_turu") ile reddeder; `Oda.svelte` tamamı `<svelte:boundary>` içinde (çizim hatası →
+  maskotlu hata + geri), 15 sn zaman aşımı → hata durumu, `zaman.hata` → hata durumu.
+
+### Zaman çizelgesi ve eylemler
+`ZamanOgesi`ye eklenenler: `html`, `duzenlendi`, `tepkiler`, `yanit`, `okuyanlar`, `anket`, `silinebilir`, `sabit`, `duzenlenebilir`; yeni türler
+`silindi`, `cikartma`, `anket`. `ZamanGuncelleme`ye `sabitler` + `sabitleyebilir`. Yeni olay `yaziyor-guncellendi`. Hepsi `tipler.rs` ↔ `tipler.ts` birebir.
+- **Tepki**: `Timeline::toggle_reaction`; tepkiler SDK'nın topladığı hâliyle (anahtar → kişiler) gelir. `TepkiSatiri` (dokun = aç/kapat, uzun bas = kimler),
+  `TepkiCubugu` (menü üstünde hızlı çubuk + "+" tam emoji seçici).
+- **Sil**: `Timeline::redact`; `silinebilir` = kendi mesajım ya da güç düzeyim yetiyorsa (`user_can_redact_*`). Silinen mesaj "Bu mesaj silindi" satırı olarak kalır.
+- **Yanıt**: `Timeline::send_reply`; alıntı `in_reply_to` ayrıntısından (SDK getirmediyse görev `fetch_details_for_event` ister). Alıntıya dokunmak
+  `lib/arama-mesaj/atla.ts` (arama atlamasıyla aynı adımlar: satırı bul → `olaya_git` → kaydır + vurgula). Sağa 48px kaydırma = yanıtla (`lib/kaydirYanit.ts`).
+- **Düzenleme**: `Timeline::edit(EditedContent::RoomMessage)`; yalnızca kendi metin mesajım. "düzenlendi" etiketi.
+- **Emoji seçici**: `EmojiSayfasi` (kategoriler, Türkçe + İngilizce arama, "Son" = `localStorage`), veri `lib/emoji/veri.ts` (paket yok, ~560 emoji).
+- **Özel emoji ve çıkartma (MSC2545)**: `paketler.rs` ham JSON okur: `m.room.image_pack` + `im.ponies.room_emotes`, `m.image_pack` + `im.ponies.user_emotes`,
+  `m.image_pack.rooms` + `im.ponies.emote_rooms`. Sliding sync bu özel durum olaylarını İSTEMEZ (`required_state` listesinde yok), bu yüzden depoda yoksa
+  `GET /state` ile sunucudan alınır (2000 üyeden büyük odalarda atlanır; arayüz 5 dk önbellekler). `m.sticker` gönderme: `cikartma_gonder`; alınanlar balonsuz resim
+  (`CikartmaGorsel`, `medya://localhost/m/<id>`). Satır içi özel emoji: gelen HTML'deki `<img data-mx-emoticon src="mxc://…">`; gönderirken `:kisakod:` → aynı etiket.
+  Önizlemeler `medya://…?b=…&o=1` (oranı koruyan küçük resim; `o=1` Rust'ta `Method::Scale`).
+- **Biçimli mesaj**: matrix-sdk/ruma'da `markdown` özelliği KAPALI (açmak yeni crate `pulldown-cmark` getirirdi), bu yüzden `lib/bicim/markdown.ts` küçük bir çevirici:
+  **kalın**, *italik*, ~~çizili~~, `kod`, ```blok```, [bağlantı](url), ||spoiler||, `> alıntı`. `body` kullanıcının yazdığı metin, `formatted_body` HTML
+  (`RoomMessageEventContent::text_html`). Alınan HTML: `lib/bicim/temizle.ts` DOMParser (etkisiz belge) → yalnızca beyaz listedeki etiket / özniteliklerden jeton ağacı →
+  `BicimDugum.svelte` normal Svelte işaretlemesiyle çizer (`{@html}` / innerHTML YOK). matrix.to kullanıcı / oda bağlantıları hap (pill) olur; kullanıcı kartını açar.
+- **Yazıyor**: `Room::typing_notice` (SDK ~4 sn'de bir isteğe seyreltir; arayüz ayrıca 3 sn seyreltir, 5 sn sessizlikte durdurur); gelenler
+  `Room::subscribe_to_typing_notifications`, çizelge görevinin `select!`inde → `yaziyor-guncellendi`.
+- **Okundu**: çizelgenin `read_receipts()`i. 1:1'de benim mesajlarım karşı kişinin okuduğu mesaja kadar çift tik; ≤12 üyeli grupta mesajın altında minik avatarlar.
+  (Okundu GÖNDERME zaten `okundu_isaretle` ile vardı.)
+- **Sabit mesajlar**: `Room::pin_event` / `unpin_event` (`m.room.pinned_events`), `Room::pinned_event_ids`; `sabit_mesajlar` metinleri çizelgeden, yoksa
+  `load_or_fetch_event`ten getirir. `SabitCubugu` odanın üstünde, dokunmak mesaja atlar ve sonrakine ilerler.
+- **Anket**: SDK çizelgesi yalnızca `org.matrix.msc3381.poll.*` (kararsız) biçimini üretir / toplar; gönderme / oy / bitirme de o biçimde. `AnketKarti`, `AnketOlustur` ("+" menüsü).
+  `m.disclosed` (açık sonuç) / `m.undisclosed`, tek / çoklu seçim.
+- **İlet**: `mesaj_ilet` mesajın `MessageType`ını başka odanın gönderim kuyruğuna koyar (medya aynı `MediaSource`la, yeniden yükleme yok). Anket / çıkartma iletilmez.
+- **Varlık**: `varlik_durumu` (`GET /presence/{user}/status`) DM başlığında bir kez sorulur; sunucu kapalıysa hiçbir şey çizilmez. Canlı DEĞİL.
+
+### Bilinen sınırlar
+- Mention gönderme (`m.mentions`) yok; metindeki `@kişi` yalnızca düz metindir (alınan matrix.to bağlantıları hap olur).
+- Sabit çubuğu ve tepki kimleri canlı güncellenir ama sabit metinleri yalnızca kimlik kümesi değişince yeniden getirilir.
+- Özel emoji tepkisi (anahtar mxc://) gösterilir ama tepki olarak GÖNDERİLEMEZ (seçici tepki kipinde yalnızca standart emoji).
+- Thread (konu) yanıtları ayrı çizelge olarak gösterilmez; `m.thread` ilişkili mesajlar normal yanıt gibi çıkar.
+
+## Aramalar: Element Call (2026-11-23, KODLANDI, DERLENMEDİ / denenmedi)
+
+Element X'in yaptığı gibi: **Element Call (EC) bir `<iframe>` içinde çalışır, Matrix tarafını matrix-sdk `WidgetDriver` yürütür.** Araştırma: `docs/arastirma/element-call.md`.
+
+```
+Svelte EcKatman (iframe: ec://localhost/element-call/index.html#?...)
+   │ postMessage ▲                       src/lib/arama-ec/ec.svelte.ts  (süzgeç: fromWidget istek / toWidget yanıt)
+   ▼             │ ec-gelen (olay)
+ ec_gonder ──▶ Rust matrix/ec.rs ──▶ WidgetDriver::run(room, EcYetkileri)  ──▶ Matrix (oda olayları, OpenID, gecikmeli olaylar, to-device)
+```
+
+- **Rust (`src-tauri/src/matrix/ec.rs`)**: `ec_ac(oda_id, tur: baslat|katil, sesli_mi, dm_mi, ust_url, tema, yedek)` URL'yi kurar
+  (`VirtualElementCallWidgetProperties/Config` + `generate_webview_url`; intent Element X gibi: `start_call` / `join_existing` / `*_dm` / `*_dm_voice`;
+  `echoCancellation`/`noiseSuppression` URL'ye eklenir; Android'de `controlledAudioDevices`), `WidgetDriver::run`'ı görevde başlatır. `ec_gonder`, `ec_kapat`,
+  `ec_aktif_aramalar`, `ec_sunucu_destekliyor` (MatrixRTC arka ucu var mı: `Client::discover_rtc_transports`). Olaylar: `ec-gelen`, `ec-bitti`, `ec-arama-durumu`.
+  Aynı anda tek arama; çıkışta (`cikis`) kapatılır. Yetki listesi (`EcYetkileri`) matrix-sdk'da yok, FFI'daki `get_element_call_required_permissions` ile aynıdır.
+- **Paketleme**: `@element-hq/element-call-embedded@0.28.2` (npm, devDependency, AGPL-3.0 seçeneği) `vite.config.ts` ile `public/element-call/` içine kopyalanır
+  (git'e girmez) ve `ec` URI şemasıyla (`ec://localhost` Linux/macOS, `http://ec.localhost` Android/Windows) **kendi CSP'siyle** sunulur
+  (uygulamanın CSP'si EC'yi bozardı). EC `index.html`'ine `public/ec-kopru/kopru.js` enjekte edilir (ses çıkışı için `window.controls` köprüsü).
+  Yüklenmezse (15 sn `content_loaded` yok) bir kez `https://call.element.io/` yedeğiyle denenir (`EC_YEDEK_URL`, `ec.rs`); o da olmazsa hata ekranı.
+- **Svelte (`src/lib/arama-ec/`)**: `ec.svelte.ts` (durum + köprü), `EcKatman` (tam ekran katman; geri/Escape = küçült, kapatmaz; iframe takılı kalır),
+  `EcCubuk` (yeşil çubuk + kapat), `EcKatilSeridi` ("Katıl" şeridi: açık odada süren arama ya da çalan DM), `ses.ts` (Android köprüsü).
+  Giriş noktası: `arama.ara()` (`durum/arama.svelte.ts`): DM = sesli, grup odası = görüntülü. MatrixRTC yoksa/başlamazsa DM'de **eski 1:1 WebRTC** (VoIP v1) yedek
+  olarak kalır (MatrixRTC bilmeyen istemcilerle de çalışır); gelen v1 davetleri hâlâ alınır.
+- **Linux**: `linux_medya_ac` (WebKitGTK `enable-webrtc`, `enable-media-stream`, `enable-mediasource`, kullanıcı hareketi şartı kapalı; `permission-request` →
+  `UserMediaPermissionRequest` onaylanır). Çalışma zamanı: GStreamer `nice` eklentisi (`libnice-gstreamer1` / nixpkgs `libnice`), `gst-plugins-bad/good`.
+  Paketlemede (AppImage / .deb / Flatpak) bu eklentiler dahil edilmeli ya da bağımlılık yazılmalı. flake.nix'e eklendi.
+- **Android**: `MainActivity.kt` `SesKoprusu` (iletişim modu + ses odağı, çıkış aygıtları `cihazlar/cihazSec/varsayilanCihaz`, aygıt değişince olay),
+  `AramaServisi.kt` (mikrofon ön plan servisi, "Arama sürüyor" + Kapat, wake lock; RECORD_AUDIO verilmeden başlatılmaz), manifest izinleri. WebView izinlerini
+  Tauri'nin `RustWebChromeClient`'ı yönetir (mikrofon/kamera için çalışma anı izni sonrası verir; üretilmiş dosya, değiştirilmedi).
+- **Ekran paylaşımı**: Linux'ta EC düğmeyi `getDisplayMedia` varsa gösterir (WebKitGTK ≥ 2.42, portal + PipeWire). Android WebView'de `getDisplayMedia` YOK: EC düğmeyi gizler;
+  arayüz yükleme ekranında bunu söyler. Yerel çözüm planı: `docs/arastirma/element-call.md` "Sonraki adım".
+- **Lisans**: EC AGPL-3.0; Ben › Hakkında'da lisans notu + kaynak bağlantısı var. Dağıtıma EC lisans metni ve kaynak bağlantısı konmalı.

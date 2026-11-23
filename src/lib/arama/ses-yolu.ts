@@ -5,9 +5,17 @@
 interface RubySes {
   aramaBasladi(basladi: boolean): void;
   hoparlor(ac: boolean): void;
+  aramaServisi?(baslat: boolean, ad: string): void;
 }
 const kopru = (): RubySes | undefined => (window as unknown as { RubySes?: RubySes }).RubySes;
 
 export const hoparlorVar = (): boolean => !!kopru();
-export const aramaSesiBasladi = (b: boolean) => { try { kopru()?.aramaBasladi(b); } catch (e) { console.warn(e); } };
+// Old-call fixes: communication mode + audio focus (done in Kotlin) and a microphone foreground service so Android 14 keeps the mic alive.
+// Eski arama düzeltmeleri: iletişim modu + ses odağı (Kotlin'de) ve Android 14 mikrofonu canlı tutsun diye mikrofon ön plan servisi.
+export const aramaSesiBasladi = (b: boolean) => {
+  try {
+    kopru()?.aramaBasladi(b);
+    kopru()?.aramaServisi?.(b, "");
+  } catch (e) { console.warn(e); }
+};
 export const hoparlorAyarla = (ac: boolean) => { try { kopru()?.hoparlor(ac); } catch (e) { console.warn(e); } };

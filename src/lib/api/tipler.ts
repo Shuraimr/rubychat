@@ -4,7 +4,7 @@
 
 /** Error sent by every failing command · Başarısız her komutun döndürdüğü hata */
 export interface Hata {
-  tur: "ag" | "giris" | "sunucu_bulunamadi" | "oturum_yok" | "oda_bulunamadi" | "depolama" | "matrix" | "sifreleme" | "diger";
+  tur: "ag" | "giris" | "sunucu_bulunamadi" | "oturum_yok" | "oda_bulunamadi" | "oda_turu" | "depolama" | "matrix" | "sifreleme" | "diger";
   mesaj: string;
 }
 
@@ -38,6 +38,8 @@ export interface OdaOzeti {
   sifreli: boolean;
   dm: boolean;
   davet: boolean;
+  /** The room is a space: it has no message timeline, so it belongs to "Alanlar" and is never opened as a chat · Oda bir alan: mesaj çizelgesi yok, "Alanlar"a aittir ve sohbet olarak açılmaz */
+  alan: boolean;
 }
 
 export type EsitlemeDurumuAdi = "basliyor" | "calisiyor" | "hata" | "cevrimdisi";
@@ -55,7 +57,10 @@ export type ZamanTuru =
   | "diger"
   | "tarih_ayirici"
   | "okunmamis_ayirici"
-  | "arama";
+  | "arama"
+  | "silindi"
+  | "cikartma"
+  | "anket";
 
 export type AramaSonucu = "yapildi" | "cevapsiz" | "reddedildi" | "bilinmiyor";
 export interface AramaSatiri {
@@ -82,6 +87,62 @@ export interface ZamanOgesi {
   medya: MedyaBilgisi | null;
   /** Matrix event id of a real event (null for local echoes / virtual rows); message search jumps to it · Gerçek olayın Matrix olay kimliği (yerel yankı / sanal satırlarda null); mesaj araması buna atlar */
   olayId: string | null;
+  /** Raw formatted_body (HTML); sanitized by lib/bicim/temizle.ts before drawing · Ham formatted_body (HTML); çizmeden önce lib/bicim/temizle.ts temizler */
+  html: string | null;
+  duzenlendi: boolean;
+  tepkiler: Tepki[];
+  /** The quoted message when this one is a reply · Bu bir yanıtsa alıntılanan mesaj */
+  yanit: YanitBilgisi | null;
+  /** People whose latest read receipt is on this message (small rooms; never me) · Son okundu bilgisi bu mesajda olan kişiler (küçük odalar; ben asla) */
+  okuyanlar: KisiBilgisi[];
+  anket: AnketBilgisi | null;
+  /** I may delete it · Silebilirim */
+  silinebilir: boolean;
+  sabit: boolean;
+  /** Own text message that can be edited · Düzenlenebilir kendi metin mesajım */
+  duzenlenebilir: boolean;
+}
+
+export interface KisiBilgisi {
+  id: string;
+  ad: string;
+  avatarMxc: string | null;
+}
+
+/** One reaction key under a message · Bir mesajın altındaki tek tepki anahtarı */
+export interface Tepki {
+  /** emoji, or an mxc:// URI for a custom-emoji reaction · emoji, özel emoji tepkisinde mxc:// adresi */
+  anahtar: string;
+  sayi: number;
+  benim: boolean;
+  kisiler: KisiBilgisi[];
+}
+
+export interface YanitBilgisi {
+  olayId: string;
+  gonderen: string | null;
+  gonderenAd: string | null;
+  metin: string | null;
+  /** not fetched yet (the backend is asking for it) · henüz getirilmedi (arka uç istiyor) */
+  yukleniyor: boolean;
+}
+
+export interface AnketSecenegi {
+  id: string;
+  metin: string;
+  oy: number;
+  benim: boolean;
+}
+
+export interface AnketBilgisi {
+  soru: string;
+  secenekler: AnketSecenegi[];
+  toplamOy: number;
+  bitti: boolean;
+  /** m.disclosed: results visible while voting · m.disclosed: oy verirken sonuçlar görünür */
+  acik: boolean;
+  maksSecim: number;
+  benimAnketim: boolean;
 }
 
 // ---- Media · Medya ----
@@ -193,6 +254,99 @@ export interface ZamanGuncelleme {
   ogeler: ZamanOgesi[];
   /** true when the start of the room history was reached · odanın geçmişinin başına ulaşıldıysa true */
   basaUlasildi: boolean;
+  /** event ids in the room's pinned list · odanın sabit listesindeki olay kimlikleri */
+  sabitler: string[];
+  /** may I pin / unpin here? · burada sabitleyebilir / kaldırabilir miyim? */
+  sabitleyebilir: boolean;
+}
+
+/** Who is typing in a room (me excluded) · Bir odada kimler yazıyor (ben hariç) */
+export interface YaziyorGuncelleme {
+  odaId: string;
+  kisiler: KisiBilgisi[];
+}
+
+export interface SabitMesaj {
+  olayId: string;
+  gonderenAd: string | null;
+  metin: string | null;
+}
+
+/** UI → Rust: send a text message, optionally as a reply and/or HTML · Arayüzden Rust'a: metin mesajı, isteğe bağlı yanıt ve/veya HTML */
+export interface MesajGonderIstegi {
+  odaId: string;
+  metin: string;
+  html: string | null;
+  yanitOlayId: string | null;
+}
+
+export interface AnketIstegi {
+  odaId: string;
+  soru: string;
+  secenekler: string[];
+  /** true = results visible while voting · true = oy verirken sonuçlar görünür */
+  acik: boolean;
+  coklu: boolean;
+}
+
+export interface CikartmaIstegi {
+  odaId: string;
+  mxc: string;
+  metin: string;
+  genislik: number | null;
+  yukseklik: number | null;
+  mime: string | null;
+  /** Replied-to event · Yanıtlanan olay */
+  yanitOlayId: string | null;
+}
+
+/** One image of an MSC2545 pack · MSC2545 paketinin tek görseli */
+export interface PaketGorseli {
+  kisaKod: string;
+  mxc: string;
+  metin: string;
+  genislik: number | null;
+  yukseklik: number | null;
+  mime: string | null;
+  /** may be used as custom emoji / as a sticker · özel emoji / çıkartma olarak kullanılabilir */
+  emoji: boolean;
+  cikartma: boolean;
+}
+
+export interface GorselPaketi {
+  kaynak: "oda" | "kullanici" | "baska_oda";
+  ad: string;
+  avatarMxc: string | null;
+  gorseller: PaketGorseli[];
+}
+
+// ---- Spaces · Alanlar ----
+export interface AlanOgesi {
+  id: string;
+  ad: string;
+  avatarHarf: string;
+  avatarMxc: string | null;
+  konu: string | null;
+  uyeSayisi: number;
+  /** it is a space itself (opens as a space view) · kendisi bir alan (alan görünümü olarak açılır) */
+  alan: boolean;
+  altSayisi: number;
+  /** I am joined: opens normally; otherwise "Katıl" · katılmışım: normal açılır; değilse "Katıl" */
+  katildi: boolean;
+  dm: boolean;
+  onerilen: boolean;
+  /** servers to join through · katılırken kullanılacak sunucular */
+  via: string[];
+}
+export interface AlanIcerigi {
+  alan: AlanOgesi | null;
+  cocuklar: AlanOgesi[];
+}
+
+/** Presence, when the server tells us · Sunucu söylerse varlık durumu */
+export interface VarlikDurumu {
+  durum: "cevrimici" | "bosta" | "cevrimdisi";
+  sonEtkinlikMs: number | null;
 }
 
 export interface GirisIstegi {
@@ -336,4 +490,30 @@ export interface BenimYetkilerim {
   yasaklayabilir: boolean;
   davetEdebilir: boolean;
   gucDegistirebilir: boolean;
+}
+
+/** One of my login sessions (device) · Oturum açtığım bir cihaz (profil.rs `OturumCihazi`) */
+export interface OturumCihazi {
+  cihazId: string;
+  ad: string | null;
+  /** ms since epoch · epoch'tan beri ms */
+  sonGorulme: number | null;
+  sonIp: string | null;
+  /** cross-signed by me (trusted) · bana ait çapraz imzayla doğrulanmış */
+  dogrulandi: boolean;
+  buCihaz: boolean;
+}
+
+/** Ben › Hesap: what the server offers · Ben › Hesap: sunucunun sunduğu (profil.rs `HesapBilgisi`) */
+export interface HesapBilgisi {
+  sunucu: string;
+  oidc: boolean;
+  hesapUrl: string | null;
+  eylemler: string[];
+  surumler: string[];
+  slidingSync: boolean;
+}
+export interface EpostaAdresi {
+  adres: string;
+  dogrulandi: boolean;
 }

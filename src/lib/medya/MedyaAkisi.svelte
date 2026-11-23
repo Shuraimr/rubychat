@@ -36,7 +36,12 @@
   import { boyutYaz, m, sureYaz } from "./metin";
   import { kareler, metaOku, tahminiVideoBoyutu, videoAc, type VideoKalitesi } from "./video";
 
-  let { odaId, kaynak, onkapat }: { odaId: string; kaynak: "galeri" | "kamera" | "dosya"; onkapat: () => void } = $props();
+  /**
+   * `gif` = "GIF yap": videos only, the cut is limited to 6 s and starts muted (no encoder library: the result is a short muted m.video that
+   * plays like a GIF). `gif` = "GIF yap": yalnızca video, kesim 6 sn ile sınırlı ve sessiz başlar (kodlayıcı kütüphanesi yok: sonuç GIF gibi oynayan kısa sessiz m.video).
+   */
+  let { odaId, kaynak, onkapat, gif = false }: { odaId: string; kaynak: "galeri" | "kamera" | "dosya"; onkapat: () => void; gif?: boolean } = $props();
+  const GIF_SN = 6;
 
   interface Oge extends GonderilecekOge {
     id: number;
@@ -107,7 +112,7 @@
   }
 
   // ---- Picking · Seçme ----
-  const kabul = $derived(kaynak === "dosya" ? undefined : "image/*,video/*");
+  const kabul = $derived(gif ? "video/*" : kaynak === "dosya" ? undefined : "image/*,video/*");
 
   async function sec() {
     const dosyalar = Array.from(girdi.files ?? []);
@@ -162,7 +167,7 @@
       const v = await videoAc(url);
       const meta = metaOku(v);
       taban.videoEl = v;
-      taban.video = { sure: meta.sure, basla: 0, bitis: meta.sure, sessiz: false, kalite: "720", genislik: meta.genislik, yukseklik: meta.yukseklik };
+      taban.video = { sure: meta.sure, basla: 0, bitis: gif ? Math.min(meta.sure, GIF_SN) : meta.sure, sessiz: gif, kalite: "720", genislik: meta.genislik, yukseklik: meta.yukseklik };
     }
     return taban;
   }
@@ -440,8 +445,9 @@
     if (!tutac || !v || !oynatici) return;
     const fark = ((e.clientX - tutac.ox) / tutac.genis) * v.sure;
     const MIN_SURE = Math.min(1, v.sure);
-    if (tutac.tur === "bas") v.basla = sinirla(tutac.deger + fark, 0, v.bitis - MIN_SURE);
-    else v.bitis = sinirla(tutac.deger + fark, v.basla + MIN_SURE, v.sure);
+    if (tutac.tur === "bas") {
+      v.basla = sinirla(tutac.deger + fark, gif ? Math.max(0, v.bitis - GIF_SN) : 0, v.bitis - MIN_SURE);
+    } else v.bitis = sinirla(tutac.deger + fark, v.basla + MIN_SURE, gif ? Math.min(v.sure, v.basla + GIF_SN) : v.sure);
     // The preview follows the handle being dragged. · Önizleme sürüklenen tutacağı izler.
     oynatici.currentTime = tutac.tur === "bas" ? v.basla : Math.max(v.basla, v.bitis - 0.05);
   }

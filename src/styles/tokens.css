@@ -28,7 +28,7 @@
   --sure-bildirim: 200ms; /* toast in · bildirim girişi */
   --sure-bildirim-cik: 150ms; /* toast out · bildirim çıkışı */
   --sure-ekran: 240ms;   /* list → room · liste → oda */
-  --sure-sayfa: 280ms;   /* bottom sheet · alt sayfa */
+  --sure-sayfa: 420ms;   /* bottom sheet (a spring needs room to settle) · alt sayfa (yayın oturması için yer) */
   --sure-pop: 300ms;     /* reaction pop · tepki yaylanması */
   --sure-yavas: 320ms;
   --egri-cikis: cubic-bezier(.2, .8, .2, 1);

@@ -1,0 +1,150 @@
+/*
+  Design "D · Hybrid" foundation (Telegram motion + Element X calm + rubyyard crystal). Loaded AFTER tokens.css.
+  It adds: spring curves, crystal (bevel) surfaces, the hexagon shape, the chat wallpaper, the crystal background effects and the
+  motion keyframes shared by lists, bubbles and sheets. Colours come ONLY from the existing theme variables, so every theme,
+  AMOLED and every accent works; every animation reads a duration token, and the reduced-motion block at the end zeroes them.
+  Tasarım "D · Hibrit" temeli (Telegram hareketi + Element X sakinliği + rubyyard kristali). tokens.css'ten SONRA yüklenir.
+  Ekledikleri: yay eğrileri, kristal (pah) yüzeyler, altıgen biçimi, sohbet duvar kâğıdı, kristal arka plan efektleri ve listelerin,
+  balonların, sayfaların paylaştığı hareket anahtar kareleri. Renkler YALNIZCA mevcut tema değişkenlerinden gelir; her tema, AMOLED ve
+  her vurgu çalışır; her animasyon bir süre değişkeni okur, sondaki azaltılmış hareket bloğu hepsini sıfırlar.
+*/
+:root {
+  /* Spring durations: a spring needs room to settle, so these are longer than the plain ones above.
+     Yay süreleri: yayın oturması için yer gerekir; bu yüzden yukarıdaki düz sürelerden uzundur. */
+  --sure-yay: 460ms;
+  --sure-yay-uzun: 560ms;
+  --sure-sira: 36ms;  /* list stagger step · liste kademeli giriş adımı */
+  /* Fallbacks first (cubic-bezier overshoot); browsers with linear() get the real spring below.
+     Önce yedekler (cubic-bezier taşması); linear() destekleyen tarayıcılar aşağıda gerçek yayı alır. */
+  --egri-yay-yumusak: cubic-bezier(.3, 1.25, .5, 1);
+  --egri-yay-capkin: cubic-bezier(.3, 1.6, .5, 1);
+  --egri-yay-sakin: cubic-bezier(.2, .9, .3, 1);
+  /* The crystal bevel: light edge on top, dark edge below, a soft drop shadow (rubyyard --kat-2, a bit deeper). */
+  /* Kristal pah: üstte ışık kenarı, altta koyu kenar, yumuşak bir gölge (rubyyard --kat-2, biraz daha derin). */
+  --kristal: var(--kat-2), inset 0 0 0 1px var(--kenar-ince);
+  --altigen: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+  /* Own bubble: the accent mixed into the page background, so it is lively but never glaring; works in light and dark. */
+  /* Giden balon: vurgu sayfa zeminine karıştırılır; canlı ama gözü almaz; açıkta da koyuda da çalışır. */
+  --giden-dolgu: color-mix(in srgb, var(--vurgu) 40%, var(--zemin));
+  --gelen-dolgu: var(--yuzey-2);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    /* Real springs sampled from a damped oscillator (ζ .62 / .5 / .8). · Sönümlü salınımdan örneklenmiş gerçek yaylar (ζ .62 / .5 / .8). */
+    --egri-yay-yumusak: linear(0, 0.073 4.2%, 0.241 8.3%, 0.443 12.5%, 0.638 16.7%, 0.803 20.8%, 0.927 25%, 1.011 29.2%, 1.06 33.3%, 1.081 37.5%, 1.082 41.7%, 1.072 45.8%, 1.057 50%, 1.04 54.2%, 1.024 58.3%, 1.012 62.5%, 1.003 66.7%, 0.997 70.8%, 0.994 75%, 0.993 83.3%, 0.996 91.7%, 1);
+    --egri-yay-capkin: linear(0, 0.111 4.2%, 0.359 8.3%, 0.638 12.5%, 0.879 16.7%, 1.047 20.8%, 1.137 25%, 1.163 29.2%, 1.145 33.3%, 1.105 37.5%, 1.059 41.7%, 1.02 45.8%, 0.992 50%, 0.978 54.2%, 0.973 58.3%, 0.976 62.5%, 0.983 66.7%, 0.99 70.8%, 0.997 75%, 1.004 83.3%, 1.004 91.7%, 1);
+    --egri-yay-sakin: linear(0, 0.044 4.2%, 0.148 8.3%, 0.279 12.5%, 0.415 16.7%, 0.544 20.8%, 0.657 25%, 0.753 29.2%, 0.83 33.3%, 0.889 37.5%, 0.934 41.7%, 0.966 45.8%, 0.988 50%, 1.002 54.2%, 1.01 58.3%, 1.014 66.7%, 1.011 79.2%, 1.005 91.7%, 1);
+    /* Sheets, the dock-less nav and screen changes use the soft spring. · Sayfalar ve ekran geçişleri yumuşak yayı kullanır. */
+    --egri-sayfa: var(--egri-yay-yumusak);
+    --egri-yay: var(--egri-yay-capkin);
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Crystal surfaces · Kristal yüzeyler
+   --------------------------------------------------------------------------------------------------------------- */
+.kristal {
+  /* Opaque on purpose: a live blur over a scrolling list is re-computed every frame. · Bilerek opak: kayan listenin üstünde canlı bulanıklık her kare yeniden hesaplanır. */
+  background-color: var(--yuzey-2);
+  border: 1px solid var(--kenar-ince); box-shadow: var(--kristal);
+  /* A faint facet highlight in the top half, like light on a cut stone. · Üst yarıda soluk bir yüz parlaması; kesilmiş taşa vuran ışık gibi. */
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--yazi) 5%, transparent), transparent 55%);
+}
+
+/* Hexagon button (FAB, send / mic). The faces are drawn by an inline SVG so the shape can carry a real shadow. See AltigenDugme.svelte. */
+/* Altıgen düğme (FAB, gönder / mikrofon). Yüzler satır içi SVG ile çizilir; böylece biçim gerçek bir gölge taşıyabilir. */
+.altigen-dugme {
+  position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--vurgu-ustu); transition: transform var(--sure-yay) var(--egri-yay-capkin);
+  filter: drop-shadow(0 6px 10px rgb(0 0 0 / .28)) drop-shadow(0 1px 1px rgb(0 0 0 / .3));
+}
+.altigen-dugme:active { transform: scale(.92); }
+
+/* Message-bubble tails: a 12 x 14 curved wedge; left for incoming, mirrored for own. · Mesaj balonu kuyrukları: 12 x 14 kıvrımlı kama; gelende sol, giden için yansıtılmış. */
+:root {
+  --kuyruk-sol: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 14'%3E%3Cpath d='M12 0v14H1.5C7 13.4 11.4 9.5 12 0z'/%3E%3C/svg%3E");
+  --kuyruk-sag: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 14'%3E%3Cpath d='M0 0v14h10.5C5 13.4.6 9.5 0 0z'/%3E%3C/svg%3E");
+}
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Chat wallpaper: a hexagon lattice with ruby diamonds, drawn as a MASK so it takes the accent colour of any theme.
+   Sohbet duvar kâğıdı: yakut elmaslı altıgen ızgara; MASKE olarak çizilir, böylece her temanın vurgu rengini alır.
+   --------------------------------------------------------------------------------------------------------------- */
+:root {
+  --duvar-maske: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='104'%3E%3Cg fill='none' stroke='%23000' stroke-width='1.6' stroke-linejoin='round'%3E%3Cpath d='M30 4 56 19v30L30 64 4 49V19z'/%3E%3Cpath d='M30 64v8M4 49 0 51M56 49l4 2'/%3E%3C/g%3E%3Cg fill='%23000'%3E%3Cpath d='M30 28l6 7-6 9-6-9z'/%3E%3Cpath d='M0 86l5 6-5 8-5-8zM60 86l5 6-5 8-5-8z'/%3E%3C/g%3E%3C/svg%3E");
+}
+.duvar-kagidi {
+  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background: var(--vurgu); opacity: .075;
+  -webkit-mask-image: var(--duvar-maske); mask-image: var(--duvar-maske);
+  -webkit-mask-size: 60px 104px; mask-size: 60px 104px;
+}
+:root[data-tema="acik"] .duvar-kagidi { opacity: .09; }
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Crystal background effects (KristalZemin.svelte). Only transform / opacity move; everything pauses while the app is hidden
+   (html[data-gizli]) and stands still under reduced motion.
+   Kristal arka plan efektleri (KristalZemin.svelte). Yalnızca transform / opacity hareket eder; uygulama gizliyken (html[data-gizli])
+   her şey durur, azaltılmış harekette durağan kalır.
+   --------------------------------------------------------------------------------------------------------------- */
+.kz { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; contain: strict; }
+.kz svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* 1 · Ruby crystals: low-poly facets drifting slowly · Yakut kristalleri: yavaşça süzülen düşük çokgenli yüzler */
+.kz-yakut .yuz { fill: var(--vurgu); transform-box: fill-box; transform-origin: center; animation: kz-suzul 38s ease-in-out infinite alternate; }
+.kz-yakut .yuz:nth-child(1) { opacity: .09; animation-duration: 42s; }
+.kz-yakut .yuz:nth-child(2) { opacity: .06; animation-duration: 33s; animation-delay: -9s; }
+.kz-yakut .yuz:nth-child(3) { opacity: .11; animation-duration: 47s; animation-delay: -21s; }
+.kz-yakut .yuz:nth-child(4) { opacity: .05; animation-duration: 29s; animation-delay: -4s; }
+.kz-yakut .yuz:nth-child(5) { opacity: .08; animation-duration: 36s; animation-delay: -15s; }
+.kz-yakut .yuz:nth-child(6) { opacity: .07; animation-duration: 51s; animation-delay: -30s; }
+@keyframes kz-suzul { from { transform: translate3d(-3%, -2%, 0) rotate(-4deg) scale(.96); } to { transform: translate3d(4%, 3%, 0) rotate(5deg) scale(1.06); } }
+/* 2 · Hexagon lattice with a gentle light sweep · Hafif ışık süpürmeli altıgen ızgara */
+.kz-izgara { -webkit-mask-image: var(--duvar-maske); mask-image: var(--duvar-maske); -webkit-mask-size: 60px 104px; mask-size: 60px 104px; }
+.kz-izgara::before { content: ""; position: absolute; inset: 0; background: var(--vurgu); opacity: .07; }
+.kz-izgara::after {
+  content: ""; position: absolute; top: -20%; bottom: -20%; left: 0; width: 45%;
+  background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--yazi) 55%, var(--vurgu)) 50%, transparent);
+  opacity: .22; transform: translate3d(-120%, 0, 0) skewX(-14deg); animation: kz-sup 3.6s ease-in-out .5s 1 both; /* one pass when the screen opens, then no frames at all · ekran açılınca bir geçiş, sonra hiç kare yok */
+}
+@keyframes kz-sup { 0% { transform: translate3d(-120%, 0, 0) skewX(-14deg); } 100% { transform: translate3d(320%, 0, 0) skewX(-14deg); } }
+/* 3 · Light refraction: soft prismatic shards · Işık kırılması: yumuşak prizmatik parçalar */
+/* Soft by gradient, not by filter: blur() (which is recomputed on the GPU). · Yumuşaklık gradyandan; filter: blur() GPU'da yeniden hesaplanır. */
+.kz-isik .kirinim { position: absolute; width: 95%; height: 62%; border-radius: 0; animation: kz-kir 26s ease-in-out infinite alternate; }
+.kz-isik .kirinim:nth-child(1) { top: -8%; left: -10%; background: radial-gradient(closest-side, color-mix(in srgb, var(--vurgu) 30%, transparent), transparent); opacity: .5; }
+.kz-isik .kirinim:nth-child(2) { top: 30%; right: -18%; background: radial-gradient(closest-side, color-mix(in srgb, var(--vurgu) 16%, var(--tas-yakut, var(--vurgu))), transparent); opacity: .24; animation-duration: 34s; animation-delay: -11s; }
+.kz-isik .kirinim:nth-child(3) { bottom: -14%; left: 8%; background: radial-gradient(closest-side, color-mix(in srgb, var(--vurgu) 12%, var(--tas-safir, var(--vurgu))), transparent); opacity: .28; animation-duration: 30s; animation-delay: -19s; }
+@keyframes kz-kir { from { transform: translate3d(-5%, -3%, 0) rotate(-6deg) scale(.95); } to { transform: translate3d(6%, 5%, 0) rotate(8deg) scale(1.08); } }
+:root[data-gizli] .kz *, :root[data-gizli] .kz::after, :root[data-gizli] .kz::before { animation-play-state: paused !important; }
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Motion keyframes shared by screens · Ekranların paylaştığı hareket anahtar kareleri
+   --------------------------------------------------------------------------------------------------------------- */
+/* List rows: first show only; --i (row index, set inline, capped) staggers them · Liste satırları: yalnızca ilk gösterim; --i (satır sırası) kademelendirir */
+.liste-gir { animation: liste-gir var(--sure-yay) var(--egri-yay-sakin) backwards; animation-delay: calc(min(var(--i, 0), 9) * var(--sure-sira)); }
+@keyframes liste-gir { from { opacity: 0; transform: translate3d(0, 14px, 0) scale(.985); } }
+/* Reaction chip pop: .6 → 1.1 → 1 · Tepki çipi yaylanması: .6 → 1.1 → 1 */
+@keyframes tepki-pop { 0% { transform: scale(.6); opacity: 0; } 55% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); } }
+/* Context menu grows from the pressed bubble's origin (--ox / --oy set by the menu) · Bağlam menüsü basılan balonun noktasından büyür (--ox / --oy menü yazar) */
+@keyframes menu-buyu { from { opacity: 0; transform: scale(.82); } }
+
+/* ---------------------------------------------------------------------------------------------------------------
+   View Transitions (where the WebView has them): the shared avatar + the search pill morph. Without support nothing changes.
+   View Transitions (WebView'de varsa): ortak avatar + arama hapı dönüşümü. Destek yoksa hiçbir şey değişmez.
+   --------------------------------------------------------------------------------------------------------------- */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--sure-ekran); animation-timing-function: var(--egri-vurgulu); }
+::view-transition-group(*) { animation-duration: var(--sure-yay); animation-timing-function: var(--egri-yay-sakin); }
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Reduced motion: the duration tokens above are zeroed the same way tokens.css does it, and infinite loops are switched off
+   (a 0ms infinite animation would otherwise jitter). Opacity-only fades stay (they use 0ms too, i.e. instant).
+   Azaltılmış hareket: yukarıdaki süre değişkenleri tokens.css'tekiyle aynı yoldan sıfırlanır ve sonsuz döngüler kapatılır
+   (0ms'lik sonsuz animasyon titrerdi). Her şey anında olur.
+   --------------------------------------------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  :root { --sure-yay: 0ms; --sure-yay-uzun: 0ms; --sure-sira: 0ms; }
+  .kz *, .kz::after, .kz::before { animation: none !important; }
+  .liste-gir { animation: none; }
+}
+:root[data-az-animasyon] { --sure-yay: 0ms; --sure-yay-uzun: 0ms; --sure-sira: 0ms; }
+:root[data-az-animasyon] .kz *, :root[data-az-animasyon] .kz::after, :root[data-az-animasyon] .kz::before { animation: none !important; }
+:root[data-az-animasyon] .liste-gir { animation: none; }

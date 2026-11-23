@@ -59,6 +59,11 @@ class Sifreleme {
   /** Logging out would lose history: no recovery key (or not entered on this device). · Çıkış geçmişi kaybettirir: kurtarma anahtarı yok (ya da bu cihazda girilmemiş). */
   cikisRiskli = $derived(!!this.durum && this.durum.kurtarma !== "hazir" && this.durum.kurtarma !== "bilinmiyor");
 
+  /** Turkish text for an error (used by the settings pages) · Bir hata için Türkçe metin (ayar sayfaları kullanır) */
+  hataMetniVer(e: unknown): string {
+    return hataMetni(e);
+  }
+
   async baslat(cihazId: string) {
     this.durdur();
     this.#cihazId = cihazId;

@@ -46,7 +46,14 @@
       devShells.${sistem}.default = pkgs.mkShell {
         nativeBuildInputs = with pkgs; [ rust nodejs_22 pkg-config jdk17 android.androidsdk cargo-tauri gh jq ];
         # Linux desktop (WebKitGTK) libraries / Linux masaüstü (WebKitGTK) kütüphaneleri
-        buildInputs = with pkgs; [ webkitgtk_4_1 gtk3 libsoup_3 glib-networking librsvg openssl dbus ];
+        buildInputs = with pkgs; [
+          webkitgtk_4_1 gtk3 libsoup_3 glib-networking librsvg openssl dbus
+          # Calls (Element Call in WebKitGTK): WebKit's WebRTC runs on GStreamer's `webrtcbin`, whose ICE part is the `nice` plugin that ships
+          # in `libnice` (lib/gstreamer-1.0/libgstnice.so); -bad has webrtcbin/dtls/srtp, -good the RTP + vpx/opus parts.
+          # Aramalar (WebKitGTK'de Element Call): WebKit'in WebRTC'si GStreamer `webrtcbin` üzerinde çalışır; ICE kısmı `libnice` ile gelen
+          # `nice` eklentisidir (lib/gstreamer-1.0/libgstnice.so); -bad webrtcbin/dtls/srtp, -good RTP + vpx/opus parçalarını taşır.
+          libnice gst_all_1.gstreamer gst_all_1.gst-plugins-base gst_all_1.gst-plugins-good gst_all_1.gst-plugins-bad
+        ];
         ANDROID_HOME = sdk;
         ANDROID_SDK_ROOT = sdk;
         NDK_HOME = "${sdk}/ndk-bundle";
@@ -55,6 +62,9 @@
           # Gradle's own aapt2 works on Fedora; on NixOS use the SDK's / NixOS'ta SDK'nınkini kullan
           export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${sdk}/build-tools/36.0.0/aapt2"
           export GIO_MODULE_DIR=${pkgs.glib-networking}/lib/gio/modules/
+          # GStreamer finds its plugins through this variable inside the Nix shell (the `nice` plugin comes from libnice).
+          # Nix kabuğunda GStreamer eklentilerini bu değişkenle bulur (`nice` eklentisi libnice'ten gelir).
+          export GST_PLUGIN_SYSTEM_PATH_1_0="${pkgs.libnice}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-base}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-good}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-bad}/lib/gstreamer-1.0"
         '';
       };
     };

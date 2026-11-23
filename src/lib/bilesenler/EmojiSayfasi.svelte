@@ -1,32 +1,19 @@
 <!--
-  Emoji sheet for the composer: a plain grid of common emoji; tapping one inserts it at the cursor. (Reactions are not offered: the backend has none yet.)
-  Yazma alanı için emoji sayfası: yaygın emojilerden düz bir ızgara; birine dokunmak onu imlecin olduğu yere ekler. (Tepki sunulmaz: arka uçta henüz yok.)
+  Reaction picker: the emoji panel inside a bottom sheet (standard emoji only, one tap reacts). The composer uses the panel directly.
+  Tepki seçici: alt sayfa içinde emoji paneli (yalnızca standart emoji, bir dokunuş tepki verir). Yazma alanı paneli doğrudan kullanır.
 -->
 <script lang="ts">
   import { t } from "../i18n";
   import AltSayfa from "./AltSayfa.svelte";
+  import EmojiPaneli from "./EmojiPaneli.svelte";
 
   let { ekle, onkapat }: { ekle: (emoji: string) => void; onkapat: () => void } = $props();
-
-  const EMOJILER = [
-    "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🙂", "😉", "😊", "😍", "🥰", "😘", "😎", "🤩", "🤔",
-    "😐", "😴", "😢", "😭", "😡", "😱", "🥳", "🙃", "👍", "👎", "👏", "🙌", "🙏", "💪", "👋", "🤝",
-    "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "💔", "🔥", "✨", "🎉", "🎂", "☕", "🍕", "🌱", "🌙",
-    "⭐", "✅", "❌", "❓", "❗", "💡", "📌", "📎", "🚀", "💻", "📱", "🎧", "🐶", "🐱", "🦊", "🦝",
-  ];
 </script>
 
-<AltSayfa baslik={t("emoji.baslik")} {onkapat}>
-  <div class="izgara">
-    {#each EMOJILER as e (e)}
-      <button onclick={() => ekle(e)} aria-label={e}>{e}</button>
-    {/each}
-  </div>
+<AltSayfa baslik={t("tepki.sec")} {onkapat}>
+  <div class="govde"><EmojiPaneli tepki {ekle} /></div>
 </AltSayfa>
 
 <style>
-  .izgara { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; padding-bottom: 8px; }
-  button { min-width: 44px; min-height: 44px; border-radius: 10px; font-size: 1.5rem; line-height: 1; transition: background var(--sure-hizli) var(--egri-cikis); }
-  button:active { background: var(--yuzey-3); }
-  @media (max-width: 360px) { .izgara { grid-template-columns: repeat(7, 1fr); } }
+  .govde { height: min(22rem, 52vh); margin: 0 -12px; display: flex; flex-direction: column; }
 </style>

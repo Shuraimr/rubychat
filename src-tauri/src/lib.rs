@@ -60,12 +60,22 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // System browser for account pages (MAS). · Hesap sayfaları için sistem tarayıcısı (MAS).
+        .plugin(tauri_plugin_opener::init())
         .register_asynchronous_uri_scheme_protocol("medya", |ctx, istek, yanitci| {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move { yanitci.respond(medya::sun(&app, istek).await) });
         })
+        // Bundled Element Call, served with its own CSP (see matrix/ec.rs). · Paketlenmiş Element Call, kendi CSP'siyle sunulur (bkz. matrix/ec.rs).
+        .register_asynchronous_uri_scheme_protocol("ec", |ctx, istek, yanitci| {
+            let app = ctx.app_handle().clone();
+            tauri::async_runtime::spawn(async move { yanitci.respond(matrix::ec::sun(&app, istek).await) });
+        })
         .setup(|app| {
             app.manage(durum::AppState::default());
+            // Linux: WebKitGTK ships WebRTC / media capture off; Element Call needs them. · Linux: WebKitGTK WebRTC / medya yakalamayı kapalı getirir; Element Call'un ihtiyacı var.
+            #[cfg(target_os = "linux")]
+            matrix::ec::linux_medya_ac(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -116,7 +126,43 @@ pub fn run() {
             matrix::uyeler::yasak_kaldir,
             matrix::uyeler::guc_ayarla,
             matrix::uyeler::dm_ac,
+            matrix::uyeler::oda_olustur,
             matrix::uyeler::oda_ayril,
+            matrix::eylemler::tepki_degistir,
+            matrix::eylemler::mesaj_sil,
+            matrix::eylemler::mesaj_duzenle,
+            matrix::eylemler::yaziyor_bildir,
+            matrix::eylemler::mesaj_sabitle,
+            matrix::eylemler::sabit_mesajlar,
+            matrix::eylemler::anket_olustur,
+            matrix::eylemler::anket_oy_ver,
+            matrix::eylemler::anket_bitir,
+            matrix::eylemler::mesaj_ilet,
+            matrix::eylemler::cikartma_gonder,
+            matrix::eylemler::varlik_durumu,
+            matrix::paketler::emoji_paketleri,
+            matrix::alanlar::alanlari_al,
+            matrix::alanlar::alan_icerigi,
+            matrix::alanlar::alana_katil,
+            matrix::ec::ec_ac,
+            matrix::ec::ec_gonder,
+            matrix::ec::ec_kapat,
+            matrix::ec::ec_aktif_aramalar,
+            matrix::ec::ec_sunucu_destekliyor,
+            matrix::profil::profil_ad_ayarla,
+            matrix::profil::profil_avatar_ayarla,
+            matrix::profil::profil_avatar_kaldir,
+            matrix::profil::oturumlar_listele,
+            matrix::profil::cihaz_yeniden_adlandir,
+            matrix::profil::cihaz_cikis,
+            matrix::profil::yedek_ayarla,
+            matrix::profil::kurtarma_sifirla,
+            matrix::profil::cikartma_paketine_ekle,
+            matrix::profil::hesap_bilgisi,
+            matrix::profil::sifre_degistir,
+            matrix::profil::epostalar_listele,
+            matrix::profil::eposta_sil,
+            matrix::profil::hesap_kapat,
         ])
         .run(tauri::generate_context!())
         .expect("rubychat başlatılamadı");

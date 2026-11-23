@@ -56,7 +56,7 @@
 
 <style>
   .ray {
-    width: 72px; flex: none; display: flex; flex-direction: column; justify-content: space-between; align-items: center; gap: 8px;
+    width: max(72px, 4.5rem); flex: none; display: flex; flex-direction: column; justify-content: space-between; align-items: center; gap: 8px;
     padding: 12px 0 calc(12px + env(safe-area-inset-bottom)); background: var(--yuzey-1); border-right: 1px solid var(--kenar-ince);
   }
   .ray.kompakt { width: calc(64px + env(safe-area-inset-left)); padding-left: env(safe-area-inset-left); padding-top: calc(8px + env(safe-area-inset-top)); }
@@ -74,7 +74,7 @@
   .sayac { position: absolute; top: -2px; right: 4px; min-width: 18px; height: 18px; padding: 0 5px; font-size: .6875rem; border: 2px solid var(--yuzey-1); box-sizing: content-box; }
   .kompakt .sayac { right: 8px; }
   .nokta { position: absolute; top: 2px; right: 10px; width: 8px; height: 8px; border-radius: 4px; background: var(--vurgu); border: 2px solid var(--yuzey-1); box-sizing: content-box; }
-  .etiket { font-size: .75rem; line-height: 1.33; }
+  .etiket { font-size: .75rem; line-height: 1.33; max-width: 100%; text-align: center; overflow-wrap: anywhere; }
   .aktif { color: var(--yazi); }
   .aktif .etiket { font-weight: 600; }
 </style>

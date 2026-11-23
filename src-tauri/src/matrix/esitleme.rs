@@ -52,6 +52,12 @@ pub async fn baslat(app: AppHandle, client: Client) -> Sonuc<(Option<Arc<SyncSer
     let mut gorevler = Vec::new();
     durum_yayinla(&app, EsitlemeDurumuAdi::Basliyor, None);
 
+    // Before anything syncs: without this the classic mode stores no events until a room is opened, so the list has no previews.
+    // Her şeyden önce: bu olmadan klasik kipte oda açılana dek olay saklanmaz; listede önizleme olmaz.
+    if let Err(e) = client.event_cache().subscribe() {
+        warn!("olay önbelleği başlatılamadı: {e}");
+    }
+
     let sliding = matches!(client.sliding_sync_version(), matrix_sdk::sliding_sync::Version::Native);
     let servis = if sliding {
         info!("sliding sync kullanılıyor");

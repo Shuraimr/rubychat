@@ -216,6 +216,31 @@ pub async fn dm_ac(durum: State<'_, AppState>, kullanici_id: String) -> Sonuc<St
     Ok(oda.room_id().to_string())
 }
 
+/// Create a private room (encrypted group) or a space, invite-only. Returns the new room id.
+/// Özel bir oda (şifreli grup) ya da alan oluştur; yalnızca davetle. Yeni oda kimliğini döndürür.
+#[tauri::command]
+pub async fn oda_olustur(durum: State<'_, AppState>, ad: String, alan: bool) -> Sonuc<String> {
+    use matrix_sdk::ruma::{api::client::room::create_room::v3 as olustur, room::RoomType, serde::Raw};
+    let ad = ad.trim().to_owned();
+    if ad.is_empty() {
+        return Err(Hata::Diger("oda adı boş".into()));
+    }
+    let client = durum.client().await?;
+    let mut istek = olustur::Request::new();
+    istek.name = Some(ad);
+    istek.preset = Some(olustur::RoomPreset::PrivateChat);
+    if alan {
+        let mut icerik = olustur::CreationContent::new();
+        icerik.room_type = Some(RoomType::Space);
+        istek.creation_content = Some(Raw::new(&icerik).map_err(|e| Hata::Diger(e.to_string()))?);
+    }
+    let oda = client.create_room(istek).await.map_err(|e| Hata::Matrix(e.to_string()))?;
+    if !alan {
+        oda.enable_encryption().await.map_err(|e| Hata::Matrix(e.to_string()))?;
+    }
+    Ok(oda.room_id().to_string())
+}
+
 /// Leave the room (and forget the list entry once the server confirms). · Odadan ayrıl.
 #[tauri::command]
 pub async fn oda_ayril(durum: State<'_, AppState>, oda_id: String) -> Sonuc<()> {

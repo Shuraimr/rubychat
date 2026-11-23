@@ -7,6 +7,7 @@
 <script lang="ts">
   import Anahtar from "../bilesenler/Anahtar.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
+  import { baglantiAc } from "../durum/baglantiOnay.svelte";
   import Secici from "../bilesenler/Secici.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { tercihler, type OnizlemeKipi } from "../durum/tercihler.svelte";
@@ -50,9 +51,22 @@
     </section>
 
     <section class="ay-bolum">
+      <h2>{t("ayar.gif")}</h2>
+      <div class="ay-kart govde">
+        <div class="alan-kutu"><input type="password" value={tercihler.d.klipyAnahtar} oninput={(e) => tercihler.yaz("klipyAnahtar", e.currentTarget.value.trim())} placeholder={t("ayar.klipyAnahtar")} aria-label={t("ayar.klipyAnahtar")} autocomplete="off" autocapitalize="off" spellcheck="false" /></div>
+        <button class="buton metin" onclick={() => baglantiAc("https://partner.klipy.com")}>{t("ayar.klipyAl")}</button>
+      </div>
+      <p class="ay-not">{t("ayar.klipyNot")}</p>
+    </section>
+
+    <section class="ay-bolum">
       <h2>{t("ayar.kalite")}</h2>
       <div class="ay-kart"><div class="ay-secici"><Secici secenekler={kaliteler} deger={tercihler.d.resimKalitesi} sec={(id) => tercihler.yaz("resimKalitesi", id)} etiket={t("ayar.kalite")} /></div></div>
       <p class="ay-not">{t("ayar.kaliteAlt")}</p>
     </section>
   </div>
 </div>
+
+<style>
+  .govde { padding: .75rem; gap: .5rem; }
+</style>

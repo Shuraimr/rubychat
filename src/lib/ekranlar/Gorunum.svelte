@@ -7,10 +7,10 @@
 <script lang="ts">
   import Anahtar from "../bilesenler/Anahtar.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
-  import Ikon from "../bilesenler/Ikon.svelte";
+  import Ikon, { type IkonAdi } from "../bilesenler/Ikon.svelte";
   import OzellestirSayfasi from "../bilesenler/OzellestirSayfasi.svelte";
   import Secici from "../bilesenler/Secici.svelte";
-  import { tercihler } from "../durum/tercihler.svelte";
+  import { tercihler, type ListeEfekti, type SimgeSeti } from "../durum/tercihler.svelte";
   import { ayarlar, type AzAnimasyon, type Tema, type VurguAdi, type YaziBoyutu, type YaziTipi } from "../durum/ayarlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { t } from "../i18n";
@@ -50,6 +50,21 @@
   const hareketler = $derived<{ id: AzAnimasyon; ad: string }[]>([
     { id: "sistem", ad: t("gorunum.sistem") },
     { id: "acik", ad: t("gorunum.acikHareket") },
+  ]);
+
+  const simgeSetleri = $derived<{ id: SimgeSeti; ad: string }[]>([
+    { id: "material", ad: "Material" },
+    { id: "lucide", ad: "Lucide" },
+    { id: "phosphor", ad: "Phosphor" },
+    { id: "tabler", ad: "Tabler" },
+  ]);
+  // A preview row so the choice shows itself · Seçim kendini göstersin diye önizleme satırı
+  const ornekSimgeler: IkonAdi[] = ["sohbet", "ara", "zil", "kalkan", "kamera", "emoji", "ucNokta"];
+  const efektler = $derived<{ id: ListeEfekti; ad: string }[]>([
+    { id: "kapali", ad: t("efekt.kapali") },
+    { id: "izgara", ad: t("efekt.izgara") },
+    { id: "yakut", ad: t("efekt.yakut") },
+    { id: "isik", ad: t("efekt.isik") },
   ]);
 
   function ozelRenkSec(e: Event) {
@@ -113,6 +128,18 @@
     </section>
 
     <section>
+      <h2>{t("gorunum.simgeSeti")}</h2>
+      <Secici secenekler={simgeSetleri} deger={tercihler.d.simgeSeti} sec={(id) => tercihler.yaz("simgeSeti", id)} etiket={t("gorunum.simgeSeti")} />
+      <div class="simge-onizleme" aria-hidden="true">{#each ornekSimgeler as s (s)}<Ikon ad={s} boyut={26} />{/each}</div>
+    </section>
+
+    <section>
+      <h2>{t("gorunum.listeEfekti")}</h2>
+      <Secici secenekler={efektler} deger={tercihler.d.listeEfekti} sec={(id) => tercihler.yaz("listeEfekti", id)} etiket={t("gorunum.listeEfekti")} />
+      <p class="not">{t("gorunum.listeEfektiAlt")}</p>
+    </section>
+
+    <section>
       <h2>{t("ayar.sohbetGorunumu")}</h2>
       <button class="satir dugme" onclick={() => (sohbetGorunumuAcik = true)}>
         <div class="metin"><strong>{t("ayar.sohbetGorunumu")}</strong><span>{t("ayar.sohbetGorunumuAlt")}</span></div>
@@ -145,9 +172,10 @@
 
 <style>
   .sayfa { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--zemin); }
-  .icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 16px 24px; display: grid; gap: 24px; align-content: start; }
+  .icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 16px 24px; display: grid; grid-auto-rows: max-content; gap: 24px; align-content: start; }
   section { display: grid; gap: 12px; }
   h2 { font-family: var(--yazi-tipi); font-size: .8125rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--yazi-2); padding: 0 4px; }
+  .simge-onizleme { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .75rem; padding: .875rem 1rem; border-radius: 1rem; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); color: var(--yazi); }
   .not { font-size: .8125rem; color: var(--yazi-2); padding: 0 4px; }
 
   .onizleme { display: grid; gap: 4px; padding: 16px; border-radius: 16px; background: var(--zemin); border: 1px solid var(--kenar-ince); }

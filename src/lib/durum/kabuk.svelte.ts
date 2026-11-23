@@ -7,8 +7,14 @@ class Kabuk {
   /** The chat-list search field is focused: dock hides, the pill sticks above the keyboard · Sohbet listesi arama alanı odakta: menü gizlenir, hap klavyenin üstüne yapışır */
   aramaOdakta = $state(false);
 
+  /** Set by the phone search layer; the dock calls it inside the tap · Telefon arama katmanı doldurur; dock dokunuşun içinde çağırır */
+  aramaAc: (() => void) | null = null;
+  /** Fractional main-page position (0 = Sohbetler, 1 = Alanlar, 2 = Profil), follows the finger · Kesirli ana sayfa konumu, parmağı izler */
+  ilerleme = $state(0);
+
   sifirla() {
     this.altGizli = false;
+    this.ilerleme = 0;
   }
 }
 export const kabuk = new Kabuk();

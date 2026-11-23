@@ -13,15 +13,15 @@
   import Avatar from "./Avatar.svelte";
   import Ikon from "./Ikon.svelte";
 
-  let { oda, secili = false, taslak = "", sec }: { oda: OdaOzeti; secili?: boolean; taslak?: string; sec: () => void } = $props();
+  let { oda, secili = false, taslak = "", sec, sira = 0 }: { oda: OdaOzeti; secili?: boolean; taslak?: string; sec: () => void; sira?: number } = $props();
 
   const okunmamisMi = $derived(oda.okunmamis > 0 || oda.bahsedilme > 0);
   const onizleme = $derived(oda.davet ? t("sohbetler.davetli") : taslak || (oda.sonMesaj ?? t("sohbetler.mesajYok")));
   const sayi = $derived(oda.okunmamis > 99 ? "99+" : String(oda.okunmamis));
 </script>
 
-<button class="satir" data-dalga class:secili class:okunmamis={okunmamisMi} onclick={sec}>
-  <Avatar harf={oda.avatarHarf} mxc={oda.avatarMxc} boyut={48} />
+<button class="satir liste-gir" style:--i={sira} data-dalga class:secili class:okunmamis={okunmamisMi} onclick={sec}>
+  <Avatar harf={oda.avatarHarf} mxc={oda.avatarMxc} boyut={52} />
   <span class="orta">
     <span class="ust">
       <span class="ad">{oda.ad}</span>
@@ -40,7 +40,9 @@
 
 <style>
   .satir {
-    position: relative; width: 100%; height: 72px; padding: 0 16px;
+    /* Rows outside the screen are not laid out or painted. · Ekran dışındaki satırlar düzenlenmez, boyanmaz. */
+    content-visibility: auto; contain-intrinsic-size: auto 4.5rem;
+    position: relative; width: 100%; min-height: 4.5rem; padding: .5rem 1rem;
     display: flex; align-items: center; gap: 12px; text-align: left;
     transition: background var(--sure-hizli) var(--egri-cikis);
   }
@@ -57,6 +59,7 @@
   .okunmamis .zaman { color: var(--vurgu); font-weight: 600; }
   .zaman { margin-left: auto; flex: none; font-size: .8125rem; color: var(--yazi-2); }
   .onizleme { flex: 1; min-width: 0; font-size: .875rem; line-height: 1.4; color: var(--yazi-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .zaman, .rozet { font-variant-numeric: tabular-nums; }
   .taslak { color: var(--hata); font-weight: 600; }
   /* Mention variant: tonal "@" so it differs from the plain count · Bahsedilme türü: sayıdan ayrışsın diye tonlu "@" */
   .rozet.bahis { background: var(--ton); color: var(--ton-ustu); padding: 0; min-width: 22px; }

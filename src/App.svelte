@@ -2,14 +2,15 @@
   Root: decides between loading, login and the main shell. The shell is chosen by the SHAPE of the screen (design section 15):
    - tablet  (width >= 768 and height > 500): 72px labelled rail | 360px list (380px from 1180px) | room, side by side
    - landscape phone (height <= 500, even if 844px wide): 64px icon rail + full-width list; opening a room hides rail and list
-   - portrait phone: one screen at a time + bottom menu (hidden inside a room)
+   - portrait phone: three swipeable main pages + floating bottom dock (hidden inside a room)
   Kök: yükleniyor, giriş ve ana kabuk arasında karar verir. Kabuk ekranın ŞEKLİNE göre seçilir (tasarım bölüm 15):
    - tablet (genişlik >= 768 ve yükseklik > 500): 72px etiketli ray | 360px liste (1180px'ten sonra 380px) | oda, yan yana
    - yatay telefon (yükseklik <= 500, 844px geniş olsa bile): 64px simgeli ray + tam genişlik liste; oda açılınca ray ve liste gizlenir
-   - dikey telefon: tek seferde tek ekran + alt menü (odada gizli)
+   - dikey telefon: kaydırılabilir üç ana sayfa + yüzen alt dock (odada gizli)
 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
+  import { gorunurlukIzle } from "./lib/durum/efekt.svelte";
   import { altYeriOlc } from "./lib/alt-yer";
   import { kayCik, kayGir } from "./lib/gecis";
   import { klavyeyiIzle } from "./lib/klavye";
@@ -20,9 +21,15 @@
   import { kabuk } from "./lib/durum/kabuk.svelte";
   import { tercihler } from "./lib/durum/tercihler.svelte";
   import AramaCubugu from "./lib/bilesenler/AramaCubugu.svelte";
-  import AltMenu from "./lib/bilesenler/AltMenu.svelte";
+  import EcCubuk from "./lib/arama-ec/EcCubuk.svelte";
+  import EcKatilSeridi from "./lib/arama-ec/EcKatilSeridi.svelte";
+  import EcKatman from "./lib/arama-ec/EcKatman.svelte";
   import Bildirim from "./lib/bilesenler/Bildirim.svelte";
   import SifrelemeKatmani from "./lib/bilesenler/SifrelemeKatmani.svelte";
+  import AltDock from "./lib/bilesenler/AltDock.svelte";
+  import Sayfalayici from "./lib/bilesenler/Sayfalayici.svelte";
+  import SohbetAramasi from "./lib/ekranlar/SohbetAramasi.svelte";
+  import { geriKaydir } from "./lib/geriKaydir";
   import Ray from "./lib/bilesenler/Ray.svelte";
   import Arama from "./lib/ekranlar/Arama.svelte";
   import Alanlar from "./lib/ekranlar/Alanlar.svelte";
@@ -30,8 +37,9 @@
   import Giris from "./lib/ekranlar/Giris.svelte";
   import Oda from "./lib/ekranlar/Oda.svelte";
   import Sohbetler from "./lib/ekranlar/Sohbetler.svelte";
+  import { alanlar } from "./lib/durum/alanlar.svelte";
   import { arama } from "./lib/durum/arama.svelte";
-  import { gezinme } from "./lib/durum/gezinme.svelte";
+  import { gezinme, type Sekme } from "./lib/durum/gezinme.svelte";
   import { odalar } from "./lib/durum/odalar.svelte";
   import { oturum } from "./lib/durum/oturum.svelte";
   import { sifreleme } from "./lib/durum/sifreleme.svelte";
@@ -39,10 +47,14 @@
   import { bildirimSistemiBaslat } from "./lib/bildirim-sistem";
   import { bildirim } from "./lib/durum/bildirim.svelte";
 
+  const ANA: Sekme[] = ["sohbetler", "alanlar", "ben"];
+  let ekran: HTMLDivElement | undefined = $state();
+  const dockGorunur = $derived(gezinme.sekil === "telefon" && !gezinme.acikOdaId && !gezinme.benAlt && !kabuk.aramaOdakta);
+
   onMount(() => {
     gezinme.baslat();
     oturum.baslat();
-    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat()];
+    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat(), gorunurlukIzle()];
     return () => birak.forEach((f) => f());
   });
 
@@ -80,6 +92,7 @@
       odalar.durdur();
       arama.durdur();
       gezinme.sifirla();
+      alanlar.sifirla();
       kabuk.sifirla();
     }
   });
@@ -92,7 +105,9 @@
   <Giris />
 {:else}
   <div class="uygulama">
-    <AramaCubugu />
+    <!-- While the phone dock is on screen the call bar is its upper storey, not a second bar. · Telefon dock'u görünürken arama çubuğu onun üst katıdır, ikinci bir çubuk değil. -->
+    {#if !dockGorunur}<AramaCubugu /><EcCubuk />{/if}
+    <EcKatilSeridi />
     {#if gezinme.genis}
       <div class="kabuk">
         <Ray />
@@ -109,16 +124,26 @@
         </section>
       </div>
     {:else}
-      <!-- Phone: the list stays underneath (nudged 4% left); the room slides in over it from the right (12%, 260ms). -->
-      <!-- Telefon: liste altta kalır (%4 sola itilir); oda üstüne sağdan (%12, 260ms) kayarak girer. -->
+      <!-- Phone: the list stays underneath (moves 25% left); the room slides in over it from the right and a swipe to the right closes it. -->
+      <!-- Telefon: liste altta kalır (%25 sola kayar); oda üstüne sağdan girer, sağa kaydırınca kapanır. -->
       <div class="telefon" class:yatay={gezinme.yatay}>
         {#if gezinme.yatay}<Ray kompakt />{/if}
-        <div class="ekran" class:itildi={!!gezinme.acikOdaId}>
-          {#if gezinme.sekme === "sohbetler"}<Sohbetler />{:else if gezinme.sekme === "alanlar"}<Alanlar />{:else}<Ben />{/if}
+        <div class="ekran" class:itildi={!!gezinme.acikOdaId} class:dikey={!gezinme.yatay} bind:this={ekran} inert={!!gezinme.acikOdaId}>
+          {#if gezinme.yatay}
+            {#if gezinme.sekme === "sohbetler"}<Sohbetler />{:else if gezinme.sekme === "alanlar"}<Alanlar />{:else}<Ben />{/if}
+          {:else}
+            <!-- Portrait phone: the three main pages side by side; swipe or use the dock. · Dikey telefon: üç ana sayfa yan yana; kaydır ya da dock'u kullan. -->
+            <Sayfalayici sayfalar={ANA} secili={gezinme.sekme} sec={(id) => { gezinme.sekmeSec(id as Sekme); kabuk.altGizli = false; titret(6); }} ilerle={(f) => (kabuk.ilerleme = f)} kilitli={!!gezinme.benAlt || kabuk.aramaOdakta}>
+              {#snippet sayfa(id)}
+                {#if id === "sohbetler"}<Sohbetler />{:else if id === "alanlar"}<Alanlar />{:else}<Ben />{/if}
+              {/snippet}
+            </Sayfalayici>
+            <SohbetAramasi dock />
+            <AltDock gizli={!dockGorunur} />
+          {/if}
         </div>
-        {#if !gezinme.yatay}<AltMenu />{/if}
         {#if gezinme.acikOdaId}
-          <div class="oda-katman" in:kayGir out:kayCik>
+          <div class="oda-katman" in:kayGir out:kayCik use:geriKaydir={{ etkin: () => gezinme.ustKatmanMi("oda"), geri: () => gezinme.odaKapat(), altta: () => ekran }}>
             {#key gezinme.acikOdaId}<Oda odaId={gezinme.acikOdaId} />{/key}
           </div>
         {/if}
@@ -130,6 +155,8 @@
 
 <!-- Encryption sheets (verification, recovery key, ...) float above everything else. · Şifreleme sayfaları (doğrulama, kurtarma anahtarı...) her şeyin üstünde durur. -->
 {#if oturum.ben}<SifrelemeKatmani />{/if}
+<!-- Element Call layer: outside .uygulama so it covers everything; stays mounted while minimised. · Element Call katmanı: her şeyi kaplasın diye .uygulama dışında; küçültülünce de takılı kalır. -->
+{#if oturum.ben}<EcKatman />{/if}
 <KullaniciKarti />
 <BaglantiOnay />
 <Bildirim />
@@ -143,13 +170,13 @@
   .telefon { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
   /* Landscape phone: rail on the left, the list takes the rest. · Yatay telefon: solda ray, liste kalanı alır. */
   .telefon.yatay { flex-direction: row; }
-  /* Room the floating dock (+ the search pill) needs at the bottom of scrolling lists · Yüzen menünün (+ arama hapının) kaydırılan listelerin altında istediği yer */
-  .telefon:not(.yatay) { --dock-yer: calc(64px + 24px + env(safe-area-inset-bottom)); }
   /* No z-index on purpose: a stacking context here would trap the context menu's highlighted message under its own scrim. */
   /* Bilerek z-index yok: burada bir yığın bağlamı, bağlam menüsünün vurgulu mesajını kendi perdesinin altında hapseder. */
-  .oda-katman { position: absolute; inset: 0; background: var(--zemin); display: flex; flex-direction: column; }
-  .ekran { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; transition: transform var(--sure-ekran) var(--egri-vurgulu); }
-  .ekran.itildi { transform: translateX(-4%); }
+  .oda-katman { touch-action: pan-y; box-shadow: -8px 0 24px rgb(0 0 0 / .25); position: absolute; inset: 0; background: var(--zemin); display: flex; flex-direction: column; }
+  .ekran { position: relative; flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; transition: transform var(--sure-ekran) var(--egri-vurgulu); }
+  .ekran[inert] :global(*) { animation-play-state: paused !important; }
+  .ekran.itildi { transform: translate3d(-25%, 0, 0); }
+  .ekran.dikey { --dock-yer: calc(6rem + env(safe-area-inset-bottom)); }
   .telefon.yatay .ekran { padding-right: env(safe-area-inset-right); }
   .bos { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--yazi-2); padding: 24px; text-align: center; }
 </style>

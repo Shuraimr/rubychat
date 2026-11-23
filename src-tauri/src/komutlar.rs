@@ -12,7 +12,7 @@ use crate::{
     hata::{Hata, Sonuc},
     matrix::{arama, dizin, esitleme, medya, odalar, oturum, sifreleme, zaman},
     tipler::{
-        AramaGonderIstegi, Ben, DizinDurumu, DogrulamaDurumu, MesajAramaSonucu, GirisIstegi, MedyaGonderIstegi, MedyaYetenekleri, OdaBilgisi, OdaOzeti, SifrelemeDurumu,
+        AramaGonderIstegi, Ben, DizinDurumu, DogrulamaDurumu, MesajAramaSonucu, GirisIstegi, MedyaGonderIstegi, MedyaYetenekleri, MesajGonderIstegi, OdaBilgisi, OdaOzeti, SifrelemeDurumu,
         TurnSunucu, VideoSikistirIstegi, VideoSonucu,
     },
 };
@@ -26,6 +26,7 @@ fn veri_dizini(app: &AppHandle) -> Sonuc<PathBuf> {
 async fn oturumu_baslat(app: &AppHandle, durum: &AppState, client: matrix_sdk::Client) -> Sonuc<()> {
     let veri = veri_dizini(app)?;
     arama::kaydet(app.clone(), &client);
+    crate::matrix::ec::kaydet(app.clone(), &client);
     bildirim::kaydet(app.clone(), &client);
     let (servis, mut gorevler) = esitleme::baslat(app.clone(), client.clone()).await?;
     gorevler.push(oturum::token_izle(veri, client.clone()));
@@ -76,6 +77,9 @@ pub async fn cikis(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<()> {
     let _kilit = durum.kilit.lock().await;
     let veri = veri_dizini(&app)?;
     zaman::hepsini_kapat(&durum).await;
+    // A running Element Call widget must not outlive the session. · Süren Element Call widget'ı oturumdan uzun yaşamamalı.
+    crate::matrix::ec::hepsini_kapat();
+    *durum.alan_servisi.lock().await = None;
     sifreleme::temizle(&durum).await;
     if let Some(o) = durum.oturum.write().await.take() {
         esitleme::durdur(o.esitleme, o.gorevler).await;
@@ -159,8 +163,8 @@ pub async fn olaya_git(app: AppHandle, durum: State<'_, AppState>, oda_id: Strin
 }
 
 #[tauri::command]
-pub async fn mesaj_gonder(durum: State<'_, AppState>, oda_id: String, metin: String) -> Sonuc<()> {
-    zaman::mesaj_gonder(&durum, &oda_id, &metin).await
+pub async fn mesaj_gonder(durum: State<'_, AppState>, istek: MesajGonderIstegi) -> Sonuc<()> {
+    zaman::mesaj_gonder(&durum, istek).await
 }
 
 #[tauri::command]

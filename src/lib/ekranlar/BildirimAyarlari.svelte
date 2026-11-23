@@ -67,7 +67,7 @@
 </div>
 
 <style>
-  .ayrac { width: auto; height: 44px; padding: 0 16px; margin-right: 8px; }
+  .ayrac { width: auto; min-height: 2.75rem; padding: 0 16px; margin-right: 8px; }
   .saatler { gap: 16px; padding: 8px 16px; }
   label { flex: 1; display: grid; gap: 4px; font-size: .8125rem; color: var(--yazi-2); }
   input[type="time"] { min-height: 44px; padding: 0 12px; border-radius: 12px; background: var(--yuzey-2); border: 1px solid var(--kenar); color: var(--yazi); font-size: 1rem; }

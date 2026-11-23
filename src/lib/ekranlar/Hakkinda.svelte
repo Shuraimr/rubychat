@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
   import { onMount } from "svelte";
+  import AltSayfa from "../bilesenler/AltSayfa.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
   import Ikon from "../bilesenler/Ikon.svelte";
   import Maskot from "../bilesenler/Maskot.svelte";
@@ -11,6 +12,22 @@
   import { gezinme } from "../durum/gezinme.svelte";
   import { t } from "../i18n";
 
+  // Vendored icon packs and their license texts (public/lisanslar) · Alınan simge paketleri ve lisans metinleri (public/lisanslar)
+  const LISANSLAR = [
+    { dosya: "material", ad: "Material Symbols", tur: "Apache-2.0 · Google" },
+    { dosya: "lucide", ad: "Lucide", tur: "ISC" },
+    { dosya: "phosphor", ad: "Phosphor Icons", tur: "MIT" },
+    { dosya: "tabler", ad: "Tabler Icons", tur: "MIT" },
+    { dosya: "unicode", ad: "Unicode Emoji + CLDR", tur: "Unicode-DFS-2016" },
+  ];
+  let lisansMetni = $state<{ ad: string; metin: string } | null>(null);
+  async function lisansAc(dosya: string, ad: string) {
+    try {
+      lisansMetni = { ad, metin: await (await fetch(`/lisanslar/${dosya}.txt`)).text() };
+    } catch {
+      lisansMetni = { ad, metin: "—" };
+    }
+  }
   let surum = $state("");
   onMount(() => {
     // The app version from Tauri; absent in a plain browser. · Tauri'den uygulama sürümü; sade tarayıcıda yok.
@@ -32,16 +49,33 @@
         <p>{t("ayar.lisansUygulama")}</p>
         <p>{t("ayar.lisansYazi")}</p>
         <p>{t("ayar.lisansSdk")}</p>
+        <p>{t("ayar.lisansEc")}</p>
+        <p>{t("ayar.lisansSimgeler")}</p>
+        <div class="lisans-liste">
+          {#each LISANSLAR as l (l.dosya)}
+            <button class="lisans-baglanti" data-dalga onclick={() => lisansAc(l.dosya, l.ad)}><strong>{l.ad}</strong><span>{l.tur}</span></button>
+          {/each}
+        </div>
+        <button class="ec-kaynak" data-dalga onclick={() => baglantiAc("https://github.com/element-hq/element-call")}>github.com/element-hq/element-call</button>
       </div>
     </section>
   </div>
 </div>
 
+{#if lisansMetni}
+  <AltSayfa baslik={lisansMetni.ad} onkapat={() => (lisansMetni = null)}><pre class="lisans-metin">{lisansMetni.metin}</pre></AltSayfa>
+{/if}
+
 <style>
+  .lisans-metin { margin: 0; font-family: var(--mono-tipi); font-size: .75rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--yazi-2); user-select: text; -webkit-user-select: text; }
   .ust { display: grid; justify-items: center; gap: 4px; text-align: center; padding-top: 8px; }
   .ust h2 { font-size: 1.5rem; }
   .deger { padding-right: 16px; color: var(--yazi-2); font-family: var(--mono-tipi); font-size: .875rem; }
   .baslik { font-size: .8125rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--yazi-2); padding: 0 4px; }
+  .lisans-liste { display: grid; gap: .25rem; }
+  .lisans-baglanti { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem .75rem; min-height: 2.75rem; align-items: center; color: var(--vurgu); text-decoration: none; }
+  .lisans-baglanti span { color: var(--yazi-2); font-size: .8125rem; }
   .lisans { padding: 12px 16px; gap: 10px; font-size: .875rem; color: var(--yazi-2); line-height: 1.5; }
   .lisans p { margin: 0; }
+  .ec-kaynak { justify-self: start; min-height: 44px; color: var(--vurgu); font-size: .875rem; text-align: left; }
 </style>
