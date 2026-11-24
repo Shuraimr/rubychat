@@ -16,7 +16,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="perde" class:acik={hizli.acik} onclick={() => hizli.kapat()}></div>
+<div class="perde" class:acik={hizli.acik} class:bekler={hizli.basili} onclick={() => hizli.kapat()}></div>
 <div class="kart acilir" class:acik={hizli.acik} class:asagi={hizli.asagi} inert={!hizli.acik} role="menu" aria-label={t("hizli.baslik")} style:right="{hizli.yer.sag}px" style:top={hizli.asagi ? `${hizli.yer.alt + 8}px` : undefined} style:bottom={hizli.asagi ? undefined : `calc(100% - ${hizli.yer.ust - 12}px)`}>
   <p class="baslik"><Ikon ad={sabitVar ? "sabitle" : "saat"} boyut={16} />{t(sabitVar ? "hizli.baslik" : "hizli.son")}</p>
   {#each sirali as o (o.id)}
@@ -34,6 +34,7 @@
 <style>
   .perde { position: fixed; inset: 0; z-index: 44; background: color-mix(in srgb, var(--zemin) 50%, transparent); opacity: 0; visibility: hidden; transition: opacity var(--sure-cikis) linear, visibility 0s var(--sure-cikis); }
   .perde.acik { opacity: 1; visibility: visible; transition: opacity var(--sure-orta) linear; }
+  .perde.bekler { pointer-events: none; }
   .kart { position: fixed; z-index: 45; width: min(17.5rem, calc(100vw - 24px)); max-height: 70vh; overflow-y: auto; padding: 8px; border-radius: 1.75rem; transform-origin: 85% 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .kart.asagi { transform-origin: 85% 0; }
   .baslik { display: flex; align-items: center; gap: .5rem; padding: .375rem .75rem; font-size: .8125rem; font-weight: 600; color: var(--vurgu); }

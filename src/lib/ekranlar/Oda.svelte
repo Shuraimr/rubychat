@@ -57,6 +57,16 @@
 
   let { odaId }: { odaId: string } = $props();
 
+  // This room's header, kept until the screen is gone: jumping straight to another room clears `zaman.bilgi` while this screen is still
+  // drawn, and reading it then crashed the whole room. · Bu odanın başlığı, ekran gidene dek tutulur: doğrudan başka odaya geçmek,
+  // bu ekran hâlâ çizilirken `zaman.bilgi`yi siler; o an okumak bütün odayı çökertiyordu.
+  const buOda = untrack(() => odaId);
+  let sonBilgi: typeof zaman.bilgi = null;
+  const bilgi = $derived.by(() => {
+    if (zaman.bilgi?.id === buOda) sonBilgi = zaman.bilgi;
+    return sonBilgi;
+  });
+
   let kutu: HTMLDivElement | undefined = $state();
   /** Height of the floating header: the timeline starts below it and scrolls under it · Yüzen başlığın yüksekliği: çizelge onun altından başlar, altına kayar */
   let tepeYuk = $state(64);
@@ -95,7 +105,7 @@
   // Oda 15 sn içinde cevap vermediyse sonsuza dek beklemek yerine hata durumunu göster (takılan bir komut boş, karanlık bir ekran bırakıyordu).
   let zamanAsimi = $state(false);
   $effect(() => {
-    if (!zaman.yukleniyor || zaman.bilgi) {
+    if (!zaman.yukleniyor || bilgi) {
       zamanAsimi = false;
       return;
     }
@@ -401,10 +411,10 @@
   });
 
   // Sender names only matter in rooms with more than two people. · Gönderen adları yalnızca ikiden çok kişilik odalarda anlamlıdır.
-  const grupOdasi = $derived(!!zaman.bilgi && zaman.bilgi.uyeSayisi > 2);
+  const grupOdasi = $derived(!!bilgi && bilgi.uyeSayisi > 2);
 
   // Calls only in rooms with exactly two joined members. · Arama yalnızca tam iki üyeli odalarda.
-  const aranabilir = $derived(!!zaman.bilgi && zaman.bilgi.uyeSayisi === 2 && !!zaman.bilgi.karsiKullanici);
+  const aranabilir = $derived(!!bilgi && bilgi.uyeSayisi === 2 && !!bilgi.karsiKullanici);
 </script>
 
 <div class="oda" class:itildi={bilgiAcik || uyelerAcik} style="{gorunumStili(gorunum)};--tepe-yer:{tepeYuk}px;--yazma-yer:{aramaAcik ? 0 : altYuk}px">
@@ -418,19 +428,19 @@
       <button class="simge-dugme geri" aria-label={t("oda.geri")} onclick={() => gezinme.odaKapat()}><Ikon ad="geri" /></button>
     {/if}
     <!-- Tap = room info, long press = customize sheet (both tactile) · Dokun = oda bilgisi, uzun bas = özelleştir sayfası (ikisi de dokunsal) -->
-    {#if zaman.bilgi}
+    {#if bilgi}
       <button class="kimlik" aria-label={t("oda.bilgiAc")} onclick={() => (bilgiAcik = true)} use:uzunBasma={{ ac: () => (ozellestirAcik = true) }}>
-        <Avatar harf={zaman.bilgi.avatarHarf} mxc={zaman.bilgi.avatarMxc} boyut={40} />
+        <Avatar harf={bilgi.avatarHarf} mxc={bilgi.avatarMxc} boyut={40} />
         <span class="adlar">
-          <span class="ad-satir"><span class="ad">{zaman.bilgi.ad}</span>{#if zaman.bilgi.sifreli}<span class="kilit" role="img" aria-label={t("oda.sifreli")}><Ikon ad="kilit" boyut={14} /></span>{/if}</span>
+          <span class="ad-satir"><span class="ad">{bilgi.ad}</span>{#if bilgi.sifreli}<span class="kilit" role="img" aria-label={t("oda.sifreli")}><Ikon ad="kilit" boyut={14} /></span>{/if}</span>
           {#if zaman.yazanlar.length > 0}
             <!-- Someone is typing: the subtitle turns accent coloured (design D) · Biri yazıyor: alt başlık vurgu rengine döner (tasarım D) -->
             <span class="alt yaziyor" role="status" aria-live="polite">{zaman.yazanlar.length === 1 ? t("yaziyor.bir", { ad: zaman.yazanlar[0].ad }) : zaman.yazanlar.length === 2 ? t("yaziyor.iki", { a: zaman.yazanlar[0].ad, b: zaman.yazanlar[1].ad }) : t("yaziyor.cok", { n: zaman.yazanlar.length })}</span>
           {:else}
             <!-- Encryption is the lock beside the name; only its absence is spelled out. · Şifreleme adın yanındaki kilittir; yalnızca yokluğu yazılır. -->
             <span class="alt">
-              <span class="uye">{zaman.bilgi.sifreli ? "" : t("oda.sifreSiz") + " · "}{t("oda.uyeler", { n: zaman.bilgi.uyeSayisi })}</span>
-              {#if aranabilir && zaman.bilgi.karsiKullanici}<VarlikRozeti kullaniciId={zaman.bilgi.karsiKullanici} />{/if}
+              <span class="uye">{bilgi.sifreli ? "" : t("oda.sifreSiz") + " · "}{t("oda.uyeler", { n: bilgi.uyeSayisi })}</span>
+              {#if aranabilir && bilgi.karsiKullanici}<VarlikRozeti kullaniciId={bilgi.karsiKullanici} />{/if}
             </span>
           {/if}
         </span>
@@ -441,11 +451,11 @@
     {/if}
     <OdaAramasi {odaId} />
     <button class="simge-dugme" class:tonlu={aramaAcik} aria-label={t("mesajAra.odadaAra")} aria-pressed={aramaAcik} use:hizliGecis onclick={() => (aramaAcik = true)}><Ikon ad="ara" /></button>
-    {#if aranabilir && zaman.bilgi}
+    {#if aranabilir && bilgi}
       <button
         class="simge-dugme"
         aria-label={t("oda.ara")}
-        onclick={() => zaman.bilgi && arama.ara({ id: zaman.bilgi.id, ad: zaman.bilgi.ad, avatarHarf: zaman.bilgi.avatarHarf, avatarMxc: zaman.bilgi.avatarMxc })}
+        onclick={() => bilgi && arama.ara({ id: bilgi.id, ad: bilgi.ad, avatarHarf: bilgi.avatarHarf, avatarMxc: bilgi.avatarMxc })}
       >
         <Ikon ad="telefon" />
       </button>
@@ -467,12 +477,12 @@
           <BosDurum maskot="hata" baslik={t("oda.acilamadi")} metin={t("oda.zamanAsimi")} eylem={t("oda.yeniden")} onEylem={yenidenAc} />
         {:else}
           {#if zaman.eskiYukleniyor}<p class="orta">{t("oda.eskiYukleniyor")}</p>{/if}
-          {#if zaman.basaUlasildi && zaman.ogeler.length > 0 && zaman.bilgi}
+          {#if zaman.basaUlasildi && zaman.ogeler.length > 0 && bilgi}
             <!-- Start of the conversation (design section 13) · Konuşmanın başı (tasarım bölüm 13) -->
             <div class="basi">
               <span class="basi-kutu"><Ikon ad="kilit" boyut={24} /></span>
               <strong>{t("oda.basinaGeldin")}</strong>
-              {#if zaman.bilgi.sifreli}<span>{zaman.bilgi.karsiKullanici && zaman.bilgi.uyeSayisi === 2 ? t("oda.basiSifreliDm", { ad: zaman.bilgi.ad }) : t("oda.basiSifreliGrup")}</span>{/if}
+              {#if bilgi.sifreli}<span>{bilgi.karsiKullanici && bilgi.uyeSayisi === 2 ? t("oda.basiSifreliDm", { ad: bilgi.ad }) : t("oda.basiSifreliGrup")}</span>{/if}
             </div>
           {/if}
 
@@ -506,7 +516,7 @@
   {#if aramaAcik}
     <OdaIciArama {odaId} onkapat={() => (aramaAcik = false)} bind:aktifOlay bind:sorgu={aramaSorgu} />
   {:else}
-    <YazmaAlani {odaId} sifreli={zaman.bilgi?.sifreli ?? false} {gonder} altta={altaGorunur} {yeniSayi} enAlta={asagiIn} bind:yukseklik={altYuk} />
+    <YazmaAlani {odaId} sifreli={bilgi?.sifreli ?? false} {gonder} altta={altaGorunur} {yeniSayi} enAlta={asagiIn} bind:yukseklik={altYuk} />
   {/if}
 
   {#if bilgiAcik}

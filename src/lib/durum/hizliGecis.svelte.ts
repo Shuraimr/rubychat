@@ -9,6 +9,8 @@ class HizliGecis {
   acik = $state(false);
   /** Button rectangle the popup hangs on · Listenin asıldığı düğme dikdörtgeni */
   yer = $state({ sag: 0, ust: 0, alt: 0 });
+  /** The finger that opened it is still down: the scrim must not take its events · Açan parmak hâlâ basılı: perde onun olaylarını almamalı */
+  basili = $state(false);
   asagi = $state(false);
   secili = $state<string | null>(null);
   #katman = 0;
@@ -54,6 +56,7 @@ export function hizliGecis(node: HTMLElement) {
     acildi = oynadi = yut = false;
     z = setTimeout(() => {
       acildi = yut = true;
+      hizli.basili = true;
       titret("agir");
       hizli.ac(node.getBoundingClientRect());
       try {
@@ -82,11 +85,13 @@ export function hizliGecis(node: HTMLElement) {
     kimlik = -1;
     clearTimeout(z);
     if (!acildi) return;
+    // The browser may still send a click for this very touch; the scrim wakes up after it. · Tarayıcı bu dokunuş için hâlâ tıklama yollayabilir; perde ondan sonra uyanır.
+    setTimeout(() => (hizli.basili = false), 350);
     const id = e.type === "pointerup" ? hizli.secili : null;
     if (id) {
       titret("dokunus");
       hizli.git(id);
-    } else if (oynadi) hizli.kapat();
+    } else if (oynadi && e.type === "pointerup") hizli.kapat();
   };
   // The click of the hold itself must not run the button. · Basılı tutmanın tıklaması düğmeyi çalıştırmamalı.
   const tik = (e: Event) => {
@@ -96,6 +101,17 @@ export function hizliGecis(node: HTMLElement) {
     e.preventDefault();
   };
   const sag = (e: Event) => e.preventDefault();
+  // Android's own long press (500 ms) would cancel the touch: its menu is refused wherever it lands, and the touch makes no click.
+  // Android'in kendi uzun basması (500 ms) dokunuşu iptal ederdi: menüsü nereye düşerse düşsün reddedilir, dokunuş tıklama üretmez.
+  const sagHer = (e: Event) => {
+    if (kimlik !== -1) e.preventDefault();
+  };
+  const dokunma = (e: TouchEvent) => {
+    if (acildi && e.cancelable) e.preventDefault();
+  };
+  node.addEventListener("touchmove", dokunma, { passive: false });
+  node.addEventListener("touchend", dokunma, { passive: false });
+  document.addEventListener("contextmenu", sagHer, true);
   node.addEventListener("pointerdown", bas);
   node.addEventListener("pointermove", oyna);
   node.addEventListener("pointerup", birak);
@@ -105,6 +121,10 @@ export function hizliGecis(node: HTMLElement) {
   return {
     destroy() {
       clearTimeout(z);
+      hizli.basili = false;
+      node.removeEventListener("touchmove", dokunma);
+      node.removeEventListener("touchend", dokunma);
+      document.removeEventListener("contextmenu", sagHer, true);
       node.removeEventListener("pointerdown", bas);
       node.removeEventListener("pointermove", oyna);
       node.removeEventListener("pointerup", birak);

@@ -7,6 +7,7 @@
   Oda içinde tam ekran katman (Android geri tuşu kapatır).
 -->
 <script lang="ts">
+  import { untrack } from "svelte";
   import { onDestroy, onMount } from "svelte";
   import { odaAyril } from "../api/komutlar";
   import Avatar from "../bilesenler/Avatar.svelte";
@@ -24,6 +25,7 @@
   import { t } from "../i18n";
 
   let { odaId, onkapat, uyelerAc, gorunumAc, ara }: { odaId: string; onkapat: () => void; uyelerAc: () => void; gorunumAc: () => void; ara: () => void } = $props();
+  const buOda = untrack(() => odaId);
 
   let katman = 0;
   let ayrilOnay = $state(false);
@@ -33,7 +35,9 @@
   });
   onDestroy(() => gezinme.katmanBirak(katman));
 
-  const b = $derived(zaman.bilgi);
+  // Kept while the page is leaving (see Oda.svelte). · Sayfa giderken tutulur (bkz. Oda.svelte).
+  let son: typeof zaman.bilgi = null;
+  const b = $derived.by(() => (son = zaman.bilgi?.id === buOda ? zaman.bilgi : son));
   const aranabilir = $derived(!!b && b.uyeSayisi === 2 && !!b.karsiKullanici);
 
   // The confirm is a back-button layer too · Onay da bir geri tuşu katmanıdır
