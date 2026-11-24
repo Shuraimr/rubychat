@@ -2,6 +2,8 @@
 // invoke() çağrısının YAPILDIĞI TEK yer. Her Rust komutunun burada tipli bir sarmalayıcısı var.
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  Istekler,
+  EsitlemeDurumu,
   AramaGonderIstegi,
   AlanIcerigi,
   AlanOgesi,
@@ -54,8 +56,12 @@ export const oturumuGeriYukle = () => cagir<Ben | null>("oturumu_geri_yukle");
 export const cikis = () => cagir<void>("cikis");
 export const ben = () => cagir<Ben>("ben");
 export const odalariAl = () => cagir<OdaOzeti[]>("odalari_al");
+export const esitlemeDurumuAl = () => cagir<EsitlemeDurumu | null>("esitleme_durumu");
+export const odaSabitle = (odaId: string, sabit: boolean) => cagir<void>("oda_sabitle", { odaId, sabit });
 export const odayiAc = (odaId: string) => cagir<OdaBilgisi>("odayi_ac", { odaId });
 export const odayiKapat = (odaId: string) => cagir<void>("odayi_kapat", { odaId });
+/** Rooms to keep warm, best first; replaces the previous list, [] pauses · Sıcak tutulacak odalar, en iyi önce; öncekinin yerine geçer, [] duraklatır */
+export const odalariHazirla = (idler: string[]) => cagir<void>("odalari_hazirla", { idler });
 export const geriSayfala = (odaId: string) => cagir<void>("geri_sayfala", { odaId });
 // ---- Message search · Mesaj araması ----
 export const mesajAra = (sorgu: string, odaId?: string, sinir?: number) =>
@@ -86,6 +92,14 @@ export const alanlariAl = () => cagir<AlanOgesi[]>("alanlari_al");
 export const alanIcerigi = (alanId: string) => cagir<AlanIcerigi>("alan_icerigi", { alanId });
 /** Joins by room id or alias through the given servers; returns the room id · Verilen sunucular üzerinden oda kimliği ya da takma adla katılır; oda kimliğini döndürür */
 export const alanaKatil = (kimlik: string, via: string[]) => cagir<string>("alana_katil", { kimlik, via });
+// ---- Invitations and join requests · Davetler ve katılma istekleri ----
+export const istekleriAl = () => cagir<Istekler>("istekleri_al");
+export const davetKabul = (odaId: string) => cagir<void>("davet_kabul", { odaId });
+/** Declines an invitation or takes back my own request · Daveti reddeder ya da kendi isteğimi geri çeker */
+export const davetReddet = (odaId: string) => cagir<void>("davet_reddet", { odaId });
+export const katilmaIstegi = (kimlik: string, via: string[], sebep: string | null) => cagir<void>("katilma_istegi", { kimlik, via, sebep });
+export const katilmaYanitla = (odaId: string, kullaniciId: string, kabul: boolean) => cagir<void>("katilma_yanitla", { odaId, kullaniciId, kabul });
+export const dilAyarla = (en: boolean) => cagir<void>("dil_ayarla", { en });
 export const okunduIsaretle = (odaId: string) => cagir<void>("okundu_isaretle", { odaId });
 export const mesajYenidenDene = (odaId: string, ogeId: string) => cagir<void>("mesaj_yeniden_dene", { odaId, ogeId });
 export const aramaTurnSunuculari = () => cagir<TurnSunucu[]>("arama_turn_sunuculari");

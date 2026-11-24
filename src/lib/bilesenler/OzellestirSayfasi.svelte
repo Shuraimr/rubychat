@@ -1,23 +1,22 @@
 <!--
-  Customize sheet (design 22/05): scope ("Yalnızca bu sohbet" / "Tüm sohbetler"), live preview, bubble style, text size, density, background,
-  chat colour, timestamps/receipts and group avatars. Everything is saved at once (localStorage via sohbetGorunum) and applied to the room.
-  Özelleştir sayfası (tasarım 22/05): kapsam ("Yalnızca bu sohbet" / "Tüm sohbetler"), canlı önizleme, baloncuk stili, yazı boyutu, yoğunluk,
-  arka plan, sohbet rengi, saat/okundu bilgisi ve gruplarda avatar. Her şey anında kaydedilir (sohbetGorunum ile localStorage) ve odaya uygulanır.
+  Chat look sheet, like WhatsApp: scope, a tall live preview, wallpaper tiles (solid colours + own photo), dimming and message text size.
+  Everything is saved at once (localStorage via sohbetGorunum) and applied to the room.
+  Sohbet görünümü sayfası, WhatsApp gibi: kapsam, uzun canlı önizleme, duvar kâğıdı karoları (düz renkler + kendi fotoğrafın), karartma ve
+  mesaj yazı boyutu. Her şey anında kaydedilir (sohbetGorunum ile localStorage) ve odaya uygulanır.
 -->
 <script lang="ts">
-  import { EFEKTLER, gorunumStili, type ZeminEfekti, SOHBET_RENKLERI, sohbetGorunumu, ZEMIN_RENKLERI, type BalonStili, type SohbetRengi, type SohbetZemini, type Yogunluk } from "../durum/sohbetGorunum.svelte";
+  import { bildirim } from "../durum/bildirim.svelte";
+  import { gorunumStili, sohbetGorunumu, ZEMINLER, ZEMIN_RENKLERI } from "../durum/sohbetGorunum.svelte";
+  import { zeminKaydet, zeminSil } from "../durum/zeminResmi";
   import { t, type Anahtar as TrAnahtar } from "../i18n";
   import AltSayfa from "./AltSayfa.svelte";
-  import Anahtar from "./Anahtar.svelte";
   import Ikon from "./Ikon.svelte";
-  import KristalZemin from "./KristalZemin.svelte";
-  import { zeminKaydet, zeminSil } from "../durum/zeminResmi";
-  import { bildirim } from "../durum/bildirim.svelte";
+  import Secici from "./Secici.svelte";
+  import SohbetZemini from "./SohbetZemini.svelte";
 
   /** odaId null = global only (Ayarlar › Görünüm) · odaId null = yalnızca genel (Ayarlar › Görünüm) */
   let { odaId = null, onkapat }: { odaId?: string | null; onkapat: () => void } = $props();
 
-  let kapsamAcik = $state(false);
   // Scope: "bu sohbet" is on while the room has its own override · Kapsam: odanın kendi ayarı varken "bu sohbet" açık
   const buSohbet = $derived(!!odaId && sohbetGorunumu.ozelMi(odaId));
   const g = $derived(sohbetGorunumu.al(odaId));
@@ -25,147 +24,78 @@
 
   const yaz = <K extends keyof typeof g>(k: K, v: (typeof g)[K]) => sohbetGorunumu.yaz(hedef, k, v);
   function kapsamSec(bu: boolean) {
-    kapsamAcik = false;
     if (!odaId) return;
     if (bu) sohbetGorunumu.odaOzellestir(odaId);
     else sohbetGorunumu.odaSifirla(odaId);
   }
 
-  const balonlar: BalonStili[] = ["yuvarlak", "koseli", "cizgisiz"];
-  const yogunluklar: Yogunluk[] = ["rahat", "siki"];
-  const zeminler: SohbetZemini[] = ["varsayilan", "amoled", "mavi", "kirmizi", "yesil"];
-  const renkler: SohbetRengi[] = ["vurgu", "mor", "mavi", "yesil", "sari", "gri"];
+  const kapsamlar = $derived<{ id: "bu" | "tum"; ad: string }[]>([
+    { id: "bu", ad: t("ozellestir.kapsamBu") },
+    { id: "tum", ad: t("ozellestir.kapsamTum") },
+  ]);
+  /** The photo is replaced under the same key: remount the preview to show the new one · Fotoğraf aynı anahtarla değişir: yenisini göstermek için önizleme yeniden kurulur */
+  let fotoSurum = $state(0);
   // Photo background: picked from the device, compressed and kept ONLY on this device (IndexedDB), never uploaded.
   // Fotoğraf arka planı: cihazdan seçilir, sıkıştırılır ve YALNIZCA bu cihazda (IndexedDB) durur, asla yüklenmez.
   async function fotoSec(e: Event) {
     const f = (e.currentTarget as HTMLInputElement).files?.[0];
     (e.currentTarget as HTMLInputElement).value = "";
     if (!f) return;
-    if (await zeminKaydet(hedef ?? "genel", f)) yaz("resim", true);
+    if (await zeminKaydet(hedef ?? "genel", f)) {
+      fotoSurum++;
+      yaz("resim", true);
+    }
     else bildirim.goster(t("kirp.hata"), 4000, { tur: "hata" });
   }
   async function fotoKaldir() {
     await zeminSil(hedef ?? "genel");
     yaz("resim", false);
   }
-  const renkDeger = (r: SohbetRengi) => (r === "vurgu" ? "var(--vurgu)" : SOHBET_RENKLERI[r]);
 </script>
 
 <AltSayfa baslik={t("ozellestir.baslik")} {onkapat}>
-  {#if odaId}
-    <div class="kapsam">
-      <button class="kapsam-dugme" aria-haspopup="listbox" aria-expanded={kapsamAcik} onclick={() => (kapsamAcik = !kapsamAcik)}>
-        {buSohbet ? t("ozellestir.kapsamBu") : t("ozellestir.kapsamTum")}<Ikon ad="asagiOk" boyut={16} />
-      </button>
-      {#if kapsamAcik}
-        <div class="kapsam-menu" role="listbox">
-          <button role="option" aria-selected={buSohbet} onclick={() => kapsamSec(true)}>{t("ozellestir.kapsamBu")}</button>
-          <button role="option" aria-selected={!buSohbet} onclick={() => kapsamSec(false)}>{t("ozellestir.kapsamTum")}</button>
-        </div>
-      {/if}
-    </div>
-  {/if}
+  {#if odaId}<Secici secenekler={kapsamlar} deger={buSohbet ? "bu" : "tum"} sec={(id) => kapsamSec(id === "bu")} etiket={t("ozellestir.baslik")} />{/if}
 
   <!-- Live preview: the same variables the room uses · Canlı önizleme: odanın kullandığı aynı değişkenler -->
-  <div class="onizleme oda" data-balon={g.balon} data-saat={g.saat ? undefined : "yok"} style={gorunumStili(g)} style:background={ZEMIN_RENKLERI[g.zemin]}>
-    <KristalZemin efekt={g.efekt} duvar={g.duvar} resim={g.resim} resimAnahtari={hedef ?? "genel"} bulanik={g.bulanik} karart={g.karart} />
+  <div class="onizleme" style={gorunumStili(g)} style:background={ZEMIN_RENKLERI[g.zemin]}>
+    {#key fotoSurum}<SohbetZemini resim={g.resim} resimAnahtari={hedef ?? "genel"} karart={g.karart} />{/key}
     <div class="o-gelen" style:font-size="calc(.9375rem * {g.yazi})">{t("ozellestir.onizGelen")}</div>
     <div class="o-giden" style:font-size="calc(.9375rem * {g.yazi})">{t("ozellestir.onizGiden")}</div>
   </div>
 
   <section>
-    <h3>{t("ozellestir.baloncuk")}</h3>
-    <div class="secenekler uc">
-      {#each balonlar as b (b)}<button class="secenek" class:aktif={g.balon === b} aria-pressed={g.balon === b} onclick={() => yaz("balon", b)}>{t(`ozellestir.${b}` as TrAnahtar)}</button>{/each}
+    <h3>{t("ozellestir.arkaPlan")}</h3>
+    <div class="karolar" role="radiogroup" aria-label={t("ozellestir.arkaPlan")}>
+      <label class="karo foto" class:aktif={g.resim}><Ikon ad="galeri" boyut={24} /><input type="file" accept="image/*" onchange={fotoSec} aria-label={t("ozellestir.fotoSec")} /></label>
+      {#each ZEMINLER as z (z)}
+        {@const secili = !g.resim && g.zemin === z}
+        <button class="karo" class:aktif={secili} role="radio" aria-checked={secili} aria-label={t(`ozellestir.zemin.${z}` as TrAnahtar)} style:background={ZEMIN_RENKLERI[z]} onclick={() => { if (g.resim) void fotoKaldir(); yaz("zemin", z); }}>{#if secili}<Ikon ad="onay" boyut={22} />{/if}</button>
+      {/each}
     </div>
+    {#if g.resim}
+      <label class="kaydirici"><span>{t("ozellestir.karart")}</span><input type="range" min="0" max="80" step="5" value={g.karart} aria-label={t("ozellestir.karart")} oninput={(e) => yaz("karart", Number(e.currentTarget.value))} /></label>
+    {/if}
+    <p class="not">{t("ozellestir.fotoNot")}</p>
   </section>
 
   <section>
     <h3>{t("ozellestir.yazi")}</h3>
-    <input class="aralik" type="range" min="0.85" max="1.3" step="0.05" value={g.yazi} aria-label={t("ozellestir.yazi")} oninput={(e) => yaz("yazi", Number(e.currentTarget.value))} />
+    <input type="range" min="0.85" max="1.3" step="0.05" value={g.yazi} aria-label={t("ozellestir.yazi")} oninput={(e) => yaz("yazi", Number(e.currentTarget.value))} />
   </section>
-
-  <section>
-    <h3>{t("ozellestir.yogunluk")}</h3>
-    <div class="secenekler iki">
-      {#each yogunluklar as y (y)}<button class="secenek" class:aktif={g.yogunluk === y} aria-pressed={g.yogunluk === y} onclick={() => yaz("yogunluk", y)}>{t(`ozellestir.${y}` as TrAnahtar)}</button>{/each}
-    </div>
-  </section>
-
-  <section>
-    <h3>{t("ozellestir.arkaPlan")}</h3>
-    <div class="renkler" role="radiogroup" aria-label={t("ozellestir.arkaPlan")}>
-      {#each zeminler as z (z)}
-        <button class="orneg kare" class:aktif={g.zemin === z} role="radio" aria-checked={g.zemin === z} aria-label={t(`ozellestir.zemin.${z}` as TrAnahtar)} style:background={ZEMIN_RENKLERI[z]} onclick={() => yaz("zemin", z)}></button>
-      {/each}
-    </div>
-  </section>
-
-  <section>
-    <h3>{t("ozellestir.efekt")}</h3>
-    <div class="secenekler dort" role="radiogroup" aria-label={t("ozellestir.efekt")}>
-      {#each EFEKTLER as ef (ef)}<button class="secenek" role="radio" aria-checked={g.efekt === ef} class:aktif={g.efekt === ef} onclick={() => yaz("efekt", ef as ZeminEfekti)}>{t(`efekt.${ef}` as TrAnahtar)}</button>{/each}
-    </div>
-    <div class="satir"><span>{t("ozellestir.duvar")}</span><Anahtar acik={g.duvar} degis={(v) => yaz("duvar", v)} etiket={t("ozellestir.duvar")} /></div>
-  </section>
-
-  <section>
-    <h3>{t("ozellestir.foto")}</h3>
-    <div class="foto-satir">
-      <label class="buton tonlu foto-sec"><Ikon ad="galeri" boyut={20} />{t("ozellestir.fotoSec")}<input type="file" accept="image/*" onchange={fotoSec} /></label>
-      {#if g.resim}<button class="buton cizgili kirmizi" onclick={fotoKaldir}>{t("ozellestir.fotoKaldir")}</button>{/if}
-    </div>
-    {#if g.resim}
-      <label class="kaydirici"><span>{t("ozellestir.bulanik")}</span><input class="aralik" type="range" min="0" max="20" step="1" value={g.bulanik} aria-label={t("ozellestir.bulanik")} oninput={(e) => yaz("bulanik", Number(e.currentTarget.value))} /></label>
-      <label class="kaydirici"><span>{t("ozellestir.karart")}</span><input class="aralik" type="range" min="0" max="80" step="5" value={g.karart} aria-label={t("ozellestir.karart")} oninput={(e) => yaz("karart", Number(e.currentTarget.value))} /></label>
-    {/if}
-    <p class="foto-not">{t("ozellestir.fotoNot")}</p>
-  </section>
-
-  <section>
-    <h3>{t("ozellestir.renk")}</h3>
-    <div class="renkler" role="radiogroup" aria-label={t("ozellestir.renk")}>
-      {#each renkler as r (r)}
-        <button class="orneg yuvarlak" class:aktif={g.renk === r} role="radio" aria-checked={g.renk === r} aria-label={t(`ozellestir.renk.${r}` as TrAnahtar)} style:background={renkDeger(r)} onclick={() => yaz("renk", r)}></button>
-      {/each}
-    </div>
-  </section>
-
-  <div class="satir"><span>{t("ozellestir.saat")}</span><Anahtar acik={g.saat} degis={(v) => yaz("saat", v)} etiket={t("ozellestir.saat")} /></div>
-  <div class="satir"><span>{t("ozellestir.avatar")}</span><Anahtar acik={g.avatar} degis={(v) => yaz("avatar", v)} etiket={t("ozellestir.avatar")} /></div>
 </AltSayfa>
 
 <style>
-  .kapsam { position: relative; justify-self: end; margin-top: -48px; margin-bottom: -8px; }
-  .kapsam-dugme { min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; color: var(--vurgu); font-weight: 600; font-size: .9375rem; }
-  .kapsam-menu { position: absolute; right: 0; top: 44px; z-index: 5; min-width: 200px; padding: 6px; border-radius: 16px; background: var(--yuzey-3); border: 1px solid var(--kenar); box-shadow: var(--kat-2); animation: ac var(--sure-menu) var(--egri-cikis); transform-origin: top right; }
-  @keyframes ac { from { transform: scale(.92); opacity: 0; } }
-  .kapsam-menu button { width: 100%; min-height: 44px; padding: 0 12px; text-align: left; border-radius: 10px; }
-  .kapsam-menu button[aria-selected="true"] { color: var(--vurgu); font-weight: 600; }
-  .onizleme { position: relative; overflow: hidden; isolation: isolate; display: grid; gap: 8px; padding: 16px; border-radius: 16px; border: 1px solid var(--kenar-ince); }
+  .onizleme { position: relative; overflow: hidden; isolation: isolate; min-height: 11rem; display: grid; align-content: end; gap: .5rem; padding: 1rem; border-radius: 1.5rem; border: 1px solid var(--kenar-ince); transition: background var(--sure-orta) var(--egri-cikis); }
   .o-gelen, .o-giden { position: relative; z-index: 1; max-width: 78%; padding: var(--balon-dolgu); border-radius: var(--balon-r); }
-  .o-gelen { background: var(--yuzey-2); justify-self: start; }
-  .o-giden { background: var(--giden-bg, var(--ton)); color: var(--giden-yazi, var(--ton-ustu)); justify-self: end; }
-  .onizleme[data-balon="cizgisiz"] .o-gelen { background: transparent; padding-left: 0; }
-  h3 { font-size: .8125rem; font-weight: 600; color: var(--yazi-2); margin-bottom: 8px; }
-  .secenekler { display: grid; gap: 8px; }
-  .secenekler.uc { grid-template-columns: repeat(3, 1fr); }
-  .secenekler.dort { grid-template-columns: repeat(2, 1fr); }
-  .secenekler.iki { grid-template-columns: repeat(2, 1fr); }
-  .secenek { min-height: 3.25rem; padding: .25rem .5rem; line-height: 1.25; border-radius: .875rem; background: var(--yuzey-2); font-weight: 500; }
-  .secenek.aktif { background: color-mix(in srgb, var(--vurgu) 18%, var(--zemin)); color: var(--vurgu); font-weight: 600; }
-  .foto-satir { display: flex; flex-wrap: wrap; gap: .5rem; }
-  .foto-satir .buton { width: auto; flex: 1 1 9rem; }
-  .foto-sec { position: relative; cursor: pointer; }
-  .foto-sec input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
-  .kaydirici { display: grid; gap: .125rem; font-size: .8125rem; color: var(--yazi-2); }
-  .foto-not { font-size: .75rem; color: var(--yazi-2); margin-top: .5rem; }
-  .kirmizi { color: var(--hata); }
-  .aralik { width: 100%; height: 44px; accent-color: var(--vurgu); }
-  .renkler { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px; }
-  .orneg { width: 48px; height: 48px; border: 1px solid var(--kenar); outline: 2px solid transparent; outline-offset: 3px; transition: outline-color var(--sure-hizli) var(--egri-cikis); }
-  .orneg.kare { border-radius: 14px; width: 56px; }
-  .orneg.yuvarlak { border-radius: 24px; }
-  .orneg.aktif { outline-color: var(--vurgu); }
-  .satir { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 48px; font-size: .9375rem; }
+  .o-gelen { background: var(--gelen-dolgu); justify-self: start; border-bottom-left-radius: .375rem; }
+  .o-giden { background: var(--giden-dolgu); justify-self: end; border-bottom-right-radius: .375rem; }
+  h3 { font-family: var(--yazi-tipi); font-size: .875rem; font-weight: 600; color: var(--vurgu); margin-bottom: .5rem; }
+  .karolar { display: grid; grid-template-columns: repeat(auto-fill, minmax(4rem, 1fr)); gap: .5rem; }
+  .karo { position: relative; aspect-ratio: 3 / 4; border-radius: 1rem; border: 1px solid var(--kenar); display: inline-flex; align-items: center; justify-content: center; color: var(--yazi); outline: 2px solid transparent; outline-offset: 2px; transition: outline-color var(--sure-orta) var(--egri-cikis), border-radius var(--sure-orta) var(--egri-cikis); }
+  .karo.aktif { outline-color: var(--vurgu); border-radius: 1.5rem; }
+  .foto { background: var(--ton); color: var(--ton-ustu); border-color: transparent; cursor: pointer; }
+  .foto input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .kaydirici { display: grid; margin-top: .75rem; font-size: .8125rem; color: var(--yazi-2); }
+  .not { font-size: .75rem; color: var(--yazi-2); margin-top: .5rem; }
+  input[type="range"] { width: 100%; height: 2.75rem; accent-color: var(--vurgu); }
 </style>

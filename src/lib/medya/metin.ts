@@ -2,7 +2,9 @@
 // shared i18n files; move the keys into tr.ts when convenient. Usage: m("anahtar", { n: 3 }).
 // Medya ekranlarının Türkçe metinleri. Medya işi ortak i18n dosyalarına dokunmasın diye küçük yerel sözlükte tutulur
 // (i18n/tr.ts gibi); uygun olunca anahtarlar tr.ts'ye taşınır. Kullanım: m("anahtar", { n: 3 }).
-const sozluk = {
+import { dil, yerel } from "../i18n";
+
+const tr = {
   kapat: "Kapat",
   iptal: "İptal",
   bitti: "Bitti",
@@ -61,10 +63,71 @@ const sozluk = {
   resimYuklenemedi: "Görsel yüklenemedi.",
 } as const;
 
-export type MetinAnahtari = keyof typeof sozluk;
+// English texts of the media screens (same keys). · Medya ekranlarının İngilizce metinleri (aynı anahtarlar).
+const en: Record<keyof typeof tr, string> = {
+  kapat: "Close",
+  iptal: "Cancel",
+  bitti: "Done",
+  gonder: "Send",
+  kirp: "Crop",
+  dondur: "Rotate",
+  cevir: "Flip",
+  sifirla: "Reset",
+  ekle: "Add",
+  kaldir: "Remove",
+  serbest: "Free",
+  kare: "Square",
+  aciklamaEkle: "Add a caption…",
+  secili: "{n} selected",
+  secimYok: "No file selected",
+  dosyaSec: "Choose file",
+  hazirlaniyor: "Preparing…",
+  kalite: "Quality",
+  kaliteStandart: "Standard",
+  kaliteYuksek: "High",
+  kaliteOrijinal: "Original",
+  kaliteIpucu: "Compressed when sent; location and camera info are removed.",
+  kaliteIpucuOrijinal: "Sent as the original: location and camera info stay in the file.",
+  tahmini: "≈ {boyut}",
+  sesKapat: "Mute",
+  sesAc: "Unmute",
+  videoSecili: "{sure} selected · {kalite} · ≈ {boyut}",
+  videoOynat: "Play",
+  videoDurdur: "Pause",
+  kesmeTutacBas: "Start",
+  kesmeTutacSon: "End",
+  duzenlenemez: "This file type can't be edited; it's sent as is.",
+  okunamadi: "Couldn't read the file.",
+  gonderilemedi: "Couldn't send media.",
+  sikistiriliyor: "Compressing {yuzde}%",
+  hazirlaniyorYuzde: "Preparing {yuzde}%",
+  yukleniyor: "Uploading {gecerli} / {toplam} MB",
+  yukleniyorKisa: "Uploading",
+  gonderimiIptal: "Cancel sending",
+  indir: "Download",
+  kaydet: "Save",
+  kaydedildi: "Saved: {ad}",
+  kaydedilemedi: "Couldn't save.",
+  paylas: "Share",
+  oynat: "Play",
+  fotograf: "Photo",
+  video: "Video",
+  dosya: "File",
+  geriDon: "Back",
+  onceki: "Previous",
+  sonraki: "Next",
+  yakinlastir: "Zoom",
+  bugun: "Today",
+  gorsel: "Image",
+  videoYuklenemedi: "Couldn't open the video.",
+  resimYuklenemedi: "Couldn't load the image.",
+};
+const sozluk: Record<string, string> = dil === "en" ? en : tr;
+
+export type MetinAnahtari = keyof typeof tr;
 
 export function m(anahtar: MetinAnahtari, degiskenler?: Record<string, string | number>): string {
-  let metin: string = sozluk[anahtar];
+  let metin: string = sozluk[anahtar] ?? tr[anahtar];
   if (degiskenler) for (const [k, v] of Object.entries(degiskenler)) metin = metin.replaceAll(`{${k}}`, String(v));
   return metin;
 }
@@ -73,7 +136,7 @@ export function m(anahtar: MetinAnahtari, degiskenler?: Record<string, string | 
 export function boyutYaz(bayt: number): string {
   if (bayt < 1024 * 1024) return `${Math.max(1, Math.round(bayt / 1024))} KB`;
   const mb = bayt / (1024 * 1024);
-  return `${mb.toLocaleString("tr-TR", { maximumFractionDigits: mb < 10 ? 1 : 0 })} MB`;
+  return `${mb.toLocaleString(yerel, { maximumFractionDigits: mb < 10 ? 1 : 0 })} MB`;
 }
 
 /** 83.4 s → "1:23" */

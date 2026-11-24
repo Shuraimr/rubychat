@@ -16,8 +16,8 @@
   --vurgu-ustu: #0A1433;
   --ton: #1F2A4D;
   --ton-ustu: #D6DFFF;
-  --kat-1: 0 1px 2px rgb(0 0 0 / .35), inset 0 1px 0 rgb(255 255 255 / .06), inset 0 -1px 0 rgb(0 0 0 / .22);
-  --kat-2: 0 1px 2px rgb(0 0 0 / .4), 0 10px 28px -8px rgb(0 0 0 / .28), inset 0 1px 0 rgb(255 255 255 / .08), inset 0 -1px 0 rgb(0 0 0 / .28);
+  --kat-1: 0 1px 2px rgb(0 0 0 / .35);
+  --kat-2: 0 1px 2px rgb(0 0 0 / .4), 0 10px 28px -8px rgb(0 0 0 / .28);
 
   /* Durations: one token per motion in the design's motion table (section 14). Reduced motion zeroes all of them. */
   /* Süreler: tasarımın hareket tablosundaki (bölüm 14) her hareket için bir değişken. Azaltılmış hareket hepsini sıfırlar. */
@@ -27,8 +27,9 @@
   --sure-orta: 200ms;    /* new message, nav pill · yeni mesaj, sekme hapı */
   --sure-bildirim: 200ms; /* toast in · bildirim girişi */
   --sure-bildirim-cik: 150ms; /* toast out · bildirim çıkışı */
-  --sure-ekran: 240ms;   /* list → room · liste → oda */
-  --sure-sayfa: 420ms;   /* bottom sheet (a spring needs room to settle) · alt sayfa (yayın oturması için yer) */
+  --sure-ekran: 280ms;   /* list → room · liste → oda */
+  --sure-sayfa: 280ms;   /* bottom sheet, no overshoot · alt sayfa, taşma yok */
+  --sure-cikis: 130ms;   /* every menu / scrim closes faster than it opens · her menü ve perde açıldığından hızlı kapanır */
   --sure-pop: 300ms;     /* reaction pop · tepki yaylanması */
   --sure-yavas: 320ms;
   --egri-cikis: cubic-bezier(.2, .8, .2, 1);
@@ -36,12 +37,14 @@
   --egri-yay: cubic-bezier(.34, 1.56, .64, 1);
   /* Emphasized curve for screen changes; slight spring for sheets · Ekran geçişleri için vurgulu eğri; sayfalar için hafif yay */
   --egri-vurgulu: cubic-bezier(.2, 0, 0, 1);
-  --egri-sayfa: cubic-bezier(.2, .9, .25, 1.04);
+  /* Fast start, long soft landing: everything that opens or slides uses this one curve. · Hızlı başlar, uzun yumuşak iner: açılan ve kayan her şey bu tek eğriyi kullanır. */
+  --egri-ac: cubic-bezier(.05, .7, .1, 1);
+  --egri-sayfa: var(--egri-ac);
   --hareket: 1;
 
   --yazi-tipi: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --baslik-tipi: "Space Grotesk", "Inter", system-ui, sans-serif;
-  --mono-tipi: "Maple Mono", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --mono-tipi: "Maple Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   /* Root text scale (Görünüm › Yazı boyutu) · Kök yazı ölçeği (Görünüm › Yazı boyutu) */
   --yazi-olcegi: 1;
   /* Height of fixed bottom bars, measured at runtime by the app (toasts sit above it) */
@@ -61,7 +64,7 @@
     --kenar: #C6D0DD; --kenar-ince: #DAE1EA; --yazi: #0B1220; --yazi-2: #4A5568;
     --hata: #C2183E; --cozum: #0F7A4F; --bekliyor: #744700;
     --vurgu: #2E4BB8; --vurgu-ustu: #FFFFFF; --ton: #E0E6FF; --ton-ustu: #13235E;
-    --kat-1: 0 1px 2px rgb(0 0 0 / .08), inset 0 -1px 0 rgb(0 0 0 / .06);
+    --kat-1: 0 1px 2px rgb(0 0 0 / .08);
     --kat-2: 0 1px 2px rgb(0 0 0 / .1), 0 10px 28px -8px rgb(0 0 0 / .14);
     --tas-safir: #2E4BB8; --tas-zumrut: #0F7A4F; --tas-kehribar: #8A5A00; --tas-ametist: #6B3FD6; --tas-yakut: #C2183E;
     color-scheme: light;
@@ -72,7 +75,7 @@
   --kenar: #C6D0DD; --kenar-ince: #DAE1EA; --yazi: #0B1220; --yazi-2: #4A5568;
   --hata: #C2183E; --cozum: #0F7A4F; --bekliyor: #744700;
   --vurgu: #2E4BB8; --vurgu-ustu: #FFFFFF; --ton: #E0E6FF; --ton-ustu: #13235E;
-  --kat-1: 0 1px 2px rgb(0 0 0 / .08), inset 0 -1px 0 rgb(0 0 0 / .06);
+  --kat-1: 0 1px 2px rgb(0 0 0 / .08);
   --kat-2: 0 1px 2px rgb(0 0 0 / .1), 0 10px 28px -8px rgb(0 0 0 / .14);
   --tas-safir: #2E4BB8; --tas-zumrut: #0F7A4F; --tas-kehribar: #8A5A00; --tas-ametist: #6B3FD6; --tas-yakut: #C2183E;
   color-scheme: light;
@@ -113,9 +116,7 @@
 /* ---- Yazı tipi: seçilen aile. "Sistem" seçilmedikçe başlıklar Space Grotesk kalır. ---- */
 :root[data-font="sistem"] { --yazi-tipi: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --baslik-tipi: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 :root[data-font="atkinson"] { --yazi-tipi: "Atkinson Hyperlegible", system-ui, sans-serif; }
-:root[data-font="nunito"] { --yazi-tipi: "Nunito", system-ui, sans-serif; }
 :root[data-font="maple"] { --yazi-tipi: "Maple Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
-:root[data-font="mono"] { --yazi-tipi: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
 
 /* ---- Text size ---- */
 /* ---- Yazı boyutu ---- */
@@ -129,10 +130,10 @@
 @media (prefers-reduced-motion: reduce) {
   :root {
     --sure-hizli: 0ms; --sure-gecis: 0ms; --sure-menu: 0ms; --sure-orta: 0ms; --sure-bildirim: 0ms; --sure-bildirim-cik: 0ms;
-    --sure-ekran: 0ms; --sure-sayfa: 0ms; --sure-pop: 0ms; --sure-yavas: 0ms; --hareket: 0;
+    --sure-ekran: 0ms; --sure-sayfa: 0ms; --sure-cikis: 0ms; --sure-pop: 0ms; --sure-yavas: 0ms; --hareket: 0;
   }
 }
 :root[data-az-animasyon] {
   --sure-hizli: 0ms; --sure-gecis: 0ms; --sure-menu: 0ms; --sure-orta: 0ms; --sure-bildirim: 0ms; --sure-bildirim-cik: 0ms;
-  --sure-ekran: 0ms; --sure-sayfa: 0ms; --sure-pop: 0ms; --sure-yavas: 0ms; --hareket: 0;
+  --sure-ekran: 0ms; --sure-sayfa: 0ms; --sure-cikis: 0ms; --sure-pop: 0ms; --sure-yavas: 0ms; --hareket: 0;
 }

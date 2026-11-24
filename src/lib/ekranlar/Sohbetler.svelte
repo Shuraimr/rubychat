@@ -6,13 +6,16 @@
 -->
 <script lang="ts">
   import { onMount } from "svelte";
+  import { odaSabitle, okunduIsaretle } from "../api/komutlar";
+  import type { OdaOzeti } from "../api/tipler";
+  import BaglamMenusu, { type MenuEylemi } from "../bilesenler/BaglamMenusu.svelte";
+  import { bildirim } from "../durum/bildirim.svelte";
   import AltSayfa from "../bilesenler/AltSayfa.svelte";
   import Anahtar from "../bilesenler/Anahtar.svelte";
   import BosDurum from "../bilesenler/BosDurum.svelte";
   import EsitlemeSeridi from "../bilesenler/EsitlemeSeridi.svelte";
   import Ikon from "../bilesenler/Ikon.svelte";
   import KlasorSekmeleri, { type Sekme } from "../bilesenler/KlasorSekmeleri.svelte";
-  import KristalZemin from "../bilesenler/KristalZemin.svelte";
   import { tercihler } from "../durum/tercihler.svelte";
   import Maskot from "../bilesenler/Maskot.svelte";
   import SohbetSatiri from "../bilesenler/SohbetSatiri.svelte";
@@ -22,6 +25,8 @@
   import { alanlar } from "../durum/alanlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { altKaydirma, kabuk } from "../durum/kabuk.svelte";
+  import { istekler } from "../durum/istekler.svelte";
+  import Avatar from "../bilesenler/Avatar.svelte";
   import { odalar, type Suzgec } from "../durum/odalar.svelte";
   import { sohbetChipleri, type SekmeId } from "../durum/sohbetChipleri.svelte";
   import { t, type Anahtar as TrAnahtar } from "../i18n";
@@ -43,6 +48,14 @@
   }
 
   let yeniAcik = $state(false);
+  // Long press on a row: pin it (quick switcher, top of the list) · Satıra uzun bas: sabitle (hızlı geçiş, listenin başı)
+  let menu = $state<{ x: number; y: number; eylemler: MenuEylemi[] } | null>(null);
+  function odaMenusu(o: OdaOzeti, x: number, y: number) {
+    if (o.davet) return;
+    const eylemler: MenuEylemi[] = [{ ikon: "sabitle", etiket: t(o.sabit ? "sohbetler.sabitKaldir" : "sohbetler.sabitle"), calistir: () => void odaSabitle(o.id, !o.sabit).catch(() => bildirim.goster(t("sohbetler.sabitHata"), 4000, { tur: "hata" })) }];
+    if (o.okunmamis > 0) eylemler.push({ ikon: "onay", etiket: t("sohbetler.okundu"), calistir: () => void okunduIsaretle(o.id).catch(() => {}) });
+    menu = { x, y, eylemler };
+  }
   let cipDuzenle = $state(false);
   const telefon = $derived(gezinme.sekil === "telefon");
 
@@ -109,8 +122,6 @@
 </script>
 
 <div class="sohbetler">
-  <!-- Optional crystal effect behind the lists (default: off; Ayarlar › Görünüm) · Listelerin arkasında isteğe bağlı kristal efekt (varsayılan: kapalı; Ayarlar › Görünüm) -->
-  {#if tercihler.d.listeEfekti !== "kapali"}<KristalZemin efekt={tercihler.d.listeEfekti} />{/if}
   {#if alanlar.gecerli && !telefon}
     <!-- Deeper inside a space: the full space screen with its own ← covers the tabs. · Bir alanın içinde: kendi ←'sı olan tam alan ekranı sekmeleri örter. -->
     <Alanlar />
@@ -129,9 +140,9 @@
     </div>
     <div class="perde" aria-hidden="true"></div>
 
-    <!-- Folders: a native scroll-snap pager; at the last folder the swipe continues to the next main page. -->
-    <!-- Klasörler: yerel scroll-snap sayfalayıcı; son klasörde kaydırma bir sonraki ana sayfaya devam eder. -->
-    <Sayfalayici sayfalar={sekmeler.map((s) => s.id)} {secili} sec={sekmeSec} ilerle={(f) => (ilerleme = f)}>
+    <!-- Folders. On phones a swipe belongs to the main pages (Sohbetler · Alanlar · Ben) unless the folder swipe is switched on; folders are then chosen from the tray. -->
+    <!-- Klasörler. Telefonda kaydırma, klasör kaydırması açılmadıkça ana sayfalarındır (Sohbetler · Alanlar · Ben); klasör tepsiden seçilir. -->
+    <Sayfalayici sayfalar={sekmeler.map((s) => s.id)} {secili} sec={sekmeSec} ilerle={(f) => (ilerleme = f)} kilitli={telefon && !sohbetChipleri.klasorKaydir}>
       {#snippet sayfa(id)}
         {@const alan = id.startsWith("alan:") ? alanlar.ust.find((a) => `alan:${a.id}` === id) : undefined}
         {@const satirlar = odalar.suz(id as Suzgec)}
@@ -148,12 +159,11 @@
                 </div>
               {/if}
               {#if odalar.davetler.length > 0 && id === "tumu"}
-                <div class="davet-karti">
-                  <span class="davet-baslik">{t("sohbetler.davet", { n: odalar.davetler.length })}</span>
-                  {#each odalar.davetler as d (d.id)}
-                    <SohbetSatiri oda={d} sec={() => {}} />
-                  {/each}
-                </div>
+                <button class="istek-karti" data-dalga onclick={() => istekler.ac()}>
+                  <span class="yuzler">{#each odalar.davetler.slice(0, 3) as d (d.id)}<Avatar harf={d.avatarHarf} mxc={d.avatarMxc} boyut={36} />{/each}</span>
+                  <span class="izin-metin"><b>{t("istek.baslik")}</b><small>{odalar.davetler.length === 1 ? t("istek.kartTek", { ad: odalar.davetler[0].ad }) : t("istek.kart", { n: odalar.davetler.length })}</small></span>
+                  <span class="rozet">{odalar.davetler.length}</span>
+                </button>
               {/if}
 
               {#if hata}
@@ -177,7 +187,7 @@
                 {/if}
               {:else}
                 {#each satirlar as oda, i (oda.id)}
-                  <SohbetSatiri {oda} sira={i} secili={gezinme.genis && gezinme.acikOdaId === oda.id} taslak={odalar.taslaklar[oda.id] ?? ""} sec={() => (oda.davet ? undefined : gezinme.odaAc(oda.id))} />
+                  <SohbetSatiri {oda} sira={i} secili={gezinme.genis && gezinme.acikOdaId === oda.id} taslak={odalar.taslaklar[oda.id] ?? ""} sec={() => (oda.davet ? istekler.ac() : gezinme.odaAc(oda.id))} uzun={(x, y) => odaMenusu(oda, x, y)} />
                 {/each}
               {/if}
               <!-- Room for the search pill + button · Arama hapı + düğme için yer -->
@@ -192,6 +202,7 @@
   {/if}
 </div>
 
+{#if menu}<BaglamMenusu x={menu.x} y={menu.y} eylemler={menu.eylemler} onkapat={() => (menu = null)} />{/if}
 {#if yeniAcik}<YeniSohbet onkapat={() => (yeniAcik = false)} />{/if}
 
 {#if cipDuzenle}
@@ -210,39 +221,48 @@
         <span class="cip-ad cip-metinli"><strong>{t("sohbetler.alanSekmeleri")}</strong><small>{t("sohbetler.alanSekmeleriAlt")}</small></span>
         <Anahtar acik={sohbetChipleri.alanSekmeleri} degis={(v) => sohbetChipleri.alanSekmeleriYaz(v)} etiket={t("sohbetler.alanSekmeleri")} />
       </div>
+      {#if telefon}
+        <div class="cip-satir">
+          <span class="cip-ad cip-metinli"><strong>{t("sohbetler.klasorKaydir")}</strong><small>{t("sohbetler.klasorKaydirAlt")}</small></span>
+          <Anahtar acik={sohbetChipleri.klasorKaydir} degis={(v) => sohbetChipleri.klasorKaydirYaz(v)} etiket={t("sohbetler.klasorKaydir")} />
+        </div>
+      {/if}
     </div>
   </AltSayfa>
 {/if}
 
 <style>
-  .sohbetler > :global(.kz) { z-index: -1; }
   .sohbetler { position: relative; isolation: isolate; flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .tepe { position: absolute; z-index: 3; top: 0; left: 0; right: 0; padding-top: env(safe-area-inset-top); transition: transform var(--sure-yavas) var(--egri-cikis); }
   .tepe.kompakt { transform: translate3d(0, -4rem, 0); }
   .kompakt .ust { opacity: 0; pointer-events: none; }
-  .perde { position: absolute; z-index: 2; top: 0; left: 0; right: 0; height: calc(env(safe-area-inset-top) + 5rem); background: linear-gradient(var(--zemin) 62%, transparent); pointer-events: none; }
-  .ust { height: 4.25rem; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 20px; transition: opacity var(--sure-orta) var(--egri-cikis); }
+  .perde { position: absolute; z-index: 2; top: 0; left: 0; right: 0; height: calc(env(safe-area-inset-top) + 5rem); background: linear-gradient(var(--zemin) 70%, color-mix(in srgb, var(--zemin) 70%, transparent) 86%, transparent); pointer-events: none; }
+  .ust { height: 4.25rem; display: flex; align-items: center; gap: 12px; padding: 0 .75rem 0 1rem; transition: opacity var(--sure-orta) var(--egri-cikis); }
   .basliklar { flex: 1; min-width: 0; display: grid; }
   h1 { min-width: 0; font-family: var(--baslik-tipi); font-size: 1.625rem; line-height: 1.2; font-weight: 700; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The title floats over the list: a soft halo in the background colour keeps it readable. · Başlık listenin üstünde yüzer: zemin renginde yumuşak bir hale okunur kılar. */
+  h1, .ozet { text-shadow: 0 0 3px var(--zemin), 0 0 10px var(--zemin), 0 1px 14px var(--zemin); padding: 0 .25rem; margin: 0 -.25rem; }
   .ozet { font-size: .8125rem; line-height: 1.35; color: var(--yazi-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ozet.var { color: var(--vurgu); font-weight: 500; }
-  .duzenle { flex: none; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); box-shadow: var(--kat-1); color: var(--yazi-2); }
+  .duzenle { flex: none; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--yuzey-2); color: var(--yazi-2); }
   .duzenle:active { background: var(--yuzey-3); }
-  .tepsi { margin: 0 12px 8px; overflow: hidden; border-radius: 24px; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); box-shadow: var(--kat-2); }
+  .tepsi { margin: 0 12px 8px; overflow: hidden; border-radius: 28px; background: var(--yuzey-2); box-shadow: var(--kat-2); }
   /* The sync strip is the tray's lower storey. · Eşitleme şeridi tepsinin alt katıdır. */
   .tepsi :global(.serit) { border-bottom: 0; border-top: 1px solid var(--kenar-ince); }
 
   .sayfa { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .sayfa.alan { padding-top: var(--tepe-yer); }
-  .izin-karti { margin: 0 .75rem .5rem; padding: .75rem .5rem .75rem 1rem; display: flex; align-items: center; gap: .75rem; background: var(--yuzey-1); border: 1px solid var(--kenar); border-radius: 1rem; }
-  .izin-simge { flex: none; width: 2.5rem; height: 2.5rem; border-radius: .75rem; display: grid; place-items: center; background: var(--ton); color: var(--ton-ustu); }
+  .izin-karti { margin: 0 .75rem .5rem; padding: .75rem .5rem .75rem 1rem; display: flex; align-items: center; gap: .75rem; background: var(--yuzey-2); border-radius: 1.5rem; }
+  .izin-simge { flex: none; width: 2.5rem; height: 2.5rem; border-radius: 50%; display: grid; place-items: center; background: var(--ton); color: var(--ton-ustu); }
   .izin-metin { flex: 1; min-width: 0; display: grid; gap: 2px; font-size: .875rem; }
   .izin-metin small { color: var(--yazi-2); font-size: .8125rem; }
-  .izin-ac { flex: none; min-width: 3.5rem; min-height: 2.75rem; padding: 0 .875rem; border-radius: .75rem; background: var(--vurgu); color: var(--vurgu-ustu); font-weight: 600; }
+  .izin-ac { flex: none; min-width: 3.5rem; min-height: 2.75rem; padding: 0 1rem; border-radius: 1.375rem; background: var(--vurgu); color: var(--vurgu-ustu); font-weight: 600; }
   .liste { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: var(--tepe-yer); }
   .alt-bosluk { height: var(--dock-yer); }
-  .davet-karti { margin: 0 .75rem .5rem; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); border-radius: 1rem; overflow: hidden; }
-  .davet-baslik { display: block; padding: .75rem 1rem .25rem; font-size: .8125rem; font-weight: 600; color: var(--vurgu); }
+  .istek-karti { width: calc(100% - 1.5rem); margin: 0 .75rem .5rem; min-height: 4rem; padding: .625rem 1rem; display: flex; align-items: center; gap: .75rem; text-align: left; background: var(--ton); color: var(--ton-ustu); border-radius: 1.5rem; }
+  .istek-karti small { color: inherit; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .yuzler { display: flex; flex: none; }
+  .yuzler > :global(* + *) { margin-left: -.75rem; }
   .yukleniyor-maskot { display: grid; justify-items: center; gap: 4px; padding: 1rem 1.5rem .5rem; text-align: center; font-size: .875rem; color: var(--yazi-2); }
   .yukleniyor-maskot strong { color: var(--yazi); font-size: 1rem; }
   .iskelet { min-height: 4.5rem; padding: 0 1rem; display: flex; align-items: center; gap: .75rem; }

@@ -2,6 +2,7 @@
 // either flies out (far enough or fast enough) or springs back. Horizontal scrollers under the finger keep their own swipe.
 // Her yerden sağa kaydırınca geri: sayfa parmağı birebir izler, alttaki sayfa (`altta`) -%25'ten birlikte gelir; bırakınca ya (yeterince
 // uzak ya da hızlıysa) çıkar ya da geri yaylanır. Parmağın altındaki yatay kaydırılabilir öğeler kendi kaydırmasını korur.
+import { hareketVar } from "./hareket";
 import { titret } from "./dokunma";
 import { cikisiAtla } from "./gecis";
 
@@ -30,8 +31,6 @@ export function geriKaydir(node: HTMLElement, secenek: Secenek) {
   let hiz = 0;
   let suruyor = false;
   let ustte: HTMLElement | null = null;
-
-  const hareketVar = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--hareket")) > 0;
   const yaz = (x: number) => {
     node.style.transform = `translate3d(${x}px,0,0)`;
     if (ustte) ustte.style.transform = `translate3d(${-25 + (x / node.clientWidth) * 25}%,0,0)`;

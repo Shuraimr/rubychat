@@ -8,24 +8,26 @@
 -->
 <script lang="ts">
   import type { OdaOzeti } from "../api/tipler";
+  import { uzunBasma } from "../dokunma";
   import { t } from "../i18n";
   import { goreliZaman } from "../zaman-bicim";
   import Avatar from "./Avatar.svelte";
   import Ikon from "./Ikon.svelte";
 
-  let { oda, secili = false, taslak = "", sec, sira = 0 }: { oda: OdaOzeti; secili?: boolean; taslak?: string; sec: () => void; sira?: number } = $props();
+  let { oda, secili = false, taslak = "", sec, sira = 0, uzun }: { oda: OdaOzeti; secili?: boolean; taslak?: string; sec: () => void; sira?: number; uzun?: (x: number, y: number) => void } = $props();
 
   const okunmamisMi = $derived(oda.okunmamis > 0 || oda.bahsedilme > 0);
   const onizleme = $derived(oda.davet ? t("sohbetler.davetli") : taslak || (oda.sonMesaj ?? t("sohbetler.mesajYok")));
   const sayi = $derived(oda.okunmamis > 99 ? "99+" : String(oda.okunmamis));
 </script>
 
-<button class="satir liste-gir" style:--i={sira} data-dalga class:secili class:okunmamis={okunmamisMi} onclick={sec}>
+<button class="satir liste-gir" style:--i={sira} data-dalga class:secili class:okunmamis={okunmamisMi} onclick={sec} use:uzunBasma={{ ac: (x, y) => uzun?.(x, y), sure: 400 }}>
   <Avatar harf={oda.avatarHarf} mxc={oda.avatarMxc} boyut={52} />
   <span class="orta">
     <span class="ust">
       <span class="ad">{oda.ad}</span>
       {#if oda.sifreli}<span class="kilit" title={t("sohbetler.sifreli")}><Ikon ad="kilit" boyut={14} /></span>{/if}
+      {#if oda.sabit}<span class="kilit" title={t("sohbetler.sabitli")}><Ikon ad="sabitle" boyut={14} /></span>{/if}
       <span class="zaman">{goreliZaman(oda.sonZaman)}</span>
     </span>
     <span class="alt">
@@ -43,7 +45,7 @@
     /* Rows outside the screen are not laid out or painted. · Ekran dışındaki satırlar düzenlenmez, boyanmaz. */
     content-visibility: auto; contain-intrinsic-size: auto 4.5rem;
     position: relative; width: 100%; min-height: 4.5rem; padding: .5rem 1rem;
-    display: flex; align-items: center; gap: 12px; text-align: left;
+    display: flex; align-items: center; gap: 1rem; text-align: left;
     transition: background var(--sure-hizli) var(--egri-cikis);
   }
   @media (hover: hover) { .satir:hover { background: var(--yuzey-1); } }

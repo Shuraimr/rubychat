@@ -13,6 +13,8 @@
   Görüntüleyici hep koyudur (fotoğraf görüntüleyicisi açık temada beyaza dönmemeli), bu yüzden iki renk sabiti taşır.
 -->
 <script lang="ts">
+  import { yerel } from "../i18n";
+  import { sureMs as jetonMs } from "../hareket";
   import { onMount, tick } from "svelte";
   import { medyaKaydet } from "../api/komutlar";
   import type { ZamanOgesi } from "../api/tipler";
@@ -53,11 +55,7 @@
 
   const video = $derived(md?.tur === "video");
 
-  function sureMs(): number {
-    const v = getComputedStyle(document.documentElement).getPropertyValue("--sure-orta").trim();
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n : 200;
-  }
+  const sureMs = () => jetonMs("--sure-orta");
 
   // ---- History / back button · Geri tuşu ----
   let katman: ReturnType<typeof katmanAc> | undefined;
@@ -232,7 +230,7 @@
   }
 
   const zamanYazi = $derived(
-    oge ? new Date(oge.zaman).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "",
+    oge ? new Date(oge.zaman).toLocaleString(yerel, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "",
   );
   const sahneStil = $derived(
     `transform: translate(${x + yatayKayma}px, ${y + suruklemeY}px) scale(${olcek});`,

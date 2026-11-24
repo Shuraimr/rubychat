@@ -101,12 +101,12 @@
   }
 </script>
 
-<div class="sayfa">
+<div class="ay-sayfa">
   <Baslik baslik={t("guvenlik.baslik")} geri={() => gezinme.benAltKapat()} />
-  <div class="icerik">
+  <div class="ay-icerik">
     <!-- The lock mascot: encryption / recovery / verification live here (design 22/13) · Kilit maskotu: şifreleme / kurtarma / doğrulama burada (tasarım 22/13) -->
     <div class="maskot-yer"><Maskot poz="kilit" boyut={112} /></div>
-    <div class="kart satirlar">
+    <div class="ay-kart satirlar">
       {#if g}
         <GuvenlikSatiri
           baslik={t("guvenlik.cihazDogrulama")}
@@ -155,7 +155,7 @@
     {#if oturum.ben?.gizliDepo === "dosya"}<p class="not">{t("guvenlik.gizliDosyaNotu")}</p>{/if}
 
     <h2 class="bolum">{t("guvenlik.oturumlar")}</h2>
-    <div class="kart cihazlar">
+    <div class="ay-kart">
       {#if cihazHata}
         <div class="bos"><Maskot poz="hata" boyut={72} /><p>{t("guvenlik.oturumlarYuklenemedi")}</p><button class="buton cizgili kucuk" onclick={cihazlariYukle}>{t("eylem.tekrarDene")}</button></div>
       {:else if !cihazlar}
@@ -206,21 +206,15 @@
 </div>
 
 <style>
-  .sayfa { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--zemin); }
-  .icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 16px 24px; display: grid; grid-auto-rows: max-content; gap: 12px; align-content: start; }
-  .kart { background: var(--yuzey-1); border: 1px solid var(--kenar-ince); border-radius: 16px; padding: 4px 16px; display: grid; }
   /* Rows are rendered by a child component, so the selector must reach into it with :global. · Satırları alt bileşen çizer; seçici :global ile içeri uzanmalı. */
-  .satirlar > :global(*) { padding: 14px 0; border-bottom: 1px solid var(--kenar-ince); }
-  .satirlar > :global(*:last-child) { border-bottom: 0; }
-  .bolum { font-size: .8125rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--yazi-2); padding: .5rem .25rem 0; }
-  .anahtar-satir { display: flex; align-items: center; gap: .75rem; }
-  .anahtar-satir .metin { flex: 1; min-width: 0; display: grid; gap: 2px; }
+  .satirlar > :global(*) { padding: 1rem; }
+  .bolum { font-family: var(--yazi-tipi); font-size: .875rem; font-weight: 600; color: var(--vurgu); padding: 0 1rem; margin-bottom: -.75rem; }
+  .anahtar-satir { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+  .anahtar-satir .metin { flex: 1 1 9rem; min-width: 0; display: grid; gap: 2px; }
   .anahtar-satir strong { font-size: .9375rem; font-weight: 500; }
   .anahtar-satir small, .cihaz-metin small { font-size: .8125rem; color: var(--yazi-2); }
   .kucuk { width: auto; min-height: 2.75rem; padding: 0 1rem; }
-  .cihazlar { padding: .25rem 1rem; }
-  .cihaz { display: flex; align-items: flex-start; gap: .75rem; padding: .875rem 0; border-bottom: 1px solid var(--kenar-ince); }
-  .cihaz:last-child { border-bottom: 0; }
+  .cihaz { display: flex; align-items: flex-start; gap: .75rem; padding: 1rem; }
   .cihaz-ikon { flex: none; color: var(--yazi-2); padding-top: .125rem; }
   .cihaz-metin { flex: 1; min-width: 0; display: grid; gap: 2px; justify-items: start; }
   .cihaz-metin strong { font-size: .9375rem; font-weight: 600; overflow-wrap: anywhere; }

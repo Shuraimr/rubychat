@@ -12,6 +12,7 @@
   görünür (MedyaBekleyenler, sonra SDK'nın yerel yankısı). Geri tuşu: akış ve kırpma ekranı history katmanlarıdır (katman.ts).
 -->
 <script lang="ts">
+  import { menuCik } from "../gecis";
   import { onMount, tick } from "svelte";
   import type { MedyaTuru } from "../api/tipler";
   import Ikon from "../bilesenler/Ikon.svelte";
@@ -37,11 +38,8 @@
   import { kareler, metaOku, tahminiVideoBoyutu, videoAc, type VideoKalitesi } from "./video";
 
   /**
-   * `gif` = "GIF yap": videos only, the cut is limited to 6 s and starts muted (no encoder library: the result is a short muted m.video that
-   * plays like a GIF). `gif` = "GIF yap": yalnızca video, kesim 6 sn ile sınırlı ve sessiz başlar (kodlayıcı kütüphanesi yok: sonuç GIF gibi oynayan kısa sessiz m.video).
    */
-  let { odaId, kaynak, onkapat, gif = false }: { odaId: string; kaynak: "galeri" | "kamera" | "dosya"; onkapat: () => void; gif?: boolean } = $props();
-  const GIF_SN = 6;
+  let { odaId, kaynak, onkapat }: { odaId: string; kaynak: "galeri" | "kamera" | "dosya"; onkapat: () => void } = $props();
 
   interface Oge extends GonderilecekOge {
     id: number;
@@ -112,7 +110,7 @@
   }
 
   // ---- Picking · Seçme ----
-  const kabul = $derived(gif ? "video/*" : kaynak === "dosya" ? undefined : "image/*,video/*");
+  const kabul = $derived(kaynak === "dosya" ? undefined : "image/*,video/*");
 
   async function sec() {
     const dosyalar = Array.from(girdi.files ?? []);
@@ -167,7 +165,7 @@
       const v = await videoAc(url);
       const meta = metaOku(v);
       taban.videoEl = v;
-      taban.video = { sure: meta.sure, basla: 0, bitis: gif ? Math.min(meta.sure, GIF_SN) : meta.sure, sessiz: gif, kalite: "720", genislik: meta.genislik, yukseklik: meta.yukseklik };
+      taban.video = { sure: meta.sure, basla: 0, bitis: meta.sure, sessiz: false, kalite: "720", genislik: meta.genislik, yukseklik: meta.yukseklik };
     }
     return taban;
   }
@@ -446,8 +444,8 @@
     const fark = ((e.clientX - tutac.ox) / tutac.genis) * v.sure;
     const MIN_SURE = Math.min(1, v.sure);
     if (tutac.tur === "bas") {
-      v.basla = sinirla(tutac.deger + fark, gif ? Math.max(0, v.bitis - GIF_SN) : 0, v.bitis - MIN_SURE);
-    } else v.bitis = sinirla(tutac.deger + fark, v.basla + MIN_SURE, gif ? Math.min(v.sure, v.basla + GIF_SN) : v.sure);
+      v.basla = sinirla(tutac.deger + fark, 0, v.bitis - MIN_SURE);
+    } else v.bitis = sinirla(tutac.deger + fark, v.basla + MIN_SURE, v.sure);
     // The preview follows the handle being dragged. · Önizleme sürüklenen tutacağı izler.
     oynatici.currentTime = tutac.tur === "bas" ? v.basla : Math.max(v.basla, v.bitis - 0.05);
   }
@@ -500,7 +498,7 @@
 
 <svelte:window onkeydown={tus} />
 
-<div bind:this={kok} class="akis" role="dialog" aria-modal="true" aria-label={m("gonder")}>
+<div bind:this={kok} out:menuCik|global class="akis" role="dialog" aria-modal="true" aria-label={m("gonder")}>
   <input bind:this={girdi} type="file" hidden multiple={kaynak !== "kamera"} accept={kabul} capture={kaynak === "kamera" ? "environment" : undefined} onchange={sec} oncancel={secimIptal} />
 
   {#if ekran === "kirp" && oge}
@@ -683,7 +681,7 @@
     flex-direction: column;
     background: var(--zemin);
     color: var(--yazi);
-    animation: gir var(--sure-yavas) var(--egri-cikis);
+    animation: gir var(--sure-sayfa) var(--egri-ac);
   }
   @keyframes gir {
     from {

@@ -10,13 +10,14 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { gorunurlukIzle } from "./lib/durum/efekt.svelte";
   import { altYeriOlc } from "./lib/alt-yer";
   import { kayCik, kayGir } from "./lib/gecis";
   import { klavyeyiIzle } from "./lib/klavye";
   import { dokunmaBaslat, titret } from "./lib/dokunma";
   import Acilis from "./lib/bilesenler/Acilis.svelte";
   import KullaniciKarti from "./lib/bilesenler/KullaniciKarti.svelte";
+  import IstekKatmani from "./lib/bilesenler/IstekKatmani.svelte";
+  import HizliGecis from "./lib/bilesenler/HizliGecis.svelte";
   import BaglantiOnay from "./lib/bilesenler/BaglantiOnay.svelte";
   import { kabuk } from "./lib/durum/kabuk.svelte";
   import { tercihler } from "./lib/durum/tercihler.svelte";
@@ -24,6 +25,7 @@
   import EcCubuk from "./lib/arama-ec/EcCubuk.svelte";
   import EcKatilSeridi from "./lib/arama-ec/EcKatilSeridi.svelte";
   import EcKatman from "./lib/arama-ec/EcKatman.svelte";
+  import UstBildirim from "./lib/bilesenler/UstBildirim.svelte";
   import Bildirim from "./lib/bilesenler/Bildirim.svelte";
   import SifrelemeKatmani from "./lib/bilesenler/SifrelemeKatmani.svelte";
   import AltDock from "./lib/bilesenler/AltDock.svelte";
@@ -43,9 +45,12 @@
   import { odalar } from "./lib/durum/odalar.svelte";
   import { oturum } from "./lib/durum/oturum.svelte";
   import { sifreleme } from "./lib/durum/sifreleme.svelte";
+  import { onYukle } from "./lib/durum/onYukle.svelte";
+  import { zamanHazir } from "./lib/api/olaylar";
+  import { zaman } from "./lib/durum/zaman.svelte";
   import { t } from "./lib/i18n";
-  import { bildirimSistemiBaslat } from "./lib/bildirim-sistem";
-  import { bildirim } from "./lib/durum/bildirim.svelte";
+  import { arkaPlanAyarla, bildirimSistemiBaslat } from "./lib/bildirim-sistem";
+  import { ustBildirim } from "./lib/durum/ustBildirim.svelte";
 
   const ANA: Sekme[] = ["sohbetler", "alanlar", "ben"];
   let ekran: HTMLDivElement | undefined = $state();
@@ -54,8 +59,22 @@
   onMount(() => {
     gezinme.baslat();
     oturum.baslat();
-    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat(), gorunurlukIzle()];
+    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat()];
     return () => birak.forEach((f) => f());
+  });
+
+  // Keep the likely next rooms warm (see onYukle). · Sıradaki muhtemel odaları sıcak tut (bkz. onYukle).
+  $effect(() => {
+    if (!oturum.ben) return;
+    const birak = untrack(() => onYukle.baslat());
+    const abone = zamanHazir((g) => zaman.hazirla(g));
+    return () => {
+      birak();
+      void abone.then((f) => f());
+    };
+  });
+  $effect(() => {
+    onYukle.guncelle(odalar.liste, odalar.ilkListeGeldi && odalar.esitleme.durum === "calisiyor");
   });
 
   // Start/stop room-list tracking with the login state. · Oda listesi izlemesini giriş durumuna göre başlat/durdur.
@@ -68,16 +87,17 @@
       const cihazId = oturum.ben.cihazId;
       untrack(() => void sifreleme.baslat(cihazId));
       // System + in-app notifications live as long as the session. · Sistem + uygulama içi bildirimler oturum boyunca yaşar.
+      untrack(() => arkaPlanAyarla(tercihler.d.arkaPlan));
       let birak: (() => void) | null = null;
       let bitti = false;
       untrack(() =>
         bildirimSistemiBaslat({
           odaAc: (id) => gezinme.odaAc(id),
           uygulamaIci: (b) => {
-            // In-app banner follows Ayarlar › Bildirimler (on/off, preview, vibration, quiet hours). · Uygulama içi şerit Ayarlar › Bildirimler'i izler (aç/kapa, önizleme, titreşim, sessiz saatler).
-            if (!tercihler.d.bildirimAcik || tercihler.sessizMi()) return;
-            if (tercihler.d.bildirimTitresim) titret(15);
-            bildirim.goster(tercihler.d.bildirimOnizleme ? `${b.gonderenAd}: ${b.metin}` : b.gonderenAd, 4000, { eylem: { etiket: t("bildirim.ac"), calistir: () => gezinme.odaAc(b.odaId) } });
+            // In-app banner follows Ayarlar › Bildirimler (on/off, preview, vibration). · Uygulama içi şerit Ayarlar › Bildirimler'i izler (aç/kapa, önizleme, titreşim).
+            if (!tercihler.d.bildirimAcik) return;
+            if (tercihler.d.bildirimTitresim) titret("dokunus");
+            ustBildirim.goster(tercihler.d.bildirimOnizleme ? b : { ...b, metin: "" });
           },
         })
           .then((f) => (bitti ? f() : (birak = f)))
@@ -86,6 +106,8 @@
       return () => {
         bitti = true;
         birak?.();
+        arkaPlanAyarla(false);
+        ustBildirim.kapat();
       };
     } else {
       sifreleme.durdur();
@@ -93,13 +115,15 @@
       arama.durdur();
       gezinme.sifirla();
       alanlar.sifirla();
+      zaman.bellekSil();
+      onYukle.sil();
       kabuk.sifirla();
     }
   });
 </script>
 
 {#if !oturum.hazir}
-  <!-- Splash only while the saved session is restored; cached rooms never wait behind it. · Açılış ekranı yalnızca kayıtlı oturum geri yüklenirken; önbellekteki odalar onun arkasında beklemez. -->
+  <!-- Splash (fades over the app once it is drawn) only while the saved session is restored; cached rooms never wait behind it. · Açılış ekranı yalnızca kayıtlı oturum geri yüklenirken; önbellekteki odalar onun arkasında beklemez. -->
   <Acilis />
 {:else if !oturum.ben}
   <Giris />
@@ -133,7 +157,7 @@
             {#if gezinme.sekme === "sohbetler"}<Sohbetler />{:else if gezinme.sekme === "alanlar"}<Alanlar />{:else}<Ben />{/if}
           {:else}
             <!-- Portrait phone: the three main pages side by side; swipe or use the dock. · Dikey telefon: üç ana sayfa yan yana; kaydır ya da dock'u kullan. -->
-            <Sayfalayici sayfalar={ANA} secili={gezinme.sekme} sec={(id) => { gezinme.sekmeSec(id as Sekme); kabuk.altGizli = false; titret(6); }} ilerle={(f) => (kabuk.ilerleme = f)} kilitli={!!gezinme.benAlt || kabuk.aramaOdakta}>
+            <Sayfalayici sayfalar={ANA} secili={gezinme.sekme} sec={(id) => { gezinme.sekmeSec(id as Sekme); kabuk.altGizli = false; titret(6); }} ilerle={(f) => (kabuk.ilerleme = f)} kilitli={!!gezinme.benAlt || kabuk.aramaOdakta || (gezinme.sekme === "alanlar" && alanlar.yigin.length > 0)}>
               {#snippet sayfa(id)}
                 {#if id === "sohbetler"}<Sohbetler />{:else if id === "alanlar"}<Alanlar />{:else}<Ben />{/if}
               {/snippet}
@@ -158,7 +182,10 @@
 <!-- Element Call layer: outside .uygulama so it covers everything; stays mounted while minimised. · Element Call katmanı: her şeyi kaplasın diye .uygulama dışında; küçültülünce de takılı kalır. -->
 {#if oturum.ben}<EcKatman />{/if}
 <KullaniciKarti />
+{#if oturum.ben}<IstekKatmani />{/if}
 <BaglantiOnay />
+{#if oturum.ben}<HizliGecis />{/if}
+{#if oturum.ben}<UstBildirim />{/if}
 <Bildirim />
 
 <style>
@@ -173,10 +200,10 @@
   /* No z-index on purpose: a stacking context here would trap the context menu's highlighted message under its own scrim. */
   /* Bilerek z-index yok: burada bir yığın bağlamı, bağlam menüsünün vurgulu mesajını kendi perdesinin altında hapseder. */
   .oda-katman { touch-action: pan-y; box-shadow: -8px 0 24px rgb(0 0 0 / .25); position: absolute; inset: 0; background: var(--zemin); display: flex; flex-direction: column; }
-  .ekran { position: relative; flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; transition: transform var(--sure-ekran) var(--egri-vurgulu); }
+  .ekran { position: relative; flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; transition: transform var(--sure-ekran) var(--egri-ac); }
   .ekran[inert] :global(*) { animation-play-state: paused !important; }
   .ekran.itildi { transform: translate3d(-25%, 0, 0); }
-  .ekran.dikey { --dock-yer: calc(6rem + env(safe-area-inset-bottom)); }
+  .ekran.dikey { --dock-yer: calc(92px + env(safe-area-inset-bottom)); }
   .telefon.yatay .ekran { padding-right: env(safe-area-inset-right); }
   .bos { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--yazi-2); padding: 24px; text-align: center; }
 </style>

@@ -10,11 +10,14 @@ class Bildirimler {
   metin = $state<string | null>(null);
   tur = $state<BildirimTuru>("bilgi");
   eylem = $state<BildirimEylemi | null>(null);
+  /** grows with every toast, so a new one replaces the old with its own motion · her bildirimde artar; yenisi eskisinin yerini kendi hareketiyle alır */
+  sira = $state(0);
   #zamanlayici: ReturnType<typeof setTimeout> | undefined;
 
   /** Old signature kept: goster("metin", 4000). · Eski imza korunur: goster("metin", 4000). */
   goster(metin: string, sureMs = 4000, secenek: { tur?: BildirimTuru; eylem?: BildirimEylemi } = {}) {
     this.metin = metin;
+    this.sira++;
     this.tur = secenek.tur ?? "bilgi";
     this.eylem = secenek.eylem ?? null;
     clearTimeout(this.#zamanlayici);

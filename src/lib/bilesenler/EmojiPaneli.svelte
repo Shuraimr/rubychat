@@ -8,9 +8,36 @@
    - tepki sayfası (EmojiSayfasi, "tepki" kipi): yalnızca standart emoji.
   Bütün kategoriler tek kayan listedir; üstteki şerit atlar ve izler. Alt sekmeler: Emoji · Çıkartma · GIF.
 -->
+<script lang="ts" module>
+  import { EMOJI_GRUPLARI as GRUPLAR, tenli as tenVer } from "../emoji/veri";
+
+  // ~1900 buttons as ready-made markup, kept for the life of the app: a new panel costs one parse instead of 1900 component updates.
+  // Only our own generated emoji data goes in, never anything a person wrote.
+  // ~1900 düğme hazır işaretleme olarak uygulama boyunca saklanır: yeni panel 1900 bileşen güncellemesi yerine tek ayrıştırma ister.
+  // İçine yalnızca bizim üretilmiş emoji verimiz girer, kimsenin yazdığı bir şey değil.
+  const html = new Map<string, string>();
+  function bolumHtml(g: (typeof GRUPLAR)[number], secimler: Record<string, string>): string {
+    // A section without a chosen tone never changes. · Seçilmiş tonu olmayan bölüm hiç değişmez.
+    const imza = g.id + g.ogeler.map((e) => (e.ten ? (secimler[e.emoji] ?? "") : "")).join("");
+    let h = html.get(imza);
+    if (h === undefined) {
+      h = g.ogeler
+        .map((e) => {
+          const s = e.ten ? tenVer(e.emoji, secimler[e.emoji] ?? "") : e.emoji;
+          return `<button data-e="${s}"${e.ten ? ` data-t="${e.emoji}" class="tenli"` : ""} aria-label="${s}"><span>${s}</span></button>`;
+        })
+        .join("");
+      html.set(imza, h);
+    }
+    return h;
+  }
+</script>
+
 <script lang="ts">
+  import { hareketVar } from "../hareket";
   import { onMount, tick } from "svelte";
   import { titret } from "../dokunma";
+  import { tercihler } from "../durum/tercihler.svelte";
   import type { PaketGorseli } from "../api/tipler";
   import { EMOJI_GRUPLARI, TEN_TONLARI, emojiAra, tenli } from "../emoji/veri";
   import { paketler } from "../emoji/paketler.svelte";
@@ -98,7 +125,7 @@
     let z: ReturnType<typeof setTimeout>;
     const ileri = () => {
       kurulan++;
-      if (kurulan < EMOJI_GRUPLARI.length) z = setTimeout(ileri, 40);
+      if (kurulan < EMOJI_GRUPLARI.length) z = setTimeout(ileri, 24);
     };
     z = setTimeout(ileri, 350);
     return () => clearTimeout(z);
@@ -123,7 +150,7 @@
   const emojiPaketleri = $derived(paketler.paketler.map((p, i) => ({ p, i })).filter(({ p }) => p.gorseller.some((g) => g.emoji)));
   const cikartmaPaketleri = $derived(paketler.paketler.map((p, i) => ({ p, i })).filter(({ p }) => p.gorseller.some((g) => g.cikartma)));
   let cikartmaGrubu = $state(0);
-  const gifVar = $derived(!!gifGonder && !tepki);
+  const gifVar = $derived(!!gifGonder && !tepki && !!tercihler.d.klipyAnahtar);
 
   // "Çıkartma yap": pick an image → crop / round / outline → WebP 512px → my personal pack (im.ponies.user_emotes).
   // "Çıkartma yap": resim seç → kırp / yuvarla / kenar çiz → WebP 512px → kişisel paketim (im.ponies.user_emotes).
@@ -158,7 +185,7 @@
 
   function canlan(d: EventTarget | null) {
     const oge = (d as HTMLElement | null)?.closest("button")?.firstElementChild as HTMLElement | null;
-    if (oge && parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--hareket")) > 0) {
+    if (oge && hareketVar()) {
       oge.animate([{ transform: "scale(1)" }, { transform: "scale(1.45)", offset: 0.35 }, { transform: "scale(1)" }], { duration: 260, easing: "ease-out" });
     }
     titret(5);
@@ -335,7 +362,7 @@
         <label class="ara"><Ikon ad="ara" boyut={18} /><input bind:this={araKutu} bind:value={sorgu} placeholder={t("emoji.ara")} aria-label={t("emoji.ara")} enterkeyhint="search" autocomplete="off" /></label>
         <button class="duz" aria-label={t("emoji.araKapat")} onclick={araKapat}><Ikon ad="kapat" boyut={20} /></button>
       {:else}
-        <button class="duz" aria-label={t("emoji.ara")} onclick={araAc}><Ikon ad="ara" boyut={20} /></button>
+        {#if tepki}<button class="duz" aria-label={t("emoji.ara")} onclick={araAc}><Ikon ad="ara" boyut={20} /></button>{/if}
         <div class="serit" role="tablist" aria-label={t("emoji.kategoriler")} bind:this={serit}>
           {#if son.length > 0}<button role="tab" aria-selected={grup === "son"} aria-label={t("emoji.son")} class:secili={grup === "son"} onclick={() => bolumeGit("son")}><Ikon ad="saat" boyut={20} /></button>{/if}
           {#each gruplar as g (g.id)}
@@ -348,7 +375,6 @@
             {/each}
           {/if}
         </div>
-        {#if sil}<button class="duz" aria-label={t("emoji.geriSil")} onpointerdown={silBasla} onpointerup={silBit} onpointerleave={silBit} onpointercancel={silBit} onclick={(e) => { if (e.detail === 0) sil?.(); }}><Ikon ad="geriSil" boyut={22} /></button>{/if}
       {/if}
     </div>
 
@@ -371,7 +397,7 @@
         {/if}
         {#each gruplar as g, i (g.id)}
           <section data-bolum={g.id} class:bekler={i >= kurulan} style:--satir={Math.ceil(g.ogeler.length / sutun)}><h3>{t(`emoji.kategori.${g.id}` as Anahtar)}</h3>
-            <div class="izgara">{#if i < kurulan}{#each g.ogeler as e (e.emoji)}{@render emojiDugmesi(e.emoji, e.ten)}{/each}{/if}</div>
+            <div class="izgara">{#if i < kurulan}{@html bolumHtml(g, secimler)}{/if}</div>
           </section>
         {/each}
         {#if !tepki}
@@ -418,10 +444,15 @@
   {/if}
 
   {#if !tepki && !araAcik && !gifArar && (gifVar || cikartmaGonder)}
-    <div class="sekmeler" role="tablist">
-      {#each [["emoji", t("emoji.sekmeEmoji")], ...(cikartmaGonder ? [["cikartma", t("emoji.sekmeCikartma")]] : []), ...(gifVar ? [["gif", "GIF"]] : [])] as [id, ad] (id)}
-        <button role="tab" aria-selected={sekme === id} class:secili={sekme === id} onclick={() => (sekme = id as Sekme)}>{ad}</button>
-      {/each}
+    <!-- Search and backspace sit at the two bottom corners, where the thumbs are. · Arama ve silme, başparmakların durduğu iki alt köşede. -->
+    <div class="alt">
+      {#if sekme === "emoji"}<button class="duz" aria-label={t("emoji.ara")} onclick={araAc}><Ikon ad="ara" boyut={22} /></button>{:else}<span class="duz"></span>{/if}
+      <div class="sekmeler" role="tablist">
+        {#each [["emoji", t("emoji.sekmeEmoji")], ...(cikartmaGonder ? [["cikartma", t("emoji.sekmeCikartma")]] : []), ...(gifVar ? [["gif", "GIF"]] : [])] as [id, ad] (id)}
+          <button role="tab" aria-selected={sekme === id} class:secili={sekme === id} onclick={() => { titret("tik"); sekme = id as Sekme; }}>{ad}</button>
+        {/each}
+      </div>
+      {#if sil}<button class="duz" aria-label={t("emoji.geriSil")} onpointerdown={silBasla} onpointerup={silBit} onpointerleave={silBit} onpointercancel={silBit} onclick={(e) => { if (e.detail === 0) sil?.(); }}><Ikon ad="geriSil" boyut={22} /></button>{:else}<span class="duz"></span>{/if}
     </div>
   {/if}
 
@@ -439,13 +470,13 @@
 <style>
   .panel { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; user-select: none; -webkit-user-select: none; }
   .tepe { flex: none; display: flex; align-items: center; gap: 4px; padding: 4px 8px; }
-  .duz { flex: none; width: 44px; height: 44px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; color: var(--yazi-2); }
-  .duz:active { background: var(--yuzey-3); }
-  .ara { flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 14px; background: var(--yuzey-3); color: var(--yazi-2); }
+  .duz { flex: none; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; color: var(--yazi-2); }
+  .duz:active { background: var(--yuzey-2); }
+  .ara { flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 22px; background: var(--yuzey-2); color: var(--yazi-2); }
   .ara input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: var(--yazi); font: inherit; font-size: .9375rem; }
   .serit { position: relative; flex: 1; min-width: 0; display: flex; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
   .serit::-webkit-scrollbar, .kategoriler::-webkit-scrollbar { display: none; }
-  .serit button, .kategoriler button { flex: none; width: 44px; height: 44px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.25rem; line-height: 1; color: var(--yazi-2); opacity: .62; transition: background var(--sure-hizli) var(--egri-cikis), opacity var(--sure-hizli) var(--egri-cikis); }
+  .serit button, .kategoriler button { flex: none; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.25rem; line-height: 1; color: var(--yazi-2); opacity: .62; transition: background var(--sure-hizli) var(--egri-cikis), opacity var(--sure-hizli) var(--egri-cikis); }
   .serit button.secili, .kategoriler button.secili { background: var(--ton); color: var(--ton-ustu); opacity: 1; }
   .kategoriler { display: flex; overflow-x: auto; scrollbar-width: none; padding: 0 8px; }
   .kap { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 8px; touch-action: pan-y; }
@@ -454,26 +485,33 @@
   section:nth-of-type(n + 3) { content-visibility: auto; contain-intrinsic-size: auto calc(2rem + var(--satir, 3) * 2.875rem); }
   section.bekler { min-height: calc(2rem + var(--satir, 3) * 2.875rem); }
   h3 { padding: 8px 8px 4px; font-family: var(--yazi-tipi); font-size: .75rem; font-weight: 600; color: var(--yazi-2); }
-  .izgara { display: grid; grid-template-columns: repeat(auto-fill, minmax(max(44px, 2.75rem), 1fr)); }
-  .izgara button { height: 2.875rem; min-height: 44px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.75rem; line-height: 1; }
-  .izgara button:active { background: var(--yuzey-3); }
-  .izgara span { display: inline-flex; }
+  .izgara { contain: layout style; display: grid; grid-template-columns: repeat(auto-fill, minmax(max(44px, 2.75rem), 1fr)); }
+  .izgara :global(button) { height: 2.875rem; min-height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.75rem; line-height: 1; }
+  .izgara :global(button:active) { background: var(--yuzey-2); }
+  .izgara :global(span) { display: inline-flex; }
   /* A small corner marks the ones that have skin tones · Ten rengi olanları küçük bir köşe belirtir */
-  .izgara .tenli { position: relative; }
-  .izgara .tenli::after { content: ""; position: absolute; right: 4px; bottom: 4px; border: 2.5px solid transparent; border-right-color: var(--yazi-2); border-bottom-color: var(--yazi-2); opacity: .6; }
+  .izgara :global(.tenli) { position: relative; }
+  .izgara :global(.tenli)::after { content: ""; position: absolute; right: 4px; bottom: 4px; border: 2.5px solid transparent; border-right-color: var(--yazi-2); border-bottom-color: var(--yazi-2); opacity: .6; }
   .tonlar { position: absolute; z-index: 3; display: flex; box-sizing: border-box; width: min(274px, calc(100% - 16px)); padding: 4px; border-radius: 18px; background: var(--yuzey-3); border: 1px solid var(--kenar); box-shadow: var(--kat-2); animation: ton-gel var(--sure-hizli) var(--egri-cikis); }
-  .tonlar button { flex: 1 1 0; min-width: 0; height: 44px; border-radius: 14px; font-size: 1.625rem; line-height: 1; }
+  .tonlar button { flex: 1 1 0; min-width: 0; height: 44px; border-radius: 22px; font-size: 1.625rem; line-height: 1; }
   .tonlar button:active { background: var(--yuzey-2); }
   @keyframes ton-gel { from { transform: scale(.9); opacity: 0; } }
   .izgara img { object-fit: contain; }
-  .izgara.cikartmalar { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 4px; }
-  .izgara .cikartma { height: 84px; }
+  .izgara.cikartmalar { grid-template-columns: repeat(auto-fill, minmax(max(88px, 5.5rem), 1fr)); gap: 4px; }
+  .izgara .cikartma { height: auto; aspect-ratio: 1; }
+  .cikartma img { width: 84%; height: 84%; }
   .cik-ust { flex: none; padding: 8px 12px 4px; }
-  .yap { position: relative; min-height: 44px; padding: 0 16px; border-radius: 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--ton); color: var(--ton-ustu); font-size: .875rem; font-weight: 600; cursor: pointer; }
+  .yap { position: relative; min-height: 44px; padding: 0 16px; border-radius: 22px; display: inline-flex; align-items: center; gap: 8px; background: var(--ton); color: var(--ton-ustu); font-size: .875rem; font-weight: 600; cursor: pointer; }
   .yap input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
-  .sekmeler { flex: none; display: flex; justify-content: center; gap: 4px; padding: 4px 8px; border-top: 1px solid var(--kenar-ince); }
-  .sekmeler button { flex: 0 1 7rem; min-width: 0; min-height: 44px; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 14px; font-size: min(.875rem, 5vw); font-weight: 600; color: var(--yazi-2); transition: background var(--sure-hizli) var(--egri-cikis), color var(--sure-hizli) var(--egri-cikis); }
-  .sekmeler button.secili { background: var(--ton); color: var(--ton-ustu); }
+  .alt { flex: none; margin-top: auto; display: flex; align-items: center; gap: .25rem; padding: .25rem .5rem .375rem; }
+  .sekmeler { flex: 1; min-width: 0; display: flex; justify-content: center; gap: 2px; }
+  .sekmeler button { flex: 0 1 6.5rem; min-width: 0; min-height: 2.75rem; padding: 0 .25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: .375rem; font-size: min(.875rem, 4.5vw); font-weight: 600; background: var(--yuzey-2); color: var(--yazi-2); transition: background var(--sure-orta) var(--egri-cikis), color var(--sure-orta) var(--egri-cikis), border-radius var(--sure-orta) var(--egri-cikis); }
+  .sekmeler button:first-child { border-top-left-radius: 1.375rem; border-bottom-left-radius: 1.375rem; }
+  .sekmeler button:last-child { border-top-right-radius: 1.375rem; border-bottom-right-radius: 1.375rem; }
+  .sekmeler button.secili { background: var(--ton); color: var(--ton-ustu); border-radius: 1.375rem; }
+  /* A tab's content fades in instead of popping · Sekme içeriği birden çıkmak yerine belirir */
+  .tepe, .kap, .cik-ust, .kategoriler { animation: sekme-gel var(--sure-gecis) linear; }
+  @keyframes sekme-gel { from { opacity: 0; } }
   .paket-ad { font-size: .75rem; font-weight: 600; color: var(--yazi-2); padding: 4px 8px; }
   .bos { text-align: center; font-size: .875rem; color: var(--yazi-2); padding: 24px 8px; }
 </style>

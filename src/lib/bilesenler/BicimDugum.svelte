@@ -8,7 +8,7 @@
 -->
 <script lang="ts">
   import { duzMetin, type Dugum } from "../bicim/temizle";
-  import { baglantiAc } from "../durum/baglantiOnay.svelte";
+  import { baglantiAc, baglantiBas } from "../durum/baglantiOnay.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { kullaniciKartiAc } from "../durum/kullaniciKarti.svelte";
   import { odalar } from "../durum/odalar.svelte";
@@ -59,7 +59,7 @@
     <button class="pill" onclick={() => pillAc(pill.tur, pill.kimlik, duzMetin(d.cocuk))}>{@render cocuklar(d.cocuk)}</button>
   {:else}
     {@const href = d.href}
-    <button class="baglanti" onclick={() => baglantiAc(href)}>{@render cocuklar(d.cocuk)}</button>
+    <button class="baglanti" use:baglantiBas={href} onclick={() => baglantiAc(href, duzMetin(d.cocuk))}>{@render cocuklar(d.cocuk)}</button>
   {/if}
 {:else}{@render cocuklar(d.cocuk)}{/if}
 

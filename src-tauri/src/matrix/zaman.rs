@@ -47,7 +47,7 @@ use crate::{
     matrix::odalar::{bas_harf, oda_adi},
     tipler::{
         AnketBilgisi, AnketSecenegi, AramaSatiri, AramaSonucu, GonderimDurumu, KisiBilgisi, MedyaIlerleme, MesajGonderIstegi,
-        OdaBilgisi, Tepki, YanitBilgisi, YaziyorGuncelleme, ZamanGuncelleme, ZamanOgesi, ZamanTuru,
+        OdaBilgisi, Tepki, YanitBilgisi, YaziyorGuncelleme, ZamanGuncelleme, ZamanHazir, ZamanOgesi, ZamanTuru,
     },
 };
 
@@ -382,15 +382,39 @@ fn esle(app: &AppHandle, oge: &TimelineItem, b: &Baglam) -> Option<ZamanOgesi> {
 /// Maps the whole item list and emits it. Async because the context (power levels, member names) comes from the store.
 /// Bütün öğe listesini eşler ve yayınlar. Async: bağlam (yetki düzeyleri, üye adları) depodan gelir.
 async fn yayinla(app: &AppHandle, room: &Room, ogeler: &Vector<Arc<TimelineItem>>, ek_basa_ulasildi: bool) {
+    let g = guncelleme_kur(app, room, ogeler, ek_basa_ulasildi).await;
+    let _ = app.emit(OLAY_ZAMAN, g);
+}
+
+/// A preloaded room for the UI's memory: its header and its newest items. · Arayüz belleği için ön yüklenmiş oda: başlığı ve en yeni öğeleri.
+pub async fn hazir_kur(app: &AppHandle, room: &Room, zaman: &matrix_sdk_ui::Timeline) -> ZamanHazir {
+    let ogeler = zaman.items().await;
+    let mut g = guncelleme_kur(app, room, &ogeler, false).await;
+    let fazla = g.ogeler.len().saturating_sub(40);
+    g.ogeler.drain(..fazla);
+    ZamanHazir { bilgi: bilgi_kur(room).await, zaman: g }
+}
+
+async fn guncelleme_kur(app: &AppHandle, room: &Room, ogeler: &Vector<Arc<TimelineItem>>, ek_basa_ulasildi: bool) -> ZamanGuncelleme {
     let basa = ek_basa_ulasildi || ogeler.iter().any(|o| matches!(o.as_virtual(), Some(VirtualTimelineItem::TimelineStart)));
     let baglam = baglam_kur(room, ogeler).await;
     let liste = ogeler.iter().filter_map(|o| esle(app, o, &baglam)).collect();
     let mut sabitler: Vec<String> = baglam.sabitler.iter().cloned().collect();
     sabitler.sort();
-    let _ = app.emit(
-        OLAY_ZAMAN,
-        ZamanGuncelleme { oda_id: room.room_id().to_string(), ogeler: liste, basa_ulasildi: basa, sabitler, sabitleyebilir: baglam.sabitleyebilir },
-    );
+    ZamanGuncelleme { oda_id: room.room_id().to_string(), ogeler: liste, basa_ulasildi: basa, sabitler, sabitleyebilir: baglam.sabitleyebilir }
+}
+
+async fn bilgi_kur(room: &Room) -> OdaBilgisi {
+    let ad = oda_adi(room);
+    OdaBilgisi {
+        id: room.room_id().to_string(),
+        avatar_harf: bas_harf(&ad),
+        ad,
+        sifreli: room.encryption_state().is_encrypted(),
+        uye_sayisi: room.joined_members_count(),
+        avatar_mxc: crate::matrix::odalar::avatar_mxc(room, room.is_direct().await.unwrap_or(false)).await,
+        karsi_kullanici: crate::matrix::odalar::karsi_kullanici(room).await,
+    }
 }
 
 /// Asks the SDK for replied-to events it has not loaded (old replies): the answer arrives as a normal diff and re-publishes.
@@ -421,23 +445,22 @@ pub async fn ac(app: AppHandle, durum: &AppState, client: &Client, oda_id: &str)
     if room.is_space() {
         return Err(Hata::OdaTuru);
     }
-    let ad = oda_adi(&room);
-    let bilgi = OdaBilgisi {
-        id: oda_id.to_owned(),
-        avatar_harf: bas_harf(&ad),
-        ad,
-        sifreli: room.encryption_state().is_encrypted(),
-        uye_sayisi: room.joined_members_count(),
-        avatar_mxc: crate::matrix::odalar::avatar_mxc(&room, room.is_direct().await.unwrap_or(false)).await,
-        karsi_kullanici: crate::matrix::odalar::karsi_kullanici(&room).await,
+    let bilgi = bilgi_kur(&room).await;
+
+    // The lock is not held while a cold timeline is built: another room must be able to open meanwhile.
+    // Soğuk çizelge kurulurken kilit tutulmaz: bu arada başka bir oda açılabilmeli.
+    let onceki = durum.zamanlar.lock().await.remove(&id);
+    let hazir = match onceki {
+        Some(o) => {
+            o.gorev.abort();
+            Some(o.zaman)
+        }
+        None => crate::matrix::onyukle::al(&id),
     };
-
-    let mut acik = durum.zamanlar.lock().await;
-    if let Some(onceki) = acik.remove(&id) {
-        onceki.gorev.abort();
-    }
-
-    let zaman = Arc::new(room.timeline().await?);
+    let zaman = match hazir {
+        Some(z) => z,
+        None => Arc::new(room.timeline().await?),
+    };
     let (baslangic, mut akis) = zaman.subscribe().await;
     // Typing notices of the OTHER people arrive on this channel; the guard keeps the event handler alive while the task runs.
     // BAŞKALARININ yazıyor bildirimleri bu kanaldan gelir; koruma, görev çalıştığı sürece olay işleyicisini canlı tutar.
@@ -495,20 +518,26 @@ pub async fn ac(app: AppHandle, durum: &AppState, client: &Client, oda_id: &str)
             eksik_yanitlari_iste(&zaman2, &liste, &mut istenen_yanitlar);
         }
     });
-    acik.insert(id, AcikZaman { zaman, gorev });
+    if let Some(o) = durum.zamanlar.lock().await.insert(id, AcikZaman { zaman, gorev }) {
+        // The same room was opened twice at once: the newer one wins. · Aynı oda aynı anda iki kez açıldı: yenisi kalır.
+        o.gorev.abort();
+    }
     Ok(bilgi)
 }
 
 pub async fn kapat(durum: &AppState, oda_id: &str) -> Sonuc<()> {
     let id = RoomId::parse(oda_id)?;
-    if let Some(a) = durum.zamanlar.lock().await.remove(&id) {
+    let kapanan = durum.zamanlar.lock().await.remove(&id);
+    if let Some(a) = kapanan {
         a.gorev.abort();
+        crate::matrix::onyukle::geri_koy(id, a.zaman).await;
     }
     Ok(())
 }
 
 /// Closes every open timeline (used on logout). · Açık bütün zaman çizelgelerini kapatır (çıkışta kullanılır).
 pub async fn hepsini_kapat(durum: &AppState) {
+    crate::matrix::onyukle::bosalt();
     for (_, a) in durum.zamanlar.lock().await.drain() {
         a.gorev.abort();
     }

@@ -8,12 +8,19 @@
   import Anahtar from "../bilesenler/Anahtar.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
   import { baglantiAc } from "../durum/baglantiOnay.svelte";
+  import { baglantiTercihi, type GenelYol } from "../durum/baglantiTercihi.svelte";
+  import Ikon from "../bilesenler/Ikon.svelte";
   import Secici from "../bilesenler/Secici.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { tercihler, type OnizlemeKipi } from "../durum/tercihler.svelte";
   import { t } from "../i18n";
   import type { ResimKalitesi } from "../medya/isleme";
 
+  const acma = $derived<{ id: GenelYol; ad: string }[]>([
+    { id: "sekme", ad: t("ayar.acSekme") },
+    { id: "tarayici", ad: t("ayar.acTarayici") },
+    { id: "sor", ad: t("ayar.acSor") },
+  ]);
   const onizlemeler = $derived<{ id: OnizlemeKipi; ad: string }[]>([
     { id: "hepsi", ad: t("ayar.onizlemeHepsi") },
     { id: "yt-gh", ad: t("ayar.onizlemeYtGh") },
@@ -36,6 +43,17 @@
           <Anahtar acik={tercihler.d.enterGonder} degis={(v) => tercihler.yaz("enterGonder", v)} etiket={t("ayar.enter")} />
         </div>
       </div>
+    </section>
+
+    <section class="ay-bolum">
+      <h2>{t("ayar.baglantilar")}</h2>
+      <div class="ay-kart">
+        <div class="ay-secici"><Secici secenekler={acma} deger={baglantiTercihi.genel} sec={(id) => baglantiTercihi.genelYaz(id)} etiket={t("ayar.baglantilar")} /></div>
+        {#each Object.entries(baglantiTercihi.siteler) as [site, k] (site)}
+          <div class="ay-satir"><span class="ay-metin"><strong>{site}</strong><span>{k.ad}</span></span><button class="simge-dugme" aria-label={t("baglanti.kuralSil")} onclick={() => baglantiTercihi.siteYaz(site, null)}><Ikon ad="cop" boyut={20} /></button></div>
+        {/each}
+      </div>
+      <p class="ay-not">{t("ayar.baglantilarAlt")}</p>
     </section>
 
     <section class="ay-bolum">
@@ -66,7 +84,3 @@
     </section>
   </div>
 </div>
-
-<style>
-  .govde { padding: .75rem; gap: .5rem; }
-</style>

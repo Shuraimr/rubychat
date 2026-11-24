@@ -21,7 +21,7 @@
   import { kartGoster } from "../baglanti/onizleme";
   import { klipyBaglantisi } from "../gif/klipy";
   import { tercihler } from "../durum/tercihler.svelte";
-  import { baglantiAc } from "../durum/baglantiOnay.svelte";
+  import { baglantiAc, baglantiBas } from "../durum/baglantiOnay.svelte";
   import BaglantiKarti from "./BaglantiKarti.svelte";
   import { uzunBasma } from "../dokunma";
   import { ciftDokun } from "../ciftDokun";
@@ -231,7 +231,7 @@
           {:else}
             <div class="metin" class:soluk={oge.tur === "diger"}>
               <!-- In-chat search highlights work on the plain text, so a formatted message shows its HTML only while no search is active. · Sohbet içi arama vurgusu düz metinde çalışır; biçimli mesaj HTML'ini yalnızca arama etkin değilken gösterir. -->
-              {#if oge.html && !vurguSorgu.trim()}<BicimliMetin html={oge.html} {odaId} />{:else}{#each parcalar as p, i (i)}{#if p.url}<button class="baglanti-metin" onclick={() => baglantiAc(p.m)}>{p.m}</button>{:else if p.v}<mark>{p.m}</mark>{:else}{p.m}{/if}{/each}{/if}
+              {#if oge.html && !vurguSorgu.trim()}<BicimliMetin html={oge.html} {odaId} />{:else}{#each parcalar as p, i (i)}{#if p.url}<button class="baglanti-metin" use:baglantiBas={p.m} onclick={() => baglantiAc(p.m)}>{p.m}</button>{:else if p.v}<mark>{p.m}</mark>{:else}{p.m}{/if}{/each}{/if}
               {@render saatSatiri("meta")}
             </div>
             {#each kartlar as k (k.url)}<BaglantiKarti b={k} sifreli={zaman.bilgi?.sifreli ?? false} />{/each}
@@ -274,8 +274,6 @@
   /* 44px hit area around the 32px avatar (negative margin keeps the layout) · 32px avatarın çevresinde 44px dokunma alanı (negatif kenar boşluğu düzeni korur) */
   .avatar-dugme { display: block; margin: -6px; padding: 6px; border-radius: 14px; }
   /* "Gruplarda avatar" off: the column disappears · "Gruplarda avatar" kapalı: sütun kaybolur */
-  :global(.oda[data-avatar="yok"]) .avatar-yer { display: none; }
-  :global(.oda[data-saat="yok"]) .meta { display: none; }
   /* Off-screen old rows cost nothing. The clip margin keeps tails, hearts and reactions that stick out of the row. */
   /* Ekran dışı eski satırlar bedava. Kırpma payı satırdan taşan kuyruk, kalp ve tepkileri korur. */
   .satir.uzak { content-visibility: auto; contain-intrinsic-size: auto 4rem; overflow-clip-margin: 32px; }
@@ -304,7 +302,6 @@
   .balon.kendi.tek:not(.medyali)::after, .balon.kendi.son:not(.medyali)::after { left: auto; right: -.6875rem; -webkit-mask-image: var(--kuyruk-sag); mask-image: var(--kuyruk-sag); }
   .balon.tek:not(.kendi):not(.medyali), .balon.son:not(.kendi):not(.medyali) { border-bottom-left-radius: 0; }
   .balon.tek.kendi:not(.medyali), .balon.son.kendi:not(.medyali) { border-bottom-right-radius: 0; }
-  :global(.oda[data-balon="cizgisiz"]) .balon::after { display: none; }
   .balon.medyali { padding: 4px; }
   .gif-kart { position: relative; border-radius: .75rem; overflow: hidden; max-width: min(100%, 16rem); }
   .gif-kart img, .gif-kart video { display: block; width: 100%; height: auto; }
@@ -325,8 +322,6 @@
   .balon.eslesme { outline: 2px solid var(--bekliyor); outline-offset: 2px; }
   mark { background: color-mix(in srgb, var(--bekliyor) 38%, transparent); color: inherit; border-radius: 4px; padding: 0 1px; }
   /* "Çizgisiz": no bubble fill, text only (own messages keep a soft tint) · "Çizgisiz": balon dolgusu yok, yalnızca metin (giden mesajlar yumuşak ton tutar) */
-  :global(.oda[data-balon="cizgisiz"]) .balon:not(.kendi):not(.sifre-yok) { background: transparent; padding-left: 0; }
-  :global(.oda[data-balon="cizgisiz"]) .balon.kendi { background: color-mix(in srgb, var(--giden-bg, var(--ton)) 55%, transparent); }
   /* Text: on phones it is NOT selectable (long press opens the menu); with a mouse it is. Long words/links wrap. */
   /* Metin: telefonda seçilemez (uzun basma menüyü açar); fare ile seçilebilir. Uzun kelime/bağlantılar satır kırar. */
   .metin { font-size: calc(.9375rem * var(--sohbet-yazi, 1)); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }

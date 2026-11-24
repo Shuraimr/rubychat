@@ -65,11 +65,11 @@ fn mesaj_metni(t: &MessageType) -> String {
         MessageType::Text(m) => m.body.clone(),
         MessageType::Notice(m) => m.body.clone(),
         MessageType::Emote(m) => m.body.clone(),
-        MessageType::Image(m) => m.caption().map(str::to_owned).unwrap_or_else(|| "Fotoğraf".into()),
-        MessageType::Video(m) => m.caption().map(str::to_owned).unwrap_or_else(|| "Video".into()),
-        MessageType::Audio(_) => "Ses".into(),
-        MessageType::File(m) => format!("Dosya: {}", m.filename()),
-        MessageType::Location(_) => "Konum".into(),
+        MessageType::Image(m) => m.caption().map(str::to_owned).unwrap_or_else(|| crate::dil::sec("Fotoğraf", "Photo").into()),
+        MessageType::Video(m) => m.caption().map(str::to_owned).unwrap_or_else(|| crate::dil::sec("Video", "Video").into()),
+        MessageType::Audio(_) => crate::dil::sec("Ses", "Audio").into(),
+        MessageType::File(m) => format!("{}: {}", crate::dil::sec("Dosya", "File"), m.filename()),
+        MessageType::Location(_) => crate::dil::sec("Konum", "Location").into(),
         other => other.body().to_owned(),
     }
 }
@@ -88,7 +88,7 @@ async fn isle(app: AppHandle, bildirim: matrix_sdk::sync::Notification, oda: Roo
             None => return,
         },
         // Could not be decrypted (yet): still tell the user something arrived. · Çözülemedi (henüz): yine de bir şey geldiğini söyle.
-        AnySyncMessageLikeEvent::RoomEncrypted(_) => ("Yeni mesaj".into(), false),
+        AnySyncMessageLikeEvent::RoomEncrypted(_) => (crate::dil::sec("Yeni mesaj", "New message").into(), false),
         AnySyncMessageLikeEvent::CallInvite(c) => {
             let Some(o) = c.as_original() else { return };
             // Stale invite = the ring time is over. · Bayat davet = çalma süresi geçti.
@@ -96,7 +96,7 @@ async fn isle(app: AppHandle, bildirim: matrix_sdk::sync::Notification, oda: Roo
             if crate::matrix::arama::simdi_ms().saturating_sub(zaman) > u64::from(o.content.lifetime) {
                 return;
             }
-            ("Gelen sesli arama".into(), true)
+            (crate::dil::sec("Gelen sesli arama", "Incoming voice call").into(), true)
         }
         _ => return,
     };

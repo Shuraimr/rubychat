@@ -7,6 +7,7 @@
   ← düğmesi / Android geri tuşu bir düzey yukarı çıkar (bkz. durum/alanlar.svelte.ts). Çevrimdışı ya da sunucu hatasında maskot ve "Tekrar dene" görünür.
 -->
 <script lang="ts">
+  import { untrack } from "svelte";
   import { alanIcerigi, alanaKatil } from "../api/komutlar";
   import type { AlanIcerigi, AlanOgesi, Hata } from "../api/tipler";
   import AlanSatiri from "../bilesenler/AlanSatiri.svelte";
@@ -15,13 +16,15 @@
   import { alanlar, type AlanAdimi } from "../durum/alanlar.svelte";
   import { bildirim } from "../durum/bildirim.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
+  import { istekAc } from "../durum/istekler.svelte";
   import { odalar } from "../durum/odalar.svelte";
   import { t, type Anahtar } from "../i18n";
 
   /** gomulu = the root of a folder tab in the chat list: no header (the tabs already name it) · gomulu = sohbet listesindeki bir klasör sekmesinin kökü: başlık yok (sekmeler zaten adını söyler) */
   let { adim, gomulu = false }: { adim: AlanAdimi; gomulu?: boolean } = $props();
 
-  let icerik = $state<AlanIcerigi | null>(null);
+  // svelte-ignore state_referenced_locally (the screen is re-created per space)
+  let icerik = $state<AlanIcerigi | null>(alanlar.icerikler.get(adim.id) ?? null);
   let yukleniyor = $state(true);
   let hata = $state<Hata | null>(null);
   /** Ids being joined right now (a Set in state so the buttons can show progress) · Şu an katılınan kimlikler (düğmeler ilerlemeyi göstersin diye state içinde) */
@@ -35,6 +38,7 @@
     if (!icerik) yukleniyor = true;
     try {
       const sonuc = await alanIcerigi(adim.id);
+      alanlar.icerikler.set(adim.id, sonuc);
       if (bu === istek) icerik = sonuc;
     } catch (e) {
       if (bu === istek) hata = e as Hata;
@@ -46,7 +50,8 @@
   // Load when the screen opens (it is re-created per space with {#key}). · Ekran açılınca yükle ({#key} ile her alan için yeniden kurulur).
   $effect(() => {
     adim.id;
-    void yukle();
+    // untrack: loading reads AND writes `icerik`; tracked, it would reload the space forever. · untrack: yükleme `icerik`i hem okur hem yazar; izlenirse alan sonsuza dek yeniden yüklenirdi.
+    untrack(() => void yukle());
   });
 
   const baslik = $derived(icerik?.alan?.ad ?? adim.ad);
@@ -66,7 +71,9 @@
       bildirim.goster(t("alanlar.katildin", { ad: c.ad }), 3500, { tur: "tamam" });
       await yukle();
     } catch (e) {
-      bildirim.goster(t(`hata.${(e as Hata).tur}` as Anahtar), 4500, { tur: "hata" });
+      // Not allowed to walk in: offer to ask for permission instead. · Doğrudan girilemiyor: onun yerine izin istemeyi öner.
+      if ((e as Hata).tur === "giris") istekAc({ kimlik: c.id, ad: c.ad, via: c.via });
+      else bildirim.goster(t(`hata.${(e as Hata).tur}` as Anahtar), 4500, { tur: "hata" });
     } finally {
       delete katilan[c.id];
     }
@@ -76,7 +83,7 @@
   let oncekiSayi = -1;
   $effect(() => {
     const n = odalar.liste.length;
-    if (oncekiSayi >= 0 && n !== oncekiSayi && !yukleniyor) void yukle();
+    if (oncekiSayi >= 0 && n !== oncekiSayi) untrack(() => !yukleniyor && void yukle());
     oncekiSayi = n;
   });
 </script>

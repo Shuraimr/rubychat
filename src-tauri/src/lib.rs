@@ -3,6 +3,7 @@
 
 mod android_jni;
 mod bildirim;
+mod dil;
 mod durum;
 mod gizli_depo;
 mod hata;
@@ -84,6 +85,8 @@ pub fn run() {
             komutlar::cikis,
             komutlar::ben,
             komutlar::odalari_al,
+            komutlar::esitleme_durumu,
+            komutlar::oda_sabitle,
             komutlar::odayi_ac,
             komutlar::odayi_kapat,
             komutlar::geri_sayfala,
@@ -128,6 +131,13 @@ pub fn run() {
             matrix::uyeler::dm_ac,
             matrix::uyeler::oda_olustur,
             matrix::uyeler::oda_ayril,
+            matrix::onyukle::odalari_hazirla,
+            matrix::istekler::istekleri_al,
+            matrix::istekler::davet_kabul,
+            matrix::istekler::davet_reddet,
+            matrix::istekler::katilma_istegi,
+            matrix::istekler::katilma_yanitla,
+            matrix::istekler::dil_ayarla,
             matrix::eylemler::tepki_degistir,
             matrix::eylemler::mesaj_sil,
             matrix::eylemler::mesaj_duzenle,

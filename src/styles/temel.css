@@ -1,9 +1,9 @@
 /* Base styles and shared layout. Everything uses tokens.css variables. */
 /* Temel stiller ve ortak yerleşim. Hepsi tokens.css değişkenlerini kullanır. */
 *, *::before, *::after { box-sizing: border-box; }
-/* Root size follows Görünüm › Yazı boyutu; text uses rem so it scales, boxes stay in px. */
-/* Kök boyut Görünüm › Yazı boyutu'nu izler; yazılar rem kullanır, ölçeklenir; kutular px kalır. */
-html { height: 100%; margin: 0; font-size: calc(16px * var(--yazi-olcegi)); -webkit-text-size-adjust: 100%; }
+/* Root size follows Görünüm › Yazı boyutu; and the Android font size (--sistem-olcegi, written by ayarlar.svelte.ts; the WebView's own text zoom is off, it would scale letters but not boxes). */
+/* Kök boyut Görünüm › Yazı boyutu'nu izler; ve Android yazı boyutunu (--sistem-olcegi, ayarlar.svelte.ts yazar; WebView'in kendi yazı büyütmesi kapalı, harfleri büyütüp kutuları büyütmezdi). */
+html { height: 100%; margin: 0; font-size: min(calc(16px * var(--yazi-olcegi) * var(--sistem-olcegi, 1)), 6.4vw); -webkit-text-size-adjust: 100%; }
 body { height: 100%; margin: 0; }
 /* The app is as tall as the VISIBLE area (js/klavye.ts sets the variable), so the on-screen keyboard never covers the composer. */
 /* Uygulama GÖRÜNEN alan kadar yüksektir (klavye.ts değişkeni yazar); ekran klavyesi yazma alanını hiç örtmez. */
@@ -38,7 +38,7 @@ a { color: var(--vurgu); }
 /* ---- Buttons (design section 2) · Düğmeler (tasarım bölüm 2) ---- */
 /* Icon button: 44px hit area · Simge düğmesi: 44px dokunma alanı */
 .simge-dugme {
-  width: 44px; height: 44px; border-radius: 12px; flex: none;
+  width: 2.75rem; min-width: 44px; height: 2.75rem; min-height: 44px; border-radius: 50%; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--yazi); transition: background var(--sure-hizli) var(--egri-cikis), opacity var(--sure-hizli) var(--egri-cikis);
 }
@@ -51,7 +51,7 @@ a { color: var(--vurgu); }
 .simge-dugme.vurgulu { background: var(--vurgu); color: var(--vurgu-ustu); }
 
 .buton {
-  min-height: 3rem; width: 100%; padding: .5rem 1.25rem; border-radius: .75rem; font-weight: 600; font-size: .9375rem; line-height: 1.3; text-align: center; overflow-wrap: anywhere;
+  white-space: nowrap; min-height: 3rem; width: 100%; padding: .5rem 1.25rem; border-radius: 1.5rem; font-weight: 600; font-size: .9375rem; line-height: 1.3; text-align: center; overflow-wrap: anywhere;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   transition: opacity var(--sure-hizli) var(--egri-cikis), background var(--sure-hizli) var(--egri-cikis);
 }
@@ -77,8 +77,8 @@ a { color: var(--vurgu); }
 .alan { display: grid; gap: 6px; }
 .alan > .etiket { font-size: .8125rem; font-weight: 500; color: var(--yazi-2); }
 .alan-kutu {
-  min-height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: 12px;
-  background: var(--yuzey-2); border: 1px solid var(--kenar); color: var(--yazi-2);
+  min-height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 1rem; border-radius: 1rem;
+  background: var(--yuzey-2); border: 1px solid transparent; color: var(--yazi-2);
   transition: border-color var(--sure-hizli) var(--egri-cikis);
 }
 .alan-kutu:focus-within { border-color: var(--vurgu); box-shadow: 0 0 0 1px var(--vurgu); }
@@ -89,7 +89,7 @@ a { color: var(--vurgu); }
 
 /* ---- Identity chips and counters (design section 4) · Kimlik çipleri ve sayaçlar (tasarım bölüm 4) ---- */
 .cip {
-  flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 10px; border-radius: 8px;
+  flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 1.5rem; padding: 0 .625rem; border-radius: .75rem;
   font-size: .75rem; font-weight: 600; background: var(--yuzey-3); color: var(--yazi-2);
 }
 .cip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -101,7 +101,7 @@ a { color: var(--vurgu); }
 .cip.notr { background: var(--yuzey-3); color: var(--yazi-2); }
 /* Counter badge: accent = unread, grey = muted · Sayaç rozeti: vurgu = okunmamış, gri = sessiz */
 .rozet {
-  flex: none; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px;
+  flex: none; min-width: 1.375rem; height: 1.375rem; padding: 0 .4375rem; border-radius: .6875rem;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--vurgu); color: var(--vurgu-ustu); font-size: .75rem; font-weight: 700; line-height: 1;
 }
@@ -120,18 +120,41 @@ a { color: var(--vurgu); }
 /* Inline / block code and mxids use the monospace family (Maple Mono by default). · Satır içi / blok kod ve mxid'ler tek aralıklı aileyi kullanır (varsayılan Maple Mono). */
 code, kbd, pre, .mono { font-family: var(--mono-tipi); }
 
-/* ---- Settings pages (Sohbet, Bildirimler, Hakkında): shared layout · Ayar sayfaları: ortak yerleşim ---- */
+/* ---- Settings pages: Material groups (every row is its own tile, 2px apart, outer corners large, inner corners small) ---- */
+/* ---- Ayar sayfaları: Material gruplar (her satır kendi karosu, 2px arayla, dış köşeler büyük, iç köşeler küçük) ---- */
 .ay-sayfa { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--zemin); }
-.ay-icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 16px calc(24px + env(safe-area-inset-bottom)); display: grid; grid-auto-rows: max-content; gap: 20px; align-content: start; }
-.ay-bolum { display: grid; gap: 8px; }
-.ay-bolum > h2 { font-family: var(--yazi-tipi); font-size: .8125rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--yazi-2); padding: 0 4px; }
-.ay-not { font-size: .8125rem; color: var(--yazi-2); padding: 0 4px; }
-.ay-kart { display: grid; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); border-radius: 16px; overflow: hidden; }
-.ay-satir { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 4px 4px 4px 16px; border-bottom: 1px solid var(--kenar-ince); text-align: left; width: 100%; }
-.ay-satir:last-child { border-bottom: 0; }
-.ay-satir > .ay-metin { flex: 1; min-width: 0; display: grid; }
-.ay-satir > .ay-metin strong { font-size: .9375rem; font-weight: 500; }
-.ay-satir > .ay-metin span { font-size: .8125rem; color: var(--yazi-2); }
-.ay-satir.dugme { padding-right: 16px; }
-.ay-satir.dugme:active { background: var(--yuzey-2); }
-.ay-secici { padding: 8px 12px 12px; }
+.ay-icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: .5rem 1rem calc(1.5rem + env(safe-area-inset-bottom)); display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; gap: 1.25rem; align-content: start; }
+.ay-bolum { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; }
+.ay-bolum > h2 { font-family: var(--yazi-tipi); font-size: .875rem; font-weight: 600; color: var(--vurgu); padding: 0 1rem; }
+.ay-not { font-size: .8125rem; line-height: 1.45; color: var(--yazi-2); padding: 0 1rem; }
+.ay-kart { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.ay-kart:not(.govde) > * { background: var(--yuzey-2); border-radius: .25rem; }
+.ay-kart:not(.govde) > :first-child { border-top-left-radius: 1.5rem; border-top-right-radius: 1.5rem; }
+.ay-kart:not(.govde) > :last-child { border-bottom-left-radius: 1.5rem; border-bottom-right-radius: 1.5rem; }
+/* One tile with free content · Serbest içerikli tek karo */
+.ay-kart.govde { gap: .75rem; padding: 1rem; border-radius: 1.5rem; background: var(--yuzey-2); }
+.ay-kart > .ay-not { padding: 1rem; }
+.ay-satir { display: flex; align-items: center; gap: 1rem; min-height: 4.25rem; padding: .625rem 1rem; text-align: left; width: 100%; color: var(--yazi); transition: background var(--sure-hizli) var(--egri-cikis); }
+.ay-satir > .ay-metin { flex: 1; min-width: 0; display: grid; gap: .125rem; }
+.ay-satir > .ay-metin strong { font-size: 1rem; font-weight: 500; line-height: 1.3; }
+.ay-satir > .ay-metin span { font-size: .8125rem; line-height: 1.35; color: var(--yazi-2); }
+.ay-satir > svg { color: var(--yazi-2); }
+.ay-satir:disabled { opacity: .5; }
+/* Large text: a chip / button that no longer fits beside the text drops under it. · Büyük yazı: metnin yanına sığmayan çip / düğme altına iner. */
+.ay-satir:has(> .cip), .ay-satir:has(> .buton) { flex-wrap: wrap; }
+.ay-satir:has(> .cip) > .ay-metin, .ay-satir:has(> .buton) > .ay-metin { flex-basis: 9rem; }
+/* 40px round icon, one tint per group (--r) · 40px yuvarlak simge, grup başına tek renk (--r) */
+.ay-simge { flex: none; width: 2.5rem; height: 2.5rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--r, var(--vurgu)); color: var(--zemin); }
+.ay-secici { padding: .75rem; }
+
+/* Popover card (attach menu, emoji picker, "Yeni"): stays in the page, so opening is only opacity + transform and can be reversed half-way.
+   Açılır kart (ek menüsü, emoji seçici, "Yeni"): sayfada hazır durur; açılmak yalnızca opaklık + dönüşümdür ve yarıda geri alınabilir. */
+/* Never `visibility: hidden`: the layer would be thrown away and painted again at every opening (that was the hitch). Closed cards stay
+   in GPU memory at opacity 0 and are inert. · Hiç `visibility: hidden` değil: katman atılıp her açılışta yeniden boyanırdı (takılma buydu). Kapalı
+   kartlar GPU belleğinde opaklık 0 ile durur ve etkisizdir. */
+.acilir { pointer-events: none; will-change: transform, opacity; opacity: 0; transform: translate3d(0, 6px, 0) scale(.95); transition: opacity var(--sure-cikis) linear, transform var(--sure-cikis) var(--egri-cikis); background: var(--yuzey-3); border-radius: 1.25rem; box-shadow: var(--kat-2); }
+.acilir.acik { pointer-events: auto; opacity: 1; transform: none; transition: opacity var(--sure-hizli) linear, transform var(--sure-orta) var(--egri-ac); }
+.acilir-satir { width: 100%; min-height: 3rem; padding: .375rem .875rem; display: flex; align-items: center; gap: .875rem; border-radius: .875rem; text-align: left; font-size: .9375rem; line-height: 1.3; font-weight: 500; color: var(--yazi); transition: background var(--sure-hizli) linear; }
+.acilir-satir:active { background: var(--yuzey-2); }
+.acilir-satir > svg { flex: none; color: var(--yazi-2); }
+.acilir-satir > span { min-width: 0; overflow-wrap: anywhere; }

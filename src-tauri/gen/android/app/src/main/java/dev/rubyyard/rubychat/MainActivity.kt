@@ -10,10 +10,15 @@ import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import androidx.core.content.ContextCompat
+import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
+import android.view.HapticFeedbackConstants
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
@@ -99,10 +104,10 @@ class SesKoprusu(private val ctx: Context, private val cihazlarDegisti: () -> Un
     for (c in cikisAygitlari()) {
       val kulaklik = c.type != AudioDeviceInfo.TYPE_BUILTIN_EARPIECE && c.type != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
       val ad = when (c.type) {
-        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "Ahize"
-        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Hoparlör"
+        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> Dil.sec(MainActivity.aktif ?: return "[]", "Ahize", "Earpiece")
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> Dil.sec(MainActivity.aktif ?: return "[]", "Hoparlör", "Speaker")
         AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> c.productName?.toString()?.ifBlank { null } ?: "Bluetooth"
-        else -> c.productName?.toString()?.ifBlank { null } ?: "Kulaklık"
+        else -> c.productName?.toString()?.ifBlank { null } ?: Dil.sec(MainActivity.aktif ?: return "[]", "Kulaklık", "Headset")
       }
       dizi.put(
         JSONObject().put("id", c.id.toString()).put("name", ad)
@@ -152,6 +157,133 @@ class SesKoprusu(private val ctx: Context, private val cihazlarDegisti: () -> Un
     } else {
       @Suppress("DEPRECATION")
       am.isSpeakerphoneOn = ac
+    }
+  }
+}
+
+/**
+ * Haptics for the web UI. Uses the view's own haptic constants: they respect the system "touch feedback" setting and play the phone
+ * maker's tuned effect. `FLAG_IGNORE_VIEW_SETTING` because a WebView turns haptics off for itself.
+ * Web arayüzü için titreşim. Görünümün kendi dokunsal sabitlerini kullanır: sistemin "dokunma geri bildirimi" ayarına uyar ve üreticinin
+ * ayarladığı etkiyi çalar. `FLAG_IGNORE_VIEW_SETTING`, WebView kendi titreşimini kapattığı için.
+ */
+class TitresimKoprusu(private val gorunum: android.view.View) {
+  @JavascriptInterface
+  fun calis(tur: String) {
+    val sabit = when (tur) {
+      "tik" -> HapticFeedbackConstants.CLOCK_TICK
+      "agir" -> HapticFeedbackConstants.LONG_PRESS
+      "tamam" -> if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY
+      "red" -> if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.LONG_PRESS
+      else -> if (Build.VERSION.SDK_INT >= 23) HapticFeedbackConstants.CONTEXT_CLICK else HapticFeedbackConstants.VIRTUAL_KEY
+    }
+    gorunum.post {
+      @Suppress("DEPRECATION")
+      gorunum.performHapticFeedback(sabit, HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
+    }
+  }
+}
+
+/** Background connection switch + system font size for the web UI (Ayarlar › Bildirimler), see [BaglantiServisi]. · Web arayüzünün arka plan bağlantısı anahtarı, bkz. [BaglantiServisi]. */
+class ArkaPlanKoprusu(private val ctx: Context) {
+  @JavascriptInterface
+  fun ayarla(acik: Boolean) {
+    val n = Intent(ctx, BaglantiServisi::class.java)
+    try {
+      if (acik) ContextCompat.startForegroundService(ctx, n) else ctx.stopService(n)
+    } catch (_: Exception) {
+      // Not allowed right now (app not visible): the next launch tries again. · Şu an izin yok (uygulama görünür değil): sonraki açılış yeniden dener.
+    }
+  }
+
+  /** Is the app exempt from battery optimisation (Doze cuts the network otherwise)? · Uygulama pil iyileştirmesinden muaf mı (değilse Doze ağı keser)? */
+  @JavascriptInterface
+  fun pilMuaf(): Boolean =
+    Build.VERSION.SDK_INT < 23 || (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(ctx.packageName)
+
+  @JavascriptInterface
+  fun yaziOlcegi(): Float = ctx.resources.configuration.fontScale
+
+  @JavascriptInterface
+  fun pilAyari() {
+    if (Build.VERSION.SDK_INT < 23) return
+    try {
+      ctx.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: Exception) {
+    }
+  }
+}
+
+/**
+ * Opens web links for the UI (disAc.ts): "sekme" = Custom Tab of the default browser, "tarayici" = the browser app, else a package name.
+ * A Custom Tab is a plain ACTION_VIEW with a (null) session extra, so no extra library is needed. Only http / https.
+ * Web bağlantılarını açar (disAc.ts): "sekme" = varsayılan tarayıcının Custom Tab'ı, "tarayici" = tarayıcının kendisi, yoksa paket adı.
+ * Custom Tab, (boş) oturum ekli düz bir ACTION_VIEW'dur; ek kitaplık gerekmez. Yalnızca http / https.
+ */
+class BaglantiKoprusu(private val etkinlik: MainActivity) {
+  private fun web(url: String): Uri? = Uri.parse(url).takeIf { it.scheme?.lowercase() == "https" || it.scheme?.lowercase() == "http" }
+
+  /** Neutral address: whoever opens it is a browser · Nötr adres: onu açan bir tarayıcıdır */
+  private fun tarayiciNiyeti() = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.invalid/")).addCategory(Intent.CATEGORY_BROWSABLE)
+  private fun varsayilanTarayici(): String? =
+    etkinlik.packageManager.resolveActivity(tarayiciNiyeti(), PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName?.takeIf { it != "android" }
+
+  /** App language for the native texts; "" = follow the phone · Yerel metinlerin dili; "" = telefonu izle */
+  @JavascriptInterface
+  fun dil(dil: String) = Dil.yaz(etkinlik, dil.ifEmpty { null })
+
+  @JavascriptInterface
+  fun ac(url: String, yol: String, renk: String): Boolean {
+    val adres = web(url) ?: return false
+    val niyet = Intent(Intent.ACTION_VIEW, adres).addCategory(Intent.CATEGORY_BROWSABLE)
+    when (yol) {
+      "sekme" -> {
+        val ek = Bundle()
+        ek.putBinder("android.support.customtabs.extra.SESSION", null)
+        niyet.putExtras(ek)
+        niyet.putExtra("android.support.customtabs.extra.TITLE_VISIBILITY", 1)
+        niyet.putExtra("androidx.browser.customtabs.extra.SHARE_STATE", 1)
+        try {
+          niyet.putExtra("android.support.customtabs.extra.TOOLBAR_COLOR", Color.parseColor(renk))
+        } catch (_: Exception) {
+        }
+        varsayilanTarayici()?.let { niyet.setPackage(it) }
+      }
+      "tarayici" -> {
+        niyet.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        varsayilanTarayici()?.let { niyet.setPackage(it) }
+      }
+      else -> niyet.setPackage(yol).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    return try {
+      etkinlik.startActivity(niyet)
+      true
+    } catch (_: Exception) {
+      false
+    }
+  }
+
+  @JavascriptInterface
+  fun uygulamalar(url: String): String {
+    val dizi = JSONArray()
+    val adres = web(url) ?: return "[]"
+    val pm = etkinlik.packageManager
+    val tarayicilar = pm.queryIntentActivities(tarayiciNiyeti(), PackageManager.MATCH_ALL).map { it.activityInfo.packageName }.toSet()
+    val gorulen = mutableSetOf(etkinlik.packageName)
+    for (r in pm.queryIntentActivities(Intent(Intent.ACTION_VIEW, adres).addCategory(Intent.CATEGORY_BROWSABLE), PackageManager.MATCH_ALL)) {
+      val paket = r.activityInfo.packageName
+      if (!gorulen.add(paket)) continue
+      dizi.put(JSONObject().put("paket", paket).put("ad", r.activityInfo.applicationInfo.loadLabel(pm).toString()).put("tarayici", paket in tarayicilar))
+    }
+    return dizi.toString()
+  }
+
+  @JavascriptInterface
+  fun paylas(url: String) {
+    val niyet = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
+    try {
+      etkinlik.startActivity(Intent.createChooser(niyet, null))
+    } catch (_: Exception) {
     }
   }
 }
@@ -249,6 +381,11 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     web = webView
+    // The page applies the system font size itself (yaziOlcegi): text zoom would scale letters but not boxes. · Sistem yazı boyutunu sayfa kendisi uygular (yaziOlcegi): yazı büyütme harfleri büyütür, kutuları büyütmez.
+    webView.settings.textZoom = 100
+    webView.addJavascriptInterface(TitresimKoprusu(webView), "RubyTitresim")
+    webView.addJavascriptInterface(ArkaPlanKoprusu(this), "RubyArkaPlan")
+    webView.addJavascriptInterface(BaglantiKoprusu(this), "RubyBaglanti")
     webView.addJavascriptInterface(
       SesKoprusu(this) { web?.post { web?.evaluateJavascript("window.dispatchEvent(new CustomEvent('rubychat-ses-cihazlari'))", null) } },
       "RubySes",

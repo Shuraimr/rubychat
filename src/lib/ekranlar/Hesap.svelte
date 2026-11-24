@@ -1,12 +1,12 @@
 <!--
   Ben › Hesap. What you can do depends on the server:
    - OIDC server (matrix.org + MAS): password, e-mail, sessions and deactivation exist ONLY on the provider's account page. The rows below open it
-     with the right `action=` inside the app (IcTarayici, with a system-browser button).
+     with the right `action=` in a browser tab over the app (disAc.ts).
    - Legacy server (password + UIA): the same things are done natively (change password, e-mail addresses, deactivate with a strong confirmation).
   Plus a "Sunucu bilgisi" card (name, spec versions, sliding sync, OIDC). Rust side: src-tauri/src/matrix/profil.rs (`hesap_bilgisi` ...).
   Ben › Hesap. Yapabileceklerin sunucuya göre değişir:
    - OIDC sunucusu (matrix.org + MAS): şifre, e-posta, oturumlar ve hesap kapatma YALNIZCA sağlayıcının hesap sayfasındadır. Aşağıdaki satırlar onu
-     doğru `action=` ile uygulamanın içinde açar (IcTarayici, sistem tarayıcısı düğmesiyle).
+     doğru `action=` ile uygulamanın üstünde tarayıcı sekmesinde açar (disAc.ts).
    - Eski sunucu (şifre + UIA): aynı şeyler yerel yapılır (şifre değiştir, e-posta adresleri, güçlü onayla hesap kapat).
   Ayrıca "Sunucu bilgisi" kartı (ad, spec sürümleri, sliding sync, OIDC). Rust tarafı: src-tauri/src/matrix/profil.rs (`hesap_bilgisi` ...).
 -->
@@ -16,9 +16,9 @@
   import type { EpostaAdresi, HesapBilgisi } from "../api/tipler";
   import AltSayfa from "../bilesenler/AltSayfa.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
-  import IcTarayici from "../bilesenler/IcTarayici.svelte";
   import Ikon, { type IkonAdi } from "../bilesenler/Ikon.svelte";
   import Maskot from "../bilesenler/Maskot.svelte";
+  import { disariAc } from "../disAc";
   import { bildirim } from "../durum/bildirim.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { oturum } from "../durum/oturum.svelte";
@@ -26,7 +26,6 @@
 
   let bilgi = $state<HesapBilgisi | null>(null);
   let yuklemeHata = $state(false);
-  let tarayici = $state<{ url: string; baslik: string } | null>(null);
   let kenar = $state(false);
 
   async function yukle() {
@@ -54,9 +53,10 @@
     { ikon: "cihaz", ad: "hesap.oturumlar", alt: "hesap.oturumlarAltWeb", eylem: destekli("org.matrix.devices_list", "org.matrix.sessions_list") },
     { ikon: "cop", ad: "hesap.kapat", alt: "hesap.kapatAltWeb", eylem: "org.matrix.account_deactivate", tehlike: true },
   ]);
-  function webAc(ad: Anahtar, eylem: string | null) {
+  function webAc(eylem: string | null) {
     const u = eylemAdresi(eylem);
-    if (u) tarayici = { url: u, baslik: t(ad) };
+    // The provider forbids framing (ERR_BLOCKED_BY_RESPONSE), so the page opens in a browser tab over the app. · Sağlayıcı çerçevelenmeyi yasaklar; sayfa uygulamanın üstünde tarayıcı sekmesinde açılır.
+    if (u) disariAc(u, "sekme").catch(() => bildirim.goster(t("baglanti.acilamadi"), 4000, { tur: "hata" }));
   }
 
   // ---- Legacy native flows · Eski sunucu yerel akışları ----
@@ -127,11 +127,11 @@
         <div class="ay-kart">
           {#if bilgi.oidc}
             {#if !bilgi.hesapUrl}
-              <p class="ay-not govde">{t("hesap.webYok")}</p>
+              <p class="ay-not">{t("hesap.webYok")}</p>
             {:else}
               {#each oidcSatirlari as s (s.ad)}
-                <button class="ay-satir dugme" class:tehlike={s.tehlike} data-dalga onclick={() => webAc(s.ad, s.eylem)}>
-                  <span class="simge"><Ikon ad={s.ikon} boyut={20} /></span>
+                <button class="ay-satir dugme" class:tehlike={s.tehlike} data-dalga onclick={() => webAc(s.eylem)}>
+                  <span class="ay-simge" style:--r={s.tehlike ? "var(--hata)" : "var(--tas-ametist)"}><Ikon ad={s.ikon} boyut={20} /></span>
                   <span class="ay-metin"><strong>{t(s.ad)}</strong><span>{t(s.alt)}</span></span>
                   <Ikon ad="sagOk" boyut={20} />
                 </button>
@@ -139,11 +139,11 @@
             {/if}
           {:else}
             <button class="ay-satir dugme" data-dalga onclick={() => { hata = null; sifreAcik = true; }}>
-              <span class="simge"><Ikon ad="anahtar" boyut={20} /></span>
+              <span class="ay-simge" style:--r="var(--tas-ametist)"><Ikon ad="anahtar" boyut={20} /></span>
               <span class="ay-metin"><strong>{t("hesap.sifre")}</strong><span>{t("hesap.sifreAlt")}</span></span><Ikon ad="sagOk" boyut={20} />
             </button>
             <button class="ay-satir dugme tehlike" data-dalga onclick={() => { hata = null; kapatAcik = true; }}>
-              <span class="simge"><Ikon ad="cop" boyut={20} /></span>
+              <span class="ay-simge" style:--r="var(--hata)"><Ikon ad="cop" boyut={20} /></span>
               <span class="ay-metin"><strong>{t("hesap.kapat")}</strong><span>{t("hesap.kapatAlt")}</span></span><Ikon ad="sagOk" boyut={20} />
             </button>
           {/if}
@@ -158,7 +158,7 @@
             {#each epostalar as e (e.adres)}
               <div class="ay-satir"><span class="ay-metin"><strong class="mono">{e.adres}</strong></span><button class="simge-dugme" aria-label={t("hesap.epostaKaldir")} onclick={() => void epostaKaldir(e.adres)}><Ikon ad="cop" boyut={20} /></button></div>
             {:else}
-              <p class="ay-not govde">{t("hesap.epostaYok")}</p>
+              <p class="ay-not">{t("hesap.epostaYok")}</p>
             {/each}
           </div>
           <p class="ay-not">{t("hesap.epostaEkleNot")}</p>
@@ -177,8 +177,6 @@
     {/if}
   </div>
 </div>
-
-{#if tarayici}<IcTarayici url={tarayici.url} baslik={tarayici.baslik} onkapat={() => (tarayici = null)} />{/if}
 
 {#if sifreAcik}
   <AltSayfa baslik={t("hesap.sifre")} onkapat={() => (sifreAcik = false)}>
@@ -203,13 +201,10 @@
 
 <style>
   .bos { display: grid; justify-items: center; gap: .75rem; padding: 2rem 1rem; text-align: center; color: var(--yazi-2); }
-  .govde { padding: .75rem 1rem; }
-  .simge { flex: none; display: inline-flex; color: var(--yazi-2); }
-  .tehlike, .tehlike .simge { color: var(--hata); }
+  .tehlike strong { color: var(--hata); }
   .mono { font-family: var(--mono-tipi); overflow-wrap: anywhere; }
   .bilgi { margin: 0; }
-  .bilgi > div { padding: .75rem 1rem; border-bottom: 1px solid var(--kenar-ince); }
-  .bilgi > div:last-child { border-bottom: 0; }
+  .bilgi > div { padding: .75rem 1rem; }
   dt { font-size: .8125rem; color: var(--yazi-2); }
   dd { margin: 2px 0 0; font-size: .9375rem; overflow-wrap: anywhere; }
   .uyari-metin { color: var(--hata); font-size: .9375rem; line-height: 1.5; }

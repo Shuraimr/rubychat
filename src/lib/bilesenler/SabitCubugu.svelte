@@ -57,7 +57,7 @@
 {/if}
 
 <style>
-  .cubuk { flex: none; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 4px 16px; text-align: left; background: var(--yuzey-1); border-bottom: 1px solid var(--kenar-ince); color: var(--vurgu); transition: background var(--sure-hizli) var(--egri-cikis); }
+  .cubuk { flex: none; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 4px 20px; text-align: left; background: transparent; border-bottom: 1px solid var(--kenar-ince); color: var(--vurgu); transition: background var(--sure-hizli) var(--egri-cikis); }
   .cubuk:active { background: var(--yuzey-2); }
   .govde { flex: 1; min-width: 0; display: grid; }
   .baslik { font-size: .75rem; font-weight: 600; }

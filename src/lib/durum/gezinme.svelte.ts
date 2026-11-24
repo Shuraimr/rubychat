@@ -197,6 +197,10 @@ class Gezinme {
     return !!k && this.#katmanlar.at(-1)?.id === k;
   }
 
+  katmanUstteMi(id: number): boolean {
+    return !!id && this.#katmanlar.at(-1)?.id === id;
+  }
+
   /**
    * Open a room. `sekmeyiKoru`: stay on the current tab (a room opened from inside a space must return to that space on back,
    * not to the chat list).

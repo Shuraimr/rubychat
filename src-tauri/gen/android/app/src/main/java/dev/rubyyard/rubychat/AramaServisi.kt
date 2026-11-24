@@ -44,13 +44,13 @@ class AramaServisi : Service() {
     )
     val bildirim: Notification = NotificationCompat.Builder(this, KANAL)
       .setSmallIcon(R.drawable.ic_bildirim)
-      .setContentTitle("Arama sürüyor")
+      .setContentTitle(Dil.sec(this, "Arama sürüyor", "Call in progress"))
       .setContentText(ad)
       .setCategory(NotificationCompat.CATEGORY_CALL)
       .setOngoing(true)
       .setOnlyAlertOnce(true)
       .setContentIntent(ac)
-      .addAction(0, "Kapat", kapat)
+      .addAction(0, Dil.sec(this, "Kapat", "End"), kapat)
       .build()
     if (Build.VERSION.SDK_INT >= 29) startForeground(KIMLIK, bildirim, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
     else startForeground(KIMLIK, bildirim)
@@ -70,7 +70,7 @@ class AramaServisi : Service() {
     if (Build.VERSION.SDK_INT < 26) return
     val nm = getSystemService(NotificationManager::class.java)
     if (nm.getNotificationChannel(KANAL) == null) {
-      nm.createNotificationChannel(NotificationChannel(KANAL, "Süren arama", NotificationManager.IMPORTANCE_LOW))
+      nm.createNotificationChannel(NotificationChannel(KANAL, Dil.sec(this, "Süren arama", "Ongoing call"), NotificationManager.IMPORTANCE_LOW))
     }
   }
 

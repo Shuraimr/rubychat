@@ -39,11 +39,11 @@
 
 <style>
   .satir { display: grid; gap: 12px; }
-  .ust { display: flex; align-items: center; gap: 12px; }
+  .ust { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
   .durum-ikon { flex: none; display: inline-flex; color: var(--yazi-2); }
   .durum-ikon.tamam { color: var(--cozum); }
   .durum-ikon.bekliyor { color: var(--bekliyor); }
-  .metin { flex: 1; min-width: 0; display: grid; gap: 2px; }
+  .metin { flex: 1 1 8rem; min-width: 0; display: grid; gap: 2px; }
   strong { font-size: .9375rem; line-height: 1.4; font-weight: 500; }
   .metin span { font-size: .8125rem; color: var(--yazi-2); }
 </style>

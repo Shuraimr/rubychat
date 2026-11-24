@@ -19,6 +19,7 @@
   import { kullaniciKartiAc } from "../durum/kullaniciKarti.svelte";
   import { rolAdi, uyeler } from "../durum/uyeler.svelte";
   import { kayCik, kayGir } from "../gecis";
+  import { geriKaydir } from "../geriKaydir";
   import { t } from "../i18n";
 
   let { odaId, onkapat }: { odaId: string; onkapat: () => void } = $props();
@@ -78,7 +79,7 @@
   }
 </script>
 
-<div class="ekran" in:kayGir|global out:kayCik|global>
+<div class="ekran" in:kayGir|global out:kayCik|global use:geriKaydir={{ etkin: () => gezinme.katmanUstteMi(katman), geri: () => gezinme.katmanKapat(katman) }}>
   <Baslik baslik="{t('uyeler.baslik')} {katilmis.length || ''}" geri={() => gezinme.katmanKapat(katman)} {kenar} />
   <div class="hapler" role="group">
     <button class="hap" class:aktif={sekme === "tumu"} onclick={() => (sekme = "tumu")}>{t("uyeler.tumu")}</button>
@@ -139,7 +140,7 @@
 {/if}
 
 <style>
-  .ekran { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--zemin); }
+  .ekran { touch-action: pan-y; position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--zemin); }
   .hapler { flex: none; display: flex; gap: 8px; padding: 4px 16px 12px; overflow-x: auto; scrollbar-width: none; }
   .hap { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 2.5rem; padding: 0 .875rem; margin: 2px 0; border-radius: 20px; background: var(--yuzey-2); font-size: .875rem; font-weight: 500; position: relative; }
   .hap::after { content: ""; position: absolute; inset: -2px 0; }
@@ -152,6 +153,7 @@
   .davet-satir { width: 100%; min-height: 56px; padding: 0 16px; display: flex; align-items: center; gap: 8px; color: var(--vurgu); font-weight: 600; text-align: left; }
   .davet-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 0 12px 12px; }
   .davet-form input { min-height: 48px; padding: 0 14px; border-radius: 14px; background: var(--yuzey-2); border: 1px solid var(--kenar); outline: none; color: var(--yazi); }
+  .davet-form input { min-width: 0; }
   .davet-form .buton { width: auto; min-height: 3rem; }
   .alan-hata { padding: 0 16px 12px; }
   .iskelet { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 16px; }

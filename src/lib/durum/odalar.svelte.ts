@@ -1,6 +1,6 @@
 // Room list state: filled by the "odalar-guncellendi" event, filtered locally (all filtering uses fields the backend already sends).
 // Oda listesi durumu: "odalar-guncellendi" olayıyla dolar, yerelde süzülür (bütün süzme arka ucun zaten yolladığı alanları kullanır).
-import { odalariAl } from "../api/komutlar";
+import { esitlemeDurumuAl, odalariAl } from "../api/komutlar";
 import { esitlemeDurumu, odalarGuncellendi } from "../api/olaylar";
 import type { EsitlemeDurumu, OdaOzeti } from "../api/tipler";
 import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -24,9 +24,16 @@ class Odalar {
   /** Joined spaces are not chats: they live under "Alanlar" and have no message timeline · Katılınan alanlar sohbet değildir: "Alanlar"da durur ve mesaj çizelgeleri yoktur */
   alanlar = $derived(this.liste.filter((o) => o.alan && !o.davet));
 
+  /** Rooms of the quick switcher: pinned, filled up with the most recent ones · Hızlı geçişin odaları: sabitliler, yerini en yeniler doldurur */
+  hizli = $derived.by(() => {
+    const l = this.liste.filter((o) => !o.davet && !o.alan);
+    const s = l.filter((o) => o.sabit);
+    return s.length > 0 ? s.slice(0, 7) : l.slice(0, 6);
+  });
+
   /** Invites are shown in their own card (and under the "Davetler" filter), so the other lists exclude them. · Davetler kendi kartında (ve "Davetler" süzgecinde) gösterilir; diğer listeler onları içermez. */
   suz(suzgec: Suzgec): OdaOzeti[] {
-    return this.liste.filter((o) => {
+    const l = this.liste.filter((o) => {
       if (suzgec === "davetler") return o.davet;
       if (o.davet || o.alan) return false;
       if (suzgec === "okunmamis") return o.okunmamis > 0 || o.bahsedilme > 0;
@@ -34,6 +41,8 @@ class Odalar {
       if (suzgec === "gruplar") return !o.dm;
       return true;
     });
+    // Pinned rooms stay on top, each half keeps its newest-first order. · Sabitliler üstte; iki yarı da en yeni önce sırasını korur.
+    return [...l.filter((o) => o.sabit), ...l.filter((o) => !o.sabit)];
   }
 
   taslakYaz(odaId: string, metin: string) {
@@ -51,6 +60,7 @@ class Odalar {
       await esitlemeDurumu((d) => (this.esitleme = d)),
     ];
     // The event may have fired before we subscribed, so ask once too. · Olay biz abone olmadan önce gelmiş olabilir; bir kez de isteriz.
+    void esitlemeDurumuAl().then((d) => d && (this.esitleme = d)).catch(() => {});
     try {
       const mevcut = await odalariAl();
       if (mevcut.length > 0) {

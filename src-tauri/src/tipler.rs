@@ -37,6 +37,47 @@ pub struct OdaOzeti {
     /// The room is a space (`m.space`): it has no message timeline, so the UI shows it under "Alanlar" and never opens it as a chat.
     /// Oda bir alan (`m.space`): mesaj çizelgesi yoktur; arayüz onu "Alanlar"da gösterir, asla sohbet olarak açmaz.
     pub alan: bool,
+    /// Pinned (`m.favourite` tag) · Sabitli (`m.favourite` etiketi)
+    pub sabit: bool,
+}
+
+/// A room in the requests screen · İstekler ekranındaki bir oda
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct IstekOdasi {
+    pub id: String,
+    pub ad: String,
+    pub avatar_harf: String,
+    pub avatar_mxc: Option<String>,
+    pub konu: Option<String>,
+    pub uye_sayisi: u64,
+    pub alan: bool,
+    pub sifreli: bool,
+    pub dm: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DavetOgesi {
+    pub oda: IstekOdasi,
+    pub davet_eden: Option<KisiBilgisi>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OdaIstekleri {
+    pub oda: IstekOdasi,
+    pub kisiler: Vec<KisiBilgisi>,
+}
+
+/// Invitations for me, my own join requests, and people asking to enter my rooms.
+/// Bana gelen davetler, kendi katılma isteklerim ve odalarıma girmek isteyenler.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Istekler {
+    pub gelen: Vec<DavetOgesi>,
+    pub giden: Vec<IstekOdasi>,
+    pub odalar: Vec<OdaIstekleri>,
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -269,6 +310,14 @@ pub struct ZamanGuncelleme {
     pub sabitler: Vec<String>,
     /// May I pin / unpin here? · Burada sabitleyebilir / kaldırabilir miyim?
     pub sabitleyebilir: bool,
+}
+
+/// A preloaded room (event `zaman-hazir`) · Ön yüklenmiş oda (`zaman-hazir` olayı)
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ZamanHazir {
+    pub bilgi: OdaBilgisi,
+    pub zaman: ZamanGuncelleme,
 }
 
 /// Who is typing in a room right now (me excluded) · Bir odada şu an kimler yazıyor (ben hariç)

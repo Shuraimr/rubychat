@@ -40,6 +40,8 @@ export interface OdaOzeti {
   davet: boolean;
   /** The room is a space: it has no message timeline, so it belongs to "Alanlar" and is never opened as a chat · Oda bir alan: mesaj çizelgesi yok, "Alanlar"a aittir ve sohbet olarak açılmaz */
   alan: boolean;
+  /** Pinned (m.favourite tag) · Sabitli (m.favourite etiketi) */
+  sabit: boolean;
 }
 
 export type EsitlemeDurumuAdi = "basliyor" | "calisiyor" | "hata" | "cevrimdisi";
@@ -517,3 +519,24 @@ export interface EpostaAdresi {
   adres: string;
   dogrulandi: boolean;
 }
+
+// ---- Invitations and join requests · Davetler ve katılma istekleri ----
+export interface IstekOdasi {
+  id: string;
+  ad: string;
+  avatarHarf: string;
+  avatarMxc: string | null;
+  konu: string | null;
+  uyeSayisi: number;
+  alan: boolean;
+  sifreli: boolean;
+  dm: boolean;
+}
+export interface Istekler {
+  gelen: { oda: IstekOdasi; davetEden: KisiBilgisi | null }[];
+  giden: IstekOdasi[];
+  odalar: { oda: IstekOdasi; kisiler: KisiBilgisi[] }[];
+}
+
+/** A preloaded room · Ön yüklenmiş oda */
+export interface ZamanHazir { bilgi: OdaBilgisi; zaman: ZamanGuncelleme }

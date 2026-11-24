@@ -1,69 +1,43 @@
-// Chat look: bubble style, text size, density, background, chat accent, timestamps/receipts and group avatars.
-// One GLOBAL set (also edited in Ayarlar › Görünüm) plus optional per-room overrides (the customize sheet's "Yalnızca bu sohbet").
-// Applied by writing CSS variables / data attributes on the room container (see `uygula`), so the bubbles only read variables.
-// Sohbet görünümü: baloncuk stili, yazı boyutu, yoğunluk, arka plan, sohbet rengi, saat/okundu bilgisi ve gruplarda avatar.
-// Bir GENEL set (Ayarlar › Görünüm'de de düzenlenir) ve isteğe bağlı oda başına ayarlar (özelleştir sayfasının "Yalnızca bu sohbet" seçeneği).
-// Oda kapsayıcısına CSS değişkeni / data özniteliği yazılarak uygulanır (bkz. `uygula`); balonlar yalnızca değişken okur.
-export type BalonStili = "yuvarlak" | "koseli" | "cizgisiz";
-export type Yogunluk = "rahat" | "siki";
-export type SohbetZemini = "varsayilan" | "amoled" | "mavi" | "kirmizi" | "yesil";
-export type SohbetRengi = "vurgu" | "mor" | "mavi" | "yesil" | "sari" | "gri";
-/** Crystal background effect behind the messages (styles/kristal.css) · Mesajların arkasındaki kristal arka plan efekti (styles/kristal.css) */
-export type ZeminEfekti = "izgara" | "yakut" | "isik" | "kapali";
-export const EFEKTLER: ZeminEfekti[] = ["izgara", "yakut", "isik", "kapali"];
+// Chat look, like WhatsApp: a wallpaper (solid colour or an own photo + dimming) and the message text size.
+// One GLOBAL set plus optional per-room overrides ("Yalnızca bu sohbet"). Applied as CSS variables on the room container (`gorunumStili`).
+// Sohbet görünümü, WhatsApp gibi: duvar kâğıdı (düz renk ya da kendi fotoğrafın + karartma) ve mesaj yazı boyutu.
+// Bir GENEL set ve isteğe bağlı oda başına ayar ("Yalnızca bu sohbet"). Oda kapsayıcısına CSS değişkeni olarak uygulanır (`gorunumStili`).
+export type SohbetZemini = "varsayilan" | "amoled" | "mavi" | "yesil" | "mor" | "kirmizi" | "kum" | "gri";
 
 export interface OdaGorunumu {
-  balon: BalonStili;
   /** text scale 0.85 .. 1.3 · yazı ölçeği 0.85 .. 1.3 */
   yazi: number;
-  yogunluk: Yogunluk;
   zemin: SohbetZemini;
-  renk: SohbetRengi;
-  saat: boolean;
-  avatar: boolean;
-  /** animated crystal effect · hareketli kristal efekt */
-  efekt: ZeminEfekti;
-  /** the static hexagon-ruby wallpaper pattern · durağan altıgen-yakut duvar kâğıdı deseni */
-  duvar: boolean;
-  /** a photo from the device is the background (stored in IndexedDB by zeminResmi.ts, never uploaded) · cihazdan bir fotoğraf arka plan (zeminResmi.ts ile IndexedDB'de, asla yüklenmez) */
+  /** a photo from the device (stored in IndexedDB by zeminResmi.ts, never uploaded) · cihazdan bir fotoğraf (zeminResmi.ts ile IndexedDB'de, asla yüklenmez) */
   resim: boolean;
-  /** blur 0..20 px · bulanıklık 0..20 px */
-  bulanik: number;
   /** dim 0..80 % · karartma 0..80 % */
   karart: number;
 }
 
-export const VARSAYILAN_GORUNUM: OdaGorunumu = { balon: "yuvarlak", yazi: 1, yogunluk: "rahat", zemin: "varsayilan", renk: "vurgu", saat: true, avatar: true, efekt: "izgara", duvar: true, resim: false, bulanik: 0, karart: 25 };
+export const VARSAYILAN_GORUNUM: OdaGorunumu = { yazi: 1, zemin: "varsayilan", resim: false, karart: 25 };
 
+const karisim = (renk: string) => `color-mix(in srgb, ${renk} 18%, var(--zemin))`;
 /** Swatch colours (also used by the sheet) · Örnek renkleri (sayfa da kullanır) */
 export const ZEMIN_RENKLERI: Record<SohbetZemini, string> = {
   varsayilan: "var(--zemin)",
   amoled: "#000000",
-  mavi: "color-mix(in srgb, #3F6FD1 16%, var(--zemin))",
-  kirmizi: "color-mix(in srgb, #D1475F 16%, var(--zemin))",
-  yesil: "color-mix(in srgb, #3FA56B 16%, var(--zemin))",
+  mavi: karisim("#3F6FD1"),
+  yesil: karisim("#3FA56B"),
+  mor: karisim("#8A5CD6"),
+  kirmizi: karisim("#D1475F"),
+  kum: karisim("#C79A4B"),
+  gri: karisim("#8E8E96"),
 };
-export const SOHBET_RENKLERI: Record<Exclude<SohbetRengi, "vurgu">, string> = { mor: "#8A5CD6", mavi: "#3F7FC4", yesil: "#3FB27A", sari: "#E0B040", gri: "#8E8E96" };
+export const ZEMINLER = Object.keys(ZEMIN_RENKLERI) as SohbetZemini[];
 
 const ANAHTAR = "rubychat.sohbetGorunum";
-const BALONLAR = ["yuvarlak", "koseli", "cizgisiz"];
-const ZEMINLER = ["varsayilan", "amoled", "mavi", "kirmizi", "yesil"];
-const RENKLER = ["vurgu", "mor", "mavi", "yesil", "sari", "gri"];
 
 function temizle(h: unknown): OdaGorunumu {
   const g = { ...VARSAYILAN_GORUNUM };
   const o = (h ?? {}) as Record<string, unknown>;
-  if (BALONLAR.includes(o.balon as string)) g.balon = o.balon as BalonStili;
   if (typeof o.yazi === "number" && o.yazi >= 0.85 && o.yazi <= 1.3) g.yazi = o.yazi;
-  if (o.yogunluk === "rahat" || o.yogunluk === "siki") g.yogunluk = o.yogunluk;
-  if (ZEMINLER.includes(o.zemin as string)) g.zemin = o.zemin as SohbetZemini;
-  if (RENKLER.includes(o.renk as string)) g.renk = o.renk as SohbetRengi;
-  if (typeof o.saat === "boolean") g.saat = o.saat;
-  if (typeof o.avatar === "boolean") g.avatar = o.avatar;
-  if (EFEKTLER.includes(o.efekt as ZeminEfekti)) g.efekt = o.efekt as ZeminEfekti;
-  if (typeof o.duvar === "boolean") g.duvar = o.duvar;
+  if (ZEMINLER.includes(o.zemin as SohbetZemini)) g.zemin = o.zemin as SohbetZemini;
   if (typeof o.resim === "boolean") g.resim = o.resim;
-  if (typeof o.bulanik === "number" && o.bulanik >= 0 && o.bulanik <= 20) g.bulanik = o.bulanik;
   if (typeof o.karart === "number" && o.karart >= 0 && o.karart <= 80) g.karart = o.karart;
   return g;
 }
@@ -121,11 +95,7 @@ class SohbetGorunumu {
 }
 export const sohbetGorunumu = new SohbetGorunumu();
 
-/** CSS variables + attributes for a look; spread on the room container · Bir görünüm için CSS değişkenleri + öznitelikler; oda kapsayıcısına verilir */
+/** CSS variables for a look; spread on the room container · Bir görünüm için CSS değişkenleri; oda kapsayıcısına verilir */
 export function gorunumStili(g: OdaGorunumu): string {
-  const r = g.balon === "koseli" ? "6px" : "16px";
-  const bosluk = g.yogunluk === "siki" ? "5px 10px" : "8px 12px";
-  const aralik = g.yogunluk === "siki" ? "1px" : "2px";
-  const giden = g.renk === "vurgu" ? "" : `--giden-bg: color-mix(in srgb, ${SOHBET_RENKLERI[g.renk]} 34%, var(--zemin)); --giden-yazi: var(--yazi);`;
-  return `--balon-r: ${r}; --balon-dolgu: ${bosluk}; --balon-aralik: ${aralik}; --sohbet-yazi: ${g.yazi}; --sohbet-zemin: ${ZEMIN_RENKLERI[g.zemin]}; ${giden}`;
+  return `--balon-r: 1.25rem; --balon-dolgu: .5rem .75rem; --balon-aralik: 2px; --sohbet-yazi: ${g.yazi}; --sohbet-zemin: ${ZEMIN_RENKLERI[g.zemin]};`;
 }

@@ -11,8 +11,8 @@
 <script lang="ts">
   import type { Baglanti } from "../baglanti/bul";
   import { agIzni, githubGorsel, githubYildiz, youtubeBilgi, youtubeGomme, youtubeKucukResim, type YoutubeBilgi } from "../baglanti/onizleme";
-  import { baglantiAc } from "../durum/baglantiOnay.svelte";
-  import { t, type Anahtar } from "../i18n";
+  import { baglantiAc, baglantiBas } from "../durum/baglantiOnay.svelte";
+  import { t, yerel, type Anahtar } from "../i18n";
   import Ikon from "./Ikon.svelte";
 
   let { b, sifreli = false }: { b: Baglanti; sifreli?: boolean } = $props();
@@ -48,21 +48,21 @@
         <span class="oynat"><Ikon ad="sagOk" boyut={28} /></span>
       </button>
     {/if}
-    <button class="metin" data-dalga onclick={() => baglantiAc(b.url)}>
+    <button class="metin" data-dalga use:baglantiBas={b.url} onclick={() => baglantiAc(b.url)}>
       <strong>{yt?.baslik ?? t("baglanti.video")}</strong>
       <small>{yt?.kanal || "youtube.com"}</small>
     </button>
   </div>
 {:else if b.tur === "github"}
-  <button class="kart gh" data-dalga onclick={() => baglantiAc(b.url)}>
+  <button class="kart gh" data-dalga use:baglantiBas={b.url} onclick={() => baglantiAc(b.url)}>
     {#if ag && !gorselHata}<span class="oran gorsel"><img src={githubGorsel(b)} alt="" loading="lazy" decoding="async" onerror={() => (gorselHata = true)} /></span>{/if}
     <span class="metin">
       <strong><Ikon ad={b.alt ? "sohbet" : "dosya"} boyut={16} />{baslik}</strong>
-      <small>GitHub · {ghTur}{#if yildiz !== null} · ★ {t("baglanti.yildiz", { n: yildiz.toLocaleString("tr") })}{/if}</small>
+      <small>GitHub · {ghTur}{#if yildiz !== null} · ★ {t("baglanti.yildiz", { n: yildiz.toLocaleString(yerel) })}{/if}</small>
     </span>
   </button>
 {:else}
-  <button class="kart kompakt" data-dalga onclick={() => baglantiAc(b.url)}>
+  <button class="kart kompakt" data-dalga use:baglantiBas={b.url} onclick={() => baglantiAc(b.url)}>
     <span class="karo" style:--marka={marka?.[2] ?? "var(--vurgu)"}>{marka?.[1] ?? (b.host.charAt(0).toUpperCase() || "#")}</span>
     <span class="metin">
       <strong>{baslik}</strong>

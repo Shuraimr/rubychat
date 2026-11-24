@@ -3,7 +3,7 @@
 
 use matrix_sdk::{latest_events::LatestEventValue, ruma::MilliSecondsSinceUnixEpoch, Client, Room, RoomMemberships, RoomState};
 
-use crate::tipler::OdaOzeti;
+use crate::{dil::sec, tipler::OdaOzeti};
 
 /// First letter/digit of the name, uppercase; "#" if there is none.
 /// Adın ilk harfi/rakamı, büyük; yoksa "#".
@@ -43,15 +43,15 @@ fn ham_onizleme<T>(ham: &matrix_sdk::ruma::serde::Raw<T>) -> Option<String> {
         "m.room.message" => {
             let icerik = ham.get_field::<serde_json::Value>("content").ok().flatten()?;
             match icerik.get("msgtype").and_then(|m| m.as_str()) {
-                Some("m.image") => Some("Fotoğraf".to_owned()),
+                Some("m.image") => Some(sec("Fotoğraf", "Photo").to_owned()),
                 Some("m.video") => Some("Video".to_owned()),
-                Some("m.audio") => Some("Ses".to_owned()),
-                Some("m.file") => Some("Dosya".to_owned()),
+                Some("m.audio") => Some(sec("Ses", "Audio").to_owned()),
+                Some("m.file") => Some(sec("Dosya", "File").to_owned()),
                 _ => icerik.get("body").and_then(|b| b.as_str()).map(|b| b.lines().next().unwrap_or("").to_owned()),
             }
         }
-        "m.room.encrypted" => Some("Şifreli mesaj".to_owned()),
-        "m.sticker" => Some("Çıkartma".to_owned()),
+        "m.room.encrypted" => Some(sec("Şifreli mesaj", "Encrypted message").to_owned()),
+        "m.sticker" => Some(sec("Çıkartma", "Sticker").to_owned()),
         _ => None,
     }
 }
@@ -132,6 +132,7 @@ pub async fn ozetle(room: &Room) -> OdaOzeti {
         dm,
         davet,
         alan: room.is_space(),
+        sabit: room.is_favourite(),
     }
 }
 

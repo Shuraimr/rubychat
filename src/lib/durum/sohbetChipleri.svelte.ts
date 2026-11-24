@@ -40,11 +40,22 @@ function alanOku(): boolean {
   }
 }
 
+function klasorOku(): boolean {
+  try {
+    return localStorage.getItem("rubychat.klasorKaydir") === "1"; // default OFF · varsayılan KAPALI
+  } catch {
+    return false;
+  }
+}
+
 class SohbetChipleri {
   sira = $state<SekmeId[]>(oku().sira);
   gizli = $state<SekmeId[]>(oku().gizli);
   /** Show each joined top-level space as its own tab · Katılınan her üst düzey alanı kendi sekmesi olarak göster */
   alanSekmeleri = $state<boolean>(alanOku());
+
+  /** Phone: a swipe over the list changes the folder (off = it changes the main page) · Telefon: listede kaydırma klasörü değiştirir (kapalı = ana sayfayı) */
+  klasorKaydir = $state<boolean>(klasorOku());
 
   gorunur = $derived(this.sira.filter((c) => !this.gizli.includes(c)));
 
@@ -59,6 +70,14 @@ class SohbetChipleri {
     this.alanSekmeleri = acik;
     try {
       localStorage.setItem(ANAHTAR_ALAN, acik ? "1" : "0");
+    } catch {
+      /* not persisted · saklanamadı */
+    }
+  }
+  klasorKaydirYaz(acik: boolean) {
+    this.klasorKaydir = acik;
+    try {
+      localStorage.setItem("rubychat.klasorKaydir", acik ? "1" : "0");
     } catch {
       /* not persisted · saklanamadı */
     }

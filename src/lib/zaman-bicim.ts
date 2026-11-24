@@ -1,10 +1,10 @@
-// Small date/time formatting helpers (Turkish locale). · Küçük tarih/saat biçimleme yardımcıları (Türkçe yerel ayar).
+// Small date/time formatting helpers (locale follows the app language). · Küçük tarih/saat biçimleme yardımcıları (yerel ayar uygulama dilini izler).
 import { tercihler } from "./durum/tercihler.svelte";
-import { t } from "./i18n";
+import { t, yerel } from "./i18n";
 
 // 24h / 12h follows Görünüm › Saat biçimi · 24 / 12 saat Görünüm › Saat biçimini izler
 export const saatYaz = (ms: number): string =>
-  new Date(ms).toLocaleTimeString("tr", { hour: "2-digit", minute: "2-digit", hour12: !tercihler.d.saat24 });
+  new Date(ms).toLocaleTimeString(yerel, { hour: "2-digit", minute: "2-digit", hour12: !tercihler.d.saat24 });
 
 /** "Bugün" / "Dün" / "12 Mart" (with year if not this year) · "Bugün" / "Dün" / "12 Mart" (bu yıl değilse yılıyla) */
 export function gunEtiketi(ms: number): string {
@@ -14,14 +14,13 @@ export function gunEtiketi(ms: number): string {
   dun.setDate(bugun.getDate() - 1);
   if (d.toDateString() === bugun.toDateString()) return t("oda.bugun");
   if (d.toDateString() === dun.toDateString()) return t("oda.dun");
-  return d.toLocaleDateString("tr", {
+  return d.toLocaleDateString(yerel, {
     day: "numeric",
     month: "long",
     year: d.getFullYear() === bugun.getFullYear() ? undefined : "numeric",
   });
 }
 
-const GUNLER = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
 
 /** Chat-list time: "şimdi", "14:02", "Dün", weekday (within a week), else "12 Mar". · Sohbet listesi zamanı. */
 export function goreliZaman(ms: number | null): string {
@@ -33,8 +32,8 @@ export function goreliZaman(ms: number | null): string {
   const gunBasi = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const fark = Math.round((gunBasi(simdi) - gunBasi(d)) / 86_400_000);
   if (fark === 1) return t("oda.dun");
-  if (fark > 1 && fark < 7) return GUNLER[d.getDay()];
-  return d.toLocaleDateString("tr", { day: "numeric", month: "short", year: d.getFullYear() === simdi.getFullYear() ? undefined : "numeric" });
+  if (fark > 1 && fark < 7) return d.toLocaleDateString(yerel, { weekday: "long" });
+  return d.toLocaleDateString(yerel, { day: "numeric", month: "short", year: d.getFullYear() === simdi.getFullYear() ? undefined : "numeric" });
 }
 
 /** 42 → "00:42", 3725 → "1:02:05" */

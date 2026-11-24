@@ -78,9 +78,9 @@
   .sekmeler { position: relative; display: flex; align-items: center; gap: 2px; padding: 4px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; contain: content; }
   .sekmeler::-webkit-scrollbar { display: none; }
   /* The pill: a tonal rounded rectangle behind the selected tab; spring on both position and width. · Hap: seçili sekmenin arkasında tonlu yuvarlak dikdörtgen; konumda da genişlikte de yay. */
-  .gosterge { position: absolute; left: 0; top: 4px; bottom: 4px; border-radius: 20px; background: var(--ton); pointer-events: none; opacity: 0; will-change: transform; }
+  .gosterge { position: absolute; left: 0; top: 4px; bottom: 4px; border-radius: 24px; background: var(--ton); pointer-events: none; opacity: 0; will-change: transform; }
   .gosterge.hazir { opacity: 1; transition: opacity var(--sure-hizli) var(--egri-cikis); }
-  .sekme { position: relative; flex: none; display: inline-flex; align-items: center; gap: .375rem; min-height: 44px; padding: 0 1rem; border-radius: 20px; font-size: .9375rem; font-weight: 500; color: var(--yazi-2); white-space: nowrap; transition: color var(--sure-gecis) var(--egri-cikis); }
+  .sekme { position: relative; flex: none; display: inline-flex; align-items: center; gap: .375rem; min-height: max(44px, 2.75rem); padding: 0 1rem; border-radius: 24px; font-size: .9375rem; font-weight: 500; color: var(--yazi-2); white-space: nowrap; transition: color var(--sure-gecis) var(--egri-cikis); }
   .sekme.aktif { color: var(--ton-ustu); font-weight: 600; }
   .sayi { min-width: 1.125rem; height: 1.125rem; padding: 0 .3125rem; border-radius: .5625rem; display: inline-flex; align-items: center; justify-content: center; background: var(--vurgu); color: var(--vurgu-ustu); font-size: .6875rem; font-weight: 700; line-height: 1; }
   .aktif .sayi { background: color-mix(in srgb, var(--vurgu) 85%, transparent); }

@@ -10,12 +10,13 @@
   import Anahtar from "../bilesenler/Anahtar.svelte";
   import Avatar from "../bilesenler/Avatar.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
-  import Ikon, { type IkonAdi } from "../bilesenler/Ikon.svelte";
+  import Ikon from "../bilesenler/Ikon.svelte";
   import { arama } from "../durum/arama.svelte";
   import { ayarlar } from "../durum/ayarlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { oturum } from "../durum/oturum.svelte";
   import { sifreleme } from "../durum/sifreleme.svelte";
+  import { titret } from "../dokunma";
   import { geriKaydir } from "../geriKaydir";
   import { kayCik, kayGir } from "../gecis";
   import { t } from "../i18n";
@@ -30,6 +31,20 @@
 
   const gorunenAd = $derived(oturum.profil?.ad ?? null);
   let kenar = $state(false);
+  let ana: HTMLDivElement | undefined = $state();
+  /** the sub-page is still moving · alt sayfa hâlâ hareket ediyor */
+  let yolda = $state(false);
+
+  // The ripple is seen first, then the page moves; a second tap in between is ignored. · Önce dalga görünür, sonra sayfa kayar; aradaki ikinci dokunuş sayılmaz.
+  let bekleyen: ReturnType<typeof setTimeout> | undefined;
+  function altAc(ad: Parameters<typeof gezinme.benAltAc>[0]) {
+    if (bekleyen) return;
+    titret("tik");
+    bekleyen = setTimeout(() => {
+      bekleyen = undefined;
+      gezinme.benAltAc(ad);
+    }, 90);
+  }
 
   // Display name needs the network, so it is fetched separately and may arrive late.
   // Görünen ad ağ ister; ayrıca alınır ve geç gelebilir.
@@ -42,7 +57,7 @@
   const raySiz = $derived(gezinme.sekil === "telefon");
   const temaAdi = $derived(ayarlar.tema === "koyu" ? t("gorunum.koyu") : ayarlar.tema === "acik" ? t("gorunum.acik") : t("gorunum.sistem"));
 
-  // One chip tells the whole security story at a glance (design section 5). · Tek çip güvenlik durumunu bir bakışta söyler (tasarım bölüm 5).
+  // One line tells the whole security story at a glance (design section 5). · Tek satır güvenlik durumunu bir bakışta söyler (tasarım bölüm 5).
   const guvenlikCipi = $derived.by(() => {
     if (!g || g.caprazImza === "bekliyor") return { ton: "notr", ad: t("durum.bekliyor") };
     if (!g.cihazDogrulandi) return { ton: "bekliyor", ad: t("durum.dogrulanmadi") };
@@ -58,108 +73,82 @@
 </script>
 
 <div class="ben">
+  <div class="ana" class:itildi={!!gezinme.benAlt} inert={!!gezinme.benAlt} bind:this={ana}>
   <Baslik baslik={raySiz ? t("profil.baslik") : t("ben.baslik")} {kenar} />
   <div class="icerik" use:altKaydirma onscroll={(e) => (kenar = e.currentTarget.scrollTop > 0)}>
-    <button class="kimlik" onclick={() => gezinme.benAltAc("profil")} aria-label={t("profil.baslik")}>
-      <Avatar harf={ad.replace(/^@/, "").charAt(0).toUpperCase() || "#"} boyut={64} mxc={oturum.profil?.avatarMxc ?? null} />
-      <div class="adlar">
-        {#if gorunenAd}<span class="ad">{gorunenAd}</span>{/if}
-        <span class="mxid">{oturum.ben?.kullaniciId}</span>
-      </div>
-    </button>
-
-    <div class="kart">
-      <button class="satir" data-dalga onclick={() => gezinme.benAltAc("profil")}>
-        <span class="simge"><Ikon ad="kisi" boyut={20} /></span>
-        <span class="etiket">{t("profil.baslik")}</span>
-        <span class="ok"><Ikon ad="sagOk" boyut={20} /></span>
-      </button>
-      <button class="satir" data-dalga onclick={() => gezinme.benAltAc("hesap")}>
-        <span class="simge"><Ikon ad="anahtar" boyut={20} /></span>
-        <span class="etiket">{t("hesap.baslik")}</span>
-        <span class="ok"><Ikon ad="sagOk" boyut={20} /></span>
-      </button>
-      {#if raySiz}
-        <button class="satir" data-dalga onclick={() => gezinme.benAltAc("gorunum")}>
-          <span class="simge"><Ikon ad="palet" boyut={20} /></span>
-          <span class="etiket">{t("gorunum.baslik")}</span>
-          <span class="deger">{temaAdi}</span>
-          <span class="ok"><Ikon ad="sagOk" boyut={20} /></span>
-        </button>
-      {/if}
-      <button class="satir" data-dalga onclick={() => gezinme.benAltAc("sohbet")}>
-        <span class="simge"><Ikon ad="sohbet" boyut={20} /></span>
-        <span class="etiket">{t("ayar.sohbet")}</span>
-        <span class="ok"><Ikon ad="sagOk" boyut={20} /></span>
-      </button>
-      <button class="satir" data-dalga onclick={() => gezinme.benAltAc("bildirimler")}>
-        <span class="simge"><Ikon ad="zil" boyut={20} /></span>
-        <span class="etiket">{t("ayar.bildirimler")}</span>
-        <span class="ok"><Ikon ad="sagOk" boyut={20} /></span>
-      </button>
-      <div class="satir">
-        <span class="simge"><Ikon ad="mikrofon" boyut={20} /></span>
-        <span class="etiket metinli"><strong>{t("ben.gurultu")}</strong><span>{t("ben.gurultuAlt")}</span></span>
-        <Anahtar acik={arama.gurultuAcik} degis={(v) => arama.gurultuAyarla(v)} etiket={t("ben.gurultu")} />
-      </div>
-      <button class="satir" data-dalga onclick={() => gezinme.benAltAc("guvenlik")}>
-        <span class="simge"><Ikon ad="kalkan" boyut={20} /></span>
-        <span class="etiket">{t("guvenlik.baslikAnahtarlar")}</span>
-        <span class="cip {guvenlikCipi.ton}">{guvenlikCipi.ad}</span>
-        <span class="ok"><Ikon ad="sagOk" boyut={20} /></span>
-      </button>
-      <button class="satir" data-dalga onclick={() => gezinme.benAltAc("hakkinda")}>
-        <span class="simge"><Ikon ad="bilgi" boyut={20} /></span>
-        <span class="etiket">{t("ayar.hakkinda")}</span>
-        <span class="ok"><Ikon ad="sagOk" boyut={20} /></span>
-      </button>
-      <button class="satir tehlike" onclick={cikisIste} disabled={oturum.mesgul}>
-        <span class="simge"><Ikon ad="cikis" boyut={20} /></span>
-        <span class="etiket">{oturum.mesgul ? t("ben.cikisYapiliyor") : t("ben.cikis")}</span>
+    <div class="ay-kart">
+      <button class="ay-satir dugme kimlik" data-dalga onclick={() => altAc("profil")} aria-label={t("profil.baslik")}>
+        <Avatar harf={ad.replace(/^@/, "").charAt(0).toUpperCase() || "#"} boyut={56} mxc={oturum.profil?.avatarMxc ?? null} />
+        <span class="ay-metin"><strong class="ad">{gorunenAd ?? oturum.ben?.kullaniciId}</strong>{#if gorunenAd}<span>{oturum.ben?.kullaniciId}</span>{/if}</span>
+        <Ikon ad="kalem" boyut={20} />
       </button>
     </div>
 
-    <dl class="kart bilgi">
-      <div><dt>{t("ben.kullaniciId")}</dt><dd>{oturum.ben?.kullaniciId}</dd></div>
-      <div><dt>{t("ben.cihazId")}</dt><dd>{oturum.ben?.cihazId}</dd></div>
-      <div><dt>{t("ben.sunucu")}</dt><dd>{oturum.ben?.sunucu}</dd></div>
-    </dl>
+    <div class="ay-kart">
+      <button class="ay-satir dugme" data-dalga onclick={() => altAc("hesap")}>
+        <span class="ay-simge" style:--r="var(--tas-ametist)"><Ikon ad="anahtar" boyut={20} /></span>
+        <span class="ay-metin"><strong>{t("hesap.baslik")}</strong><span>{t("ben.hesapAlt")}</span></span>
+      </button>
+      <button class="ay-satir dugme" data-dalga onclick={() => altAc("guvenlik")}>
+        <span class="ay-simge" style:--r="var(--tas-ametist)"><Ikon ad="kalkan" boyut={20} /></span>
+        <span class="ay-metin"><strong>{t("guvenlik.baslikAnahtarlar")}</strong><span class="durum {guvenlikCipi.ton}">{guvenlikCipi.ad}</span></span>
+      </button>
+    </div>
+
+    <div class="ay-kart">
+      {#if raySiz}
+        <button class="ay-satir dugme" data-dalga onclick={() => altAc("gorunum")}>
+          <span class="ay-simge" style:--r="var(--tas-safir)"><Ikon ad="palet" boyut={20} /></span>
+          <span class="ay-metin"><strong>{t("gorunum.baslik")}</strong><span>{t("ben.gorunumAlt", { tema: temaAdi })}</span></span>
+        </button>
+      {/if}
+      <button class="ay-satir dugme" data-dalga onclick={() => altAc("sohbet")}>
+        <span class="ay-simge" style:--r="var(--tas-safir)"><Ikon ad="sohbet" boyut={20} /></span>
+        <span class="ay-metin"><strong>{t("ayar.sohbet")}</strong><span>{t("ben.sohbetAlt")}</span></span>
+      </button>
+      <button class="ay-satir dugme" data-dalga onclick={() => altAc("bildirimler")}>
+        <span class="ay-simge" style:--r="var(--tas-safir)"><Ikon ad="zil" boyut={20} /></span>
+        <span class="ay-metin"><strong>{t("ayar.bildirimler")}</strong><span>{t("ben.bildirimAlt")}</span></span>
+      </button>
+      <div class="ay-satir">
+        <span class="ay-simge" style:--r="var(--tas-safir)"><Ikon ad="mikrofon" boyut={20} /></span>
+        <span class="ay-metin"><strong>{t("ben.gurultu")}</strong><span>{t("ben.gurultuAlt")}</span></span>
+        <Anahtar acik={arama.gurultuAcik} degis={(v) => arama.gurultuAyarla(v)} etiket={t("ben.gurultu")} />
+      </div>
+    </div>
+
+    <div class="ay-kart">
+      <button class="ay-satir dugme" data-dalga onclick={() => altAc("hakkinda")}>
+        <span class="ay-simge" style:--r="var(--tas-zumrut)"><Ikon ad="bilgi" boyut={20} /></span>
+        <span class="ay-metin"><strong>{t("ayar.hakkinda")}</strong><span>{t("ben.hakkindaAlt")}</span></span>
+      </button>
+      <button class="ay-satir dugme tehlike" data-dalga onclick={cikisIste} disabled={oturum.mesgul}>
+        <span class="ay-simge" style:--r="var(--hata)"><Ikon ad="cikis" boyut={20} /></span>
+        <span class="ay-metin"><strong>{oturum.mesgul ? t("ben.cikisYapiliyor") : t("ben.cikis")}</strong><span>{oturum.ben?.sunucu}</span></span>
+      </button>
+    </div>
+  </div>
   </div>
 
-  <!-- Sub-pages slide in over this screen · Alt sayfalar bu ekranın üstüne kayarak girer -->
+  <!-- Sub-pages slide in over this screen; they take no taps until they have arrived. · Alt sayfalar bu ekranın üstüne kayar; yerine oturana kadar dokunuş almaz. -->
   {#if gezinme.benAlt}
-    <div class="alt-sayfa" in:kayGir out:kayCik use:geriKaydir={{ etkin: () => raySiz && gezinme.ustKatmanMi("benAlt"), geri: () => gezinme.benAltKapat() }}>
+    <div class="alt-sayfa" class:yolda in:kayGir out:kayCik onintrostart={() => (yolda = true)} onintroend={() => (yolda = false)} onoutrostart={() => (yolda = true)} use:geriKaydir={{ etkin: () => raySiz && gezinme.ustKatmanMi("benAlt"), geri: () => gezinme.benAltKapat(), altta: () => ana }}>
       {#if gezinme.benAlt === "gorunum"}<Gorunum />{:else if gezinme.benAlt === "sohbet"}<SohbetAyarlari />{:else if gezinme.benAlt === "bildirimler"}<BildirimAyarlari />{:else if gezinme.benAlt === "hakkinda"}<Hakkinda />{:else if gezinme.benAlt === "profil"}<ProfilDuzenle />{:else if gezinme.benAlt === "hesap"}<Hesap />{:else}<Guvenlik />{/if}
     </div>
   {/if}
 </div>
 
 <style>
-  .ben { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  .alt-sayfa { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: var(--zemin); touch-action: pan-y; }
-  .icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: .5rem 1rem calc(1rem + var(--dock-yer, env(safe-area-inset-bottom))); display: grid; grid-auto-rows: max-content; gap: 16px; align-content: start; }
-  .kimlik { display: flex; align-items: center; gap: 1rem; padding: .25rem; text-align: left; border-radius: 1rem; width: 100%; }
-  .kimlik:active { background: var(--yuzey-1); }
-  .adlar { display: grid; min-width: 0; }
-  .ad { font-family: var(--baslik-tipi); font-size: 1.25rem; line-height: 1.3; font-weight: 600; }
-  .mxid { font-size: .875rem; color: var(--yazi-2); overflow-wrap: anywhere; }
-  .kart { margin: 0; display: grid; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); border-radius: 16px; overflow: hidden; }
-  /* Settings row (design section 5): icon, label, value or chip, chevron; at least 56px tall */
-  /* Ayar satırı (tasarım bölüm 5): simge, etiket, değer ya da çip, ok; en az 56px yüksek */
-  .satir { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 4px 16px; text-align: left; width: 100%; border-bottom: 1px solid var(--kenar-ince); transition: background var(--sure-hizli) var(--egri-cikis); }
-  .satir:last-child { border-bottom: 0; }
-  button.satir:not(:disabled):active { background: var(--yuzey-2); }
-  .satir:has(:global(.anahtar)) { padding-right: 8px; }
-  .simge { flex: none; display: inline-flex; color: var(--yazi-2); }
-  .etiket { flex: 1; min-width: 0; font-size: .9375rem; }
-  .etiket.metinli { display: grid; }
-  .etiket.metinli strong { font-weight: 500; }
-  .etiket.metinli span { font-size: .8125rem; color: var(--yazi-2); }
-  .deger { font-size: .875rem; color: var(--yazi-2); }
-  .ok { flex: none; display: inline-flex; color: var(--yazi-2); }
-  .tehlike, .tehlike .simge { color: var(--hata); }
-  .bilgi > div { padding: 12px 16px; border-bottom: 1px solid var(--kenar-ince); }
-  .bilgi > div:last-child { border-bottom: 0; }
-  dt { font-size: .8125rem; color: var(--yazi-2); }
-  dd { margin: 2px 0 0; font-size: .9375rem; }
+  .ben { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .ana { flex: 1; min-height: 0; display: flex; flex-direction: column; transition: transform var(--sure-ekran) var(--egri-ac), opacity var(--sure-ekran) var(--egri-ac); }
+  .ana.itildi { transform: translate3d(-25%, 0, 0); opacity: .4; }
+  .alt-sayfa { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: var(--zemin); touch-action: pan-y; box-shadow: -8px 0 24px rgb(0 0 0 / .25); }
+  .alt-sayfa.yolda { pointer-events: none; }
+  .icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: .5rem 1rem calc(1rem + var(--dock-yer, env(safe-area-inset-bottom))); display: grid; grid-auto-rows: max-content; gap: .625rem; align-content: start; }
+  .kimlik { min-height: 5.5rem; }
+  .ad { font-size: 1.125rem !important; font-weight: 600 !important; }
+  .durum.tamam { color: var(--cozum) !important; }
+  .durum.bekliyor { color: var(--bekliyor) !important; }
+  .ay-metin > :global(*) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tehlike strong { color: var(--hata); }
 </style>

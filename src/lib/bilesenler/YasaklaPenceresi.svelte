@@ -9,7 +9,7 @@
   import { bildirim } from "../durum/bildirim.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { uyeler } from "../durum/uyeler.svelte";
-  import { perdeCik, perdeGir } from "../gecis";
+  import { menuCik, menuGir, perdeCik, perdeGir } from "../gecis";
   import { t } from "../i18n";
   import Anahtar from "./Anahtar.svelte";
   import Avatar from "./Avatar.svelte";
@@ -46,7 +46,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="perde" onclick={() => !mesgul && gezinme.katmanKapat(katman)} in:perdeGir|global out:perdeCik|global></div>
 <div class="kap">
-  <div class="pencere" role="alertdialog" aria-modal="true" aria-label={t("yasakla.baslik", { ad })}>
+  <div class="pencere" role="alertdialog" aria-modal="true" aria-label={t("yasakla.baslik", { ad })} in:menuGir|global out:menuCik|global>
     <Avatar harf={ad.charAt(0).toUpperCase() || "#"} mxc={avatarMxc} boyut={72} />
     <h2>{t("yasakla.baslik", { ad })}</h2>
     <p class="alt">{t("yasakla.alt")}</p>
@@ -62,8 +62,7 @@
 <style>
   .perde { position: fixed; inset: 0; z-index: 40; background: color-mix(in srgb, var(--zemin) 70%, transparent); }
   .kap { position: fixed; inset: 0; z-index: 41; display: flex; align-items: center; justify-content: center; padding: 16px; pointer-events: none; }
-  .pencere { pointer-events: auto; width: min(380px, 100%); display: grid; justify-items: center; gap: 12px; padding: 24px 20px 20px; border-radius: 24px; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); box-shadow: var(--kat-2); animation: ac var(--sure-menu) var(--egri-yay); }
-  @keyframes ac { from { transform: scale(.92); opacity: 0; } }
+  .pencere { pointer-events: auto; width: min(380px, 100%); display: grid; justify-items: center; gap: 12px; padding: 24px 20px 20px; border-radius: 24px; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); box-shadow: var(--kat-2); }
   h2 { font-size: 1.25rem; text-align: center; }
   .alt { font-size: .875rem; color: var(--yazi-2); text-align: center; }
   .sebep { width: 100%; border-radius: 16px; background: var(--yuzey-2); }

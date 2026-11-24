@@ -22,7 +22,8 @@
 </div>
 
 <style>
-  .serit { display: flex; align-items: center; gap: 8px; padding: 4px 4px 0 12px; min-height: 52px; }
+  .serit { display: flex; align-items: center; gap: 8px; padding: 4px 4px 0 12px; min-height: 52px; animation: serit-gel var(--sure-orta) var(--egri-ac); }
+  @keyframes serit-gel { from { opacity: 0; transform: translateY(8px); } }
   .cubuk { width: 3px; align-self: stretch; margin: 6px 0; border-radius: 2px; background: var(--vurgu); flex: none; }
   .ikon { color: var(--vurgu); flex: none; display: inline-flex; }
   .govde { flex: 1; min-width: 0; display: grid; }

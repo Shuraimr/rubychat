@@ -7,6 +7,7 @@
   Telefonda sabit alt çubuk sayılır (`data-alt-cubuk`); bildirimler üstünde durur, hiçbir şey üst üste binmez.
 -->
 <script lang="ts">
+  import { sureMs } from "../hareket";
   import { onDestroy, onMount, type Snippet } from "svelte";
   import { perdeCik, perdeGir, sayfaCik, sayfaGir } from "../gecis";
   import { gezinme } from "../durum/gezinme.svelte";
@@ -81,7 +82,7 @@
     if ((dy >= yukseklik * 0.3 || (hiz > 0.5 && dy > 24)) && kutu) {
       // >=30%: finish the motion from where the finger left it, then close (hidden so the exit transition is not seen).
       // >=%30: hareketi parmağın bıraktığı yerden bitir, sonra kapat (çıkış geçişi görünmesin diye gizlenir).
-      const sure = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sure-hizli")) || 0;
+      const sure = sureMs("--sure-hizli");
       const bitir = () => {
         gizli = true;
         kapat();
@@ -139,19 +140,19 @@
   .kap.dialog { align-items: center; }
   .sayfa {
     pointer-events: auto; display: flex; flex-direction: column; outline: none; width: 100%;
-    background: var(--yuzey-1); border: 1px solid var(--kenar-ince); box-shadow: var(--kat-2); color: var(--yazi);
+    background: var(--yuzey-1); box-shadow: var(--kat-2); color: var(--yazi);
     max-height: min(88%, calc(var(--gorunen-yukseklik, 100vh) - 24px));
-    border-radius: 24px 24px 0 0; border-bottom: 0;
+    border-radius: 1.75rem 1.75rem 0 0;
     padding-bottom: env(safe-area-inset-bottom);
     /* Dragging follows the finger with no transition; releasing springs back with one. · Sürüklerken geçiş yok, parmağı izler; bırakınca geçişle geri yaylanır. */
     transition: transform var(--sure-sayfa) var(--egri-sayfa);
   }
   .sayfa.suruklenen { transition: none; }
-  .dialog .sayfa { width: min(480px, calc(100% - 32px)); max-height: min(85%, 720px); border-radius: 24px; border-bottom: 1px solid var(--kenar-ince); padding-bottom: 0; }
+  .dialog .sayfa { width: min(480px, calc(100% - 32px)); max-height: min(85%, 720px); border-radius: 1.75rem; padding-bottom: 0; }
   /* Landscape phone: a sheet this wide would be too long a line, so it is capped and centred. · Yatay telefon: bu kadar geniş sayfa çok uzun satır olurdu; sınırlanır ve ortalanır. */
   @media (max-height: 500px) { .sayfa { width: min(560px, 100%); } }
   .tutamak-alani { flex: none; touch-action: none; }
-  .tutamak { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--kenar); margin: 8px auto 0; }
+  .tutamak { display: block; width: 32px; height: 4px; border-radius: 2px; background: var(--kenar); margin: 8px auto 0; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 4px 20px; min-height: 56px; }
   h2 { font-size: 1.25rem; line-height: 1.3; font-weight: 600; }
   .icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 16px; display: grid; grid-auto-rows: max-content; gap: 16px; align-content: start; }

@@ -8,6 +8,7 @@
   dokunmak tam ekran görüntüleyiciyi (Goruntuleyici) açar. Balonun kendisini (renk, saat, durum) MesajBalonu çizer.
 -->
 <script lang="ts">
+  import { yerel } from "../i18n";
   import { medyaGonderimiIptal, medyaKaydet } from "../api/komutlar";
   import type { ZamanOgesi } from "../api/tipler";
   import Ikon from "../bilesenler/Ikon.svelte";
@@ -82,8 +83,8 @@
           <span class="durum">
             {#if md.ilerleme && md.ilerleme.toplam > 0}
               {m("yukleniyor", {
-                gecerli: (md.ilerleme.gecerli / 1048576).toLocaleString("tr-TR", { maximumFractionDigits: 2 }),
-                toplam: (md.ilerleme.toplam / 1048576).toLocaleString("tr-TR", { maximumFractionDigits: 2 }),
+                gecerli: (md.ilerleme.gecerli / 1048576).toLocaleString(yerel, { maximumFractionDigits: 2 }),
+                toplam: (md.ilerleme.toplam / 1048576).toLocaleString(yerel, { maximumFractionDigits: 2 }),
               })}
             {:else}
               {m("yukleniyorKisa")}

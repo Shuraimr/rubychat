@@ -1,3 +1,4 @@
+import { hareketVar } from "../hareket";
 // Scroll a message row into the middle of the timeline and flash it, so the user sees which message the search found.
 // Bir mesaj satırını zaman çizelgesinin ortasına kaydır ve yakıp söndür; kullanıcı aramanın hangi mesajı bulduğunu görsün.
 
@@ -9,7 +10,7 @@ export function satiriBul(olayId: string): HTMLElement | null {
 export function kaydirVeVurgula(el: HTMLElement) {
   el.scrollIntoView({ block: "center", behavior: "instant" as ScrollBehavior });
   const renk = "color-mix(in srgb, var(--vurgu) 28%, transparent)";
-  const hareket = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sure-ekran")) > 0;
+  const hareket = hareketVar();
   if (hareket) {
     el.animate([{ backgroundColor: renk }, { backgroundColor: renk, offset: 0.6 }, { backgroundColor: "transparent" }], { duration: 2000, easing: "ease-out" });
   } else {

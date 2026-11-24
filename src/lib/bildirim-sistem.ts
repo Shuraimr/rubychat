@@ -75,3 +75,11 @@ export async function bildirimIzniAc(): Promise<BildirimIzni> {
   if (sonra === "verilmedi" && performance.now() - bas < 500) await bildirimAyarlariniAc();
   return sonra;
 }
+
+// ---- Background connection (Android foreground service, BaglantiServisi.kt): without a push server the sync must stay alive itself ----
+// ---- Arka plan bağlantısı (Android ön plan servisi, BaglantiServisi.kt): anlık bildirim sunucusu olmadan eşitleme kendisi canlı kalmalı ----
+const arkaKopru = () => (window as unknown as { RubyArkaPlan?: { ayarla(acik: boolean): void; pilMuaf(): boolean; pilAyari(): void } }).RubyArkaPlan;
+export const arkaPlanVar = () => !!arkaKopru();
+export const arkaPlanAyarla = (acik: boolean) => arkaKopru()?.ayarla(acik);
+export const pilMuafMi = () => arkaKopru()?.pilMuaf() ?? true;
+export const pilAyariAc = () => arkaKopru()?.pilAyari();

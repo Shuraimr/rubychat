@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -21,6 +23,25 @@
     <!-- Save to gallery: Android 10+ uses MediaStore (no permission); only Android 7-9 needs this one -->
     <!-- Galeriye kaydet: Android 10+ MediaStore kullanır (izin yok); yalnızca Android 7-9 buna ihtiyaç duyar -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+    <!-- Which browsers / apps can open a web link (long press on a link) · Web bağlantısını hangi tarayıcı / uygulama açabilir (bağlantıya uzun bas) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" android:host="*" />
+        </intent>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.github.android" />
+        <package android:name="com.reddit.frontpage" />
+        <package android:name="com.twitter.android" />
+        <package android:name="com.instagram.android" />
+        <package android:name="com.spotify.music" />
+        <package android:name="org.telegram.messenger" />
+    </queries>
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -51,6 +72,10 @@
         <!-- Call in progress: microphone foreground service + its "Kapat" action -->
         <!-- Süren arama: mikrofon ön plan servisi + "Kapat" eylemi -->
         <service android:name=".AramaServisi" android:exported="false" android:foregroundServiceType="microphone" />
+        <!-- Background connection: keeps the sync alive (no push server) · Arka plan bağlantısı: eşitlemeyi canlı tutar (anlık bildirim sunucusu yok) -->
+        <service android:name=".BaglantiServisi" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Keeps the Matrix chat sync connected so messages can be notified without a push server" />
+        </service>
         <receiver android:name=".AramaKapatAlici" android:exported="false" />
 
         <provider

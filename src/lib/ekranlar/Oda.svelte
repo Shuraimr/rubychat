@@ -15,6 +15,9 @@
   durumuna varır (ekranın tamamı bir <svelte:boundary> içindedir).
 -->
 <script lang="ts">
+  import { medyaKaydet } from "../api/komutlar";
+  import { saatYaz } from "../zaman-bicim";
+  import { hareketVar } from "../hareket";
   import { onDestroy, tick, untrack } from "svelte";
   import type { ZamanOgesi } from "../api/tipler";
   import Avatar from "../bilesenler/Avatar.svelte";
@@ -26,6 +29,7 @@
   import { uzunBasma } from "../dokunma";
   import { gorunumStili, sohbetGorunumu } from "../durum/sohbetGorunum.svelte";
   import BaglamMenusu, { type MenuEylemi } from "../bilesenler/BaglamMenusu.svelte";
+  import { hizliGecis } from "../durum/hizliGecis.svelte";
   import EsitlemeSeridi from "../bilesenler/EsitlemeSeridi.svelte";
   import Ikon from "../bilesenler/Ikon.svelte";
   import OdaAramasi from "../arama-mesaj/OdaAramasi.svelte";
@@ -49,7 +53,7 @@
   import { zaman } from "../durum/zaman.svelte";
   import { t, type Anahtar } from "../i18n";
   import { gunEtiketi } from "../zaman-bicim";
-  import KristalZemin from "../bilesenler/KristalZemin.svelte";
+  import SohbetZemini from "../bilesenler/SohbetZemini.svelte";
 
   let { odaId }: { odaId: string } = $props();
 
@@ -154,7 +158,8 @@
     tick().then(() => {
       if (!kutu) return;
       if (!ilkKaydirmaYapildi && ogeler.length > 0) {
-        ilkKaydirmaYapildi = true;
+        // A list from memory is only a preview: the real one decides where to open. · Bellekten gelen liste yalnızca ön izlemedir: nerede açılacağına gerçeği karar verir.
+        ilkKaydirmaYapildi = !zaman.onbellekten;
         const yeni = yeniKilit ? kutu.querySelector<HTMLElement>(`[data-yeni]`) : null;
         if (yeni) {
           // Open at the first unread message. · İlk okunmamış mesajda aç.
@@ -219,7 +224,8 @@
       sonGorulenId = zaman.ogeler.at(-1)?.id ?? null;
       if (!alttaydi) okunduPlanla();
     }
-    if (kutu.scrollTop < 120) {
+    // The next page is asked for well before the end is reached. · Sonraki sayfa sona varmadan çok önce istenir.
+    if (kutu.scrollTop < Math.max(400, kutu.clientHeight * 1.5)) {
       oncekiYukseklik = kutu.scrollHeight;
       zaman.eskileriYukle();
     }
@@ -230,7 +236,7 @@
     // Far away: jump near the end first, so the smooth part is always short. · Uzaktaysa önce sona yakın atla; yumuşak kısım hep kısa olsun.
     const uzak = kutu.scrollHeight - kutu.clientHeight * 2.5;
     if (kutu.scrollTop < uzak) kutu.scrollTop = uzak;
-    const hareket = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--hareket")) > 0;
+    const hareket = hareketVar();
     kutu.scrollTo({ top: kutu.scrollHeight, behavior: hareket ? "smooth" : "instant" });
   }
 
@@ -270,10 +276,21 @@
   let silHedef = $state<ZamanOgesi | null>(null);
   let iletHedef = $state<ZamanOgesi | null>(null);
 
-  async function kopyala(oge: ZamanOgesi) {
+  async function medyayiKaydet(oge: ZamanOgesi) {
+    try {
+      const ad = await medyaKaydet(oge.medya!.kaynakId);
+      bildirim.goster(t("menu.kaydedildi", { ad }), 3500, { tur: "tamam" });
+    } catch {
+      bildirim.goster(t("hata.diger"), 4000, { tur: "hata" });
+    }
+  }
+  /** One line that tells what the message is · Mesajın ne olduğunu söyleyen tek satır */
+  const ozet = (o: ZamanOgesi) => o.metin || o.medya?.dosyaAdi || t("menu.mesaj");
+
+  async function panoya(metin: string) {
     // navigator.clipboard can be missing/blocked in a webview: say so instead of failing silently. · navigator.clipboard webview'da olmayabilir/engellenebilir: sessizce başarısız olmak yerine söyle.
     try {
-      await navigator.clipboard.writeText(oge.metin ?? "");
+      await navigator.clipboard.writeText(metin);
       bildirim.goster(t("bildirim.kopyalandi"), 4000, { tur: "tamam" });
     } catch {
       bildirim.goster(t("bildirim.kopyalanamadi"), 4000, { tur: "hata" });
@@ -286,13 +303,18 @@
 
   function eylemleriKur(oge: ZamanOgesi): MenuEylemi[] {
     const liste: MenuEylemi[] = [];
-    if (gercekOlay(oge)) liste.push({ ikon: "yanitla", etiket: t("menu.yanitla"), calistir: () => yazma.yanitla(oge) });
-    if (oge.duzenlenebilir) liste.push({ ikon: "kalem", etiket: t("menu.duzenle"), calistir: () => yazma.duzenleBaslat(oge) });
-    if (oge.tur === "metin" && oge.metin) liste.push({ ikon: "kopya", etiket: t("menu.kopyala"), calistir: () => void kopyala(oge) });
-    if (gercekOlay(oge) && iletilebilir(oge)) liste.push({ ikon: "ilet", etiket: t("menu.ilet"), calistir: () => (iletHedef = oge) });
-    if (gercekOlay(oge) && zaman.sabitleyebilir) {
-      liste.push({ ikon: "sabitle", etiket: oge.sabit ? t("menu.sabitiKaldir") : t("menu.sabitle"), calistir: () => void mesajiSabitle(oge, !oge.sabit) });
-    }
+    const gercek = gercekOlay(oge);
+    // The four frequent ones are tiles, the rest a list. · Sık kullanılan dördü karo, gerisi liste.
+    if (gercek) liste.push({ ikon: "yanitla", etiket: t("menu.yanitla"), karo: true, calistir: () => yazma.yanitla(oge) });
+    if (oge.metin) liste.push({ ikon: "kopya", etiket: t("menu.kopyala"), karo: true, calistir: () => void panoya(oge.metin!) });
+    if (gercek && iletilebilir(oge)) liste.push({ ikon: "ilet", etiket: t("menu.ilet"), karo: true, calistir: () => (iletHedef = oge) });
+    if (oge.duzenlenebilir) liste.push({ ikon: "kalem", etiket: t("menu.duzenle"), karo: true, calistir: () => yazma.duzenleBaslat(oge) });
+    if (gercek && zaman.sabitleyebilir) liste.push({ ikon: "sabitle", etiket: oge.sabit ? t("menu.sabitiKaldir") : t("menu.sabitle"), calistir: () => void mesajiSabitle(oge, !oge.sabit) });
+    const adres = /https?:\/\/[^\s<>"]+/.exec(oge.metin ?? "")?.[0];
+    if (adres) liste.push({ ikon: "atac", etiket: t("menu.adresKopyala"), calistir: () => void panoya(adres) });
+    if (oge.medya && !oge.medya.ilerleme) liste.push({ ikon: "asagi", etiket: t("menu.kaydet"), calistir: () => void medyayiKaydet(oge) });
+    if (oge.okuyanlar.length > 0) liste.push({ ikon: "tikCift", etiket: t("menu.gorenler", { n: oge.okuyanlar.length }), calistir: () => (okuyanHedef = oge) });
+    if (gercek) liste.push({ ikon: "dosya", etiket: t("menu.mesajBaglantisi"), calistir: () => void panoya(`https://matrix.to/#/${encodeURIComponent(odaId)}/${encodeURIComponent(oge.olayId!)}`) });
     if (oge.kendi && oge.durum === "hata") liste.push({ ikon: "yenile", etiket: t("eylem.yenidenDene"), calistir: () => void yenidenDene(oge.id) });
     if (oge.silinebilir) liste.push({ ikon: "cop", etiket: t("menu.sil"), tehlike: true, calistir: () => (silHedef = oge) });
     return liste;
@@ -385,7 +407,7 @@
   const aranabilir = $derived(!!zaman.bilgi && zaman.bilgi.uyeSayisi === 2 && !!zaman.bilgi.karsiKullanici);
 </script>
 
-<div class="oda" data-balon={gorunum.balon} data-saat={gorunum.saat ? undefined : "yok"} data-avatar={gorunum.avatar ? undefined : "yok"} style="{gorunumStili(gorunum)};--tepe-yer:{tepeYuk}px;--yazma-yer:{aramaAcik ? 0 : altYuk}px">
+<div class="oda" class:itildi={bilgiAcik || uyelerAcik} style="{gorunumStili(gorunum)};--tepe-yer:{tepeYuk}px;--yazma-yer:{aramaAcik ? 0 : altYuk}px">
 <svelte:boundary onerror={(e) => console.error("oda çizimi başarısız", e)}>
   <!-- Floating header card (the dock's counterpart): identity + actions; the pinned message and the sync strip are its lower storeys. -->
   <!-- Yüzen başlık kartı (dock'un karşılığı): kimlik + eylemler; sabit mesaj ve eşitleme şeridi onun alt katlarıdır. -->
@@ -418,7 +440,7 @@
       <div class="kimlik bekle" aria-hidden="true"><span class="b-yuz parilti"></span><span class="b-ad parilti"></span></div>
     {/if}
     <OdaAramasi {odaId} />
-    <button class="simge-dugme" class:tonlu={aramaAcik} aria-label={t("mesajAra.odadaAra")} aria-pressed={aramaAcik} onclick={() => (aramaAcik = true)}><Ikon ad="ara" /></button>
+    <button class="simge-dugme" class:tonlu={aramaAcik} aria-label={t("mesajAra.odadaAra")} aria-pressed={aramaAcik} use:hizliGecis onclick={() => (aramaAcik = true)}><Ikon ad="ara" /></button>
     {#if aranabilir && zaman.bilgi}
       <button
         class="simge-dugme"
@@ -434,7 +456,7 @@
   </div>
   </div>
 
-  <KristalZemin efekt={gorunum.efekt} duvar={gorunum.duvar} resim={gorunum.resim} resimAnahtari={odaId} bulanik={gorunum.bulanik} karart={gorunum.karart} />
+  <SohbetZemini resim={gorunum.resim} resimAnahtari={odaId} karart={gorunum.karart} />
   <div class="zaman-sarmal">
     <div class="zaman" bind:this={kutu} onscroll={kaydir}>
       <div class="sutun">
@@ -515,7 +537,7 @@
   {/if}
 {/snippet}
 {#if menu && (menuEylemleri.length > 0 || gercekOlay(menu.oge))}
-  <BaglamMenusu x={menu.x} y={menu.y} eylemler={menuEylemleri} ust={gercekOlay(menu.oge) ? tepkiUst : undefined} onkapat={() => (menu = null)} />
+  <BaglamMenusu x={menu.x} y={menu.y} eylemler={menuEylemleri} ust={gercekOlay(menu.oge) ? tepkiUst : undefined} onizleme={{ ad: menu.oge.kendi ? t("menu.sen") : menu.oge.gonderenAd, zaman: saatYaz(menu.oge.zaman), metin: ozet(menu.oge) }} onkapat={() => (menu = null)} />
 {/if}
 
 {#if tepkiSecici}
@@ -533,17 +555,18 @@
 {#if iletHedef}<IletSayfasi oge={iletHedef} {odaId} onkapat={() => (iletHedef = null)} />{/if}
 
 <style>
+  /* The room moves aside under its info page (same parallax as list → room). · Oda, bilgi sayfasının altında kenara çekilir (liste → oda ile aynı paralaks). */
+  .oda > :global(*:not(.ekran)) { transition: transform var(--sure-ekran) var(--egri-ac); }
+  .oda.itildi > :global(*:not(.ekran)) { transform: translate3d(-25%, 0, 0); }
   .oda { position: relative; overflow: hidden; flex: 1; min-height: 0; display: flex; flex-direction: column; min-width: 0; height: 100%; background: var(--sohbet-zemin, var(--zemin)); }
-  .tepe { position: absolute; z-index: 3; top: 0; left: 0; right: 0; padding: calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) 0 calc(8px + env(safe-area-inset-left)); pointer-events: none; }
+  .tepe { position: absolute; z-index: 3; top: 0; left: 0; right: 0; padding: calc(8px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 0 calc(12px + env(safe-area-inset-left)); pointer-events: none; }
   /* Messages fade out under the status bar and the card instead of being cut by a line. · Mesajlar durum çubuğunun ve kartın altında çizgiyle kesilmek yerine solar. */
   .tepe::before { content: ""; position: absolute; z-index: -1; inset: 0 0 -12px; background: linear-gradient(var(--sohbet-zemin, var(--zemin)) 55%, transparent); }
-  .kart { pointer-events: auto; overflow: hidden; border-radius: 24px; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); box-shadow: var(--kat-2); }
+  .kart { pointer-events: auto; overflow: hidden; border-radius: 32px; background: var(--yuzey-2); box-shadow: var(--kat-2); }
   .kart :global(.cubuk) { width: 100%; border-bottom: 0; border-top: 1px solid var(--kenar-ince); }
   .kart :global(.serit) { border-bottom: 0; }
-  .ust { min-height: 56px; display: flex; align-items: center; gap: 2px; padding: 5px; }
-  .ust > :global(.simge-dugme) { border-radius: 22px; }
-  .kimlik { flex: 1; min-width: 0; min-height: 44px; padding: 0 6px 0 2px; display: flex; align-items: center; gap: 10px; text-align: left; border-radius: 16px; }
-  .kimlik:active { background: var(--yuzey-2); }
+  .ust { min-height: 64px; display: flex; align-items: center; gap: 2px; padding: 8px; }
+    .kimlik { flex: 1; min-width: 0; min-height: 44px; padding: 0 6px 0 2px; display: flex; align-items: center; gap: .75rem; text-align: left; border-radius: 22px; }
   .adlar { flex: 1; min-width: 0; display: grid; }
   .ad-satir { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .kilit { flex: none; display: inline-flex; color: var(--cozum); }
@@ -571,7 +594,7 @@
   /* Sticky date chip: sticks to the top while its day scrolls by, bounded by its own <section>. */
   /* Yapışkan tarih hapı: günü kayarken üstte kalır, kendi <section>'ıyla sınırlıdır. */
   .tarih { position: sticky; top: calc(var(--tepe-yer) - 4px); z-index: 2; display: flex; justify-content: center; padding: 8px 0 4px; pointer-events: none; }
-  .tarih span { background: var(--yuzey-2); color: var(--yazi); font-size: .75rem; font-weight: 600; padding: .25rem .75rem; border-radius: .75rem; border: 1px solid var(--kenar-ince); box-shadow: var(--kat-1); }
+  .tarih span { background: var(--yuzey-2); color: var(--yazi); font-size: .75rem; font-weight: 600; padding: .25rem .75rem; border-radius: .75rem; }
 
   .yeni { display: flex; align-items: center; gap: 12px; margin: 14px 0 6px; color: var(--vurgu); font-size: .75rem; font-weight: 600; }
   .yeni::before, .yeni::after { content: ""; flex: 1; height: 1px; background: var(--vurgu); opacity: .5; }

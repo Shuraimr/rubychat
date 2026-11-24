@@ -3,6 +3,7 @@
   Ben › Hakkında: maskot, sürüm, lisanslar (AGPL uygulama, OFL yazı tipleri, matrix-rust-sdk) ve kaynak kodu bağlantısı.
 -->
 <script lang="ts">
+  import { acilisOrtalamasi } from "../durum/onYukle.svelte";
   import { onMount } from "svelte";
   import AltSayfa from "../bilesenler/AltSayfa.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
@@ -15,9 +16,6 @@
   // Vendored icon packs and their license texts (public/lisanslar) · Alınan simge paketleri ve lisans metinleri (public/lisanslar)
   const LISANSLAR = [
     { dosya: "material", ad: "Material Symbols", tur: "Apache-2.0 · Google" },
-    { dosya: "lucide", ad: "Lucide", tur: "ISC" },
-    { dosya: "phosphor", ad: "Phosphor Icons", tur: "MIT" },
-    { dosya: "tabler", ad: "Tabler Icons", tur: "MIT" },
     { dosya: "unicode", ad: "Unicode Emoji + CLDR", tur: "Unicode-DFS-2016" },
   ];
   let lisansMetni = $state<{ ad: string; metin: string } | null>(null);
@@ -28,6 +26,7 @@
       lisansMetni = { ad, metin: "—" };
     }
   }
+  const olcum = acilisOrtalamasi();
   let surum = $state("");
   onMount(() => {
     // The app version from Tauri; absent in a plain browser. · Tauri'den uygulama sürümü; sade tarayıcıda yok.
@@ -40,12 +39,13 @@
   <div class="ay-icerik">
     <div class="ust"><Maskot poz="selam" boyut={144} /><h2>rubychat</h2><p class="ay-not">{t("ayar.hakkindaAlt")}</p></div>
     <div class="ay-kart">
+      {#if olcum.hazir !== null || olcum.soguk !== null}<div class="ay-satir"><span class="ay-metin"><strong>{t("ayar.odaAcilisi")}</strong><span>{t("ayar.odaAcilisiAlt", { hazir: olcum.hazir ?? "–", soguk: olcum.soguk ?? "–" })}</span></span></div>{/if}
       {#if surum}<div class="ay-satir"><span class="ay-metin"><strong>{t("ayar.surum")}</strong></span><span class="deger">{surum}</span></div>{/if}
       <button class="ay-satir dugme" data-dalga onclick={() => baglantiAc("https://github.com/Shuraimr/rubychat")}><span class="ay-metin"><strong>{t("ayar.github")}</strong></span><Ikon ad="sagOk" boyut={20} /></button>
     </div>
     <section class="ay-bolum">
-      <h2 class="baslik">{t("ayar.lisanslar")}</h2>
-      <div class="ay-kart lisans">
+      <h2>{t("ayar.lisanslar")}</h2>
+      <div class="ay-kart govde lisans">
         <p>{t("ayar.lisansUygulama")}</p>
         <p>{t("ayar.lisansYazi")}</p>
         <p>{t("ayar.lisansSdk")}</p>
@@ -70,12 +70,11 @@
   .lisans-metin { margin: 0; font-family: var(--mono-tipi); font-size: .75rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--yazi-2); user-select: text; -webkit-user-select: text; }
   .ust { display: grid; justify-items: center; gap: 4px; text-align: center; padding-top: 8px; }
   .ust h2 { font-size: 1.5rem; }
-  .deger { padding-right: 16px; color: var(--yazi-2); font-family: var(--mono-tipi); font-size: .875rem; }
-  .baslik { font-size: .8125rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--yazi-2); padding: 0 4px; }
+  .deger { color: var(--yazi-2); font-family: var(--mono-tipi); font-size: .875rem; }
   .lisans-liste { display: grid; gap: .25rem; }
   .lisans-baglanti { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem .75rem; min-height: 2.75rem; align-items: center; color: var(--vurgu); text-decoration: none; }
   .lisans-baglanti span { color: var(--yazi-2); font-size: .8125rem; }
-  .lisans { padding: 12px 16px; gap: 10px; font-size: .875rem; color: var(--yazi-2); line-height: 1.5; }
+  .lisans { gap: .625rem; font-size: .875rem; color: var(--yazi-2); line-height: 1.5; }
   .lisans p { margin: 0; }
   .ec-kaynak { justify-self: start; min-height: 44px; color: var(--vurgu); font-size: .875rem; text-align: left; }
 </style>

@@ -11,6 +11,7 @@ import type {
   UygulamaIciBildirim,
   YaziyorGuncelleme,
   ZamanGuncelleme,
+  ZamanHazir,
 } from "./tipler";
 import type { EcAramaDurumu, EcBitti, EcGelen } from "../arama-ec/tipler";
 
@@ -22,6 +23,9 @@ export const esitlemeDurumu = (isle: (d: EsitlemeDurumu) => void): Promise<Unlis
 
 export const zamanGuncellendi = (isle: (g: ZamanGuncelleme) => void): Promise<UnlistenFn> =>
   listen<ZamanGuncelleme>("zaman-guncellendi", (e) => isle(e.payload));
+
+export const zamanHazir = (isle: (g: ZamanHazir) => void): Promise<UnlistenFn> =>
+  listen<ZamanHazir>("zaman-hazir", (e) => isle(e.payload));
 
 export const aramaOlayi = (isle: (o: AramaOlayi) => void): Promise<UnlistenFn> =>
   listen<AramaOlayi>("arama-olayi", (e) => isle(e.payload));

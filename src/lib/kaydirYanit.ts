@@ -4,6 +4,7 @@
 // Sola kaydırarak yanıtla (sağ "geri"dir, bkz. geriKaydir): bir mesaj satırı için Svelte eylemi. 48px sola sürükleme (çoğunlukla yatay) `ac`yi çalıştırır; satır parmağı
 // izler (en çok 72px, hafif sönümlü); bu sırada düğümde `--kay-x` (px) ve `--kay-o` (0..1, ipucu simgesi için) CSS değişkenleri ayarlanır.
 // Azaltılmış harekette (--hareket 0) hiçbir şey kaymaz ya da solmaz, ama 48px kaydırma yine çalışır ve eşikte bir kez titretir.
+import { hareketVar } from "./hareket";
 import { titret } from "./dokunma";
 
 const ESIK = 48;
@@ -18,7 +19,6 @@ export function kaydirYanit(node: HTMLElement, secenek: { ac: () => void; etkin:
   // Direction is decided once, after 8px: "x" = a leftward swipe (ours), "y" = a scroll (leave it alone). · Yön 8px sonra bir kez belirlenir: "x" = sola kaydırma (bizim), "y" = kaydırma (dokunma).
   let kilit: "x" | "y" | null = null;
   let esikte = false;
-  const hareketVar = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--hareket")) > 0;
 
   const yaz = (x: number) => {
     const hareket = hareketVar();

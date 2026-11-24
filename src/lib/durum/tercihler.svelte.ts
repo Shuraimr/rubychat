@@ -7,10 +7,6 @@
 import type { ResimKalitesi } from "../medya/isleme";
 
 export type OnizlemeKipi = "hepsi" | "yt-gh" | "kapali";
-/** Icon pack (Ayarlar › Görünüm › Simge seti) · Simge paketi (Ayarlar › Görünüm › Simge seti) */
-export type SimgeSeti = "material" | "lucide" | "phosphor" | "tabler";
-/** Crystal effect for list screens (chat backgrounds have their own, per chat) · Liste ekranları için kristal efekt (sohbet arka planlarının kendisi var, sohbet başına) */
-export type ListeEfekti = "izgara" | "yakut" | "isik" | "kapali";
 
 export interface TercihDeger {
   titresim: boolean;
@@ -22,39 +18,29 @@ export interface TercihDeger {
   bildirimAcik: boolean;
   bildirimOnizleme: boolean;
   bildirimTitresim: boolean;
-  sessizSaatler: boolean;
-  sessizBas: string;
-  sessizBit: string;
-  simgeSeti: SimgeSeti;
-  listeEfekti: ListeEfekti;
+  /** keep the sync alive in the background (Android foreground service) · eşitlemeyi arka planda canlı tut (Android ön plan servisi) */
+  arkaPlan: boolean;
   /** KLIPY API key for the GIF tab: stored on this device only, never committed · GIF sekmesi için KLIPY API anahtarı: yalnızca bu cihazda, asla commit'lenmez */
   klipyAnahtar: string;
 }
 
 const VARSAYILAN: TercihDeger = {
   titresim: true, saat24: true, enterGonder: true, baglantiOnizleme: "hepsi", sifreliOnizle: false, resimKalitesi: "standart",
-  bildirimAcik: true, bildirimOnizleme: true, bildirimTitresim: true, sessizSaatler: false, sessizBas: "22:00", sessizBit: "07:00",
-  simgeSeti: "material", listeEfekti: "kapali", klipyAnahtar: "",
+  bildirimAcik: true, bildirimOnizleme: true, bildirimTitresim: true, arkaPlan: true,
+  klipyAnahtar: "",
 };
 const ANAHTAR = "rubychat.tercihler";
-export const SIMGE_SETLERI = ["material", "lucide", "phosphor", "tabler"];
-const LISTE_EFEKTLERI = ["izgara", "yakut", "isik", "kapali"];
-const SAAT = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 function oku(): TercihDeger {
   const g = { ...VARSAYILAN };
   try {
     const h = JSON.parse(localStorage.getItem(ANAHTAR) ?? "{}") as Record<string, unknown>;
-    for (const k of ["titresim", "saat24", "enterGonder", "sifreliOnizle", "bildirimAcik", "bildirimOnizleme", "bildirimTitresim", "sessizSaatler"] as const) {
+    for (const k of ["titresim", "saat24", "enterGonder", "sifreliOnizle", "bildirimAcik", "bildirimOnizleme", "bildirimTitresim", "arkaPlan"] as const) {
       if (typeof h[k] === "boolean") g[k] = h[k] as boolean;
     }
     if (["hepsi", "yt-gh", "kapali"].includes(h.baglantiOnizleme as string)) g.baglantiOnizleme = h.baglantiOnizleme as OnizlemeKipi;
     if (["standart", "yuksek", "orijinal"].includes(h.resimKalitesi as string)) g.resimKalitesi = h.resimKalitesi as ResimKalitesi;
-    if (SIMGE_SETLERI.includes(h.simgeSeti as string)) g.simgeSeti = h.simgeSeti as SimgeSeti;
-    if (LISTE_EFEKTLERI.includes(h.listeEfekti as string)) g.listeEfekti = h.listeEfekti as ListeEfekti;
     if (typeof h.klipyAnahtar === "string" && h.klipyAnahtar.length < 200) g.klipyAnahtar = h.klipyAnahtar.trim();
-    if (typeof h.sessizBas === "string" && SAAT.test(h.sessizBas)) g.sessizBas = h.sessizBas;
-    if (typeof h.sessizBit === "string" && SAAT.test(h.sessizBit)) g.sessizBit = h.sessizBit;
   } catch {
     /* blocked or corrupt storage: defaults · depolama engelli ya da bozuk: varsayılanlar */
   }
@@ -71,16 +57,6 @@ class Tercihler {
     } catch {
       /* not persisted; still applies for this session · saklanamadı; bu oturum için yine geçerli */
     }
-  }
-
-  /** Is "now" inside the quiet hours (they may wrap past midnight)? · Şu an sessiz saatlerin içinde mi (gece yarısını aşabilir)? */
-  sessizMi(simdi = new Date()): boolean {
-    if (!this.d.sessizSaatler) return false;
-    const dk = (s: string) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3));
-    const n = simdi.getHours() * 60 + simdi.getMinutes();
-    const b = dk(this.d.sessizBas);
-    const e = dk(this.d.sessizBit);
-    return b <= e ? n >= b && n < e : n >= b || n < e;
   }
 }
 export const tercihler = new Tercihler();

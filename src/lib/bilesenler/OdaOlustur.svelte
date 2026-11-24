@@ -6,6 +6,7 @@
   import { alanaKatil, odaOlustur } from "../api/komutlar";
   import { alanlar } from "../durum/alanlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
+  import { istekAc } from "../durum/istekler.svelte";
   import { t } from "../i18n";
   import { hataBildir } from "../mesaj/eylemler";
   import AltSayfa from "./AltSayfa.svelte";
@@ -31,7 +32,11 @@
         alanlar.ac(id, d);
       } else gezinme.odaAc(id);
     } catch (err) {
-      hataBildir(err);
+      // Not open to everyone: offer to ask for permission. · Herkese açık değil: izin istemeyi öner.
+      if (tur === "katil" && (err as { tur?: string }).tur === "giris") {
+        onkapat();
+        istekAc({ kimlik: d, ad: d, via: d.startsWith("!") && d.includes(":") ? [d.slice(d.indexOf(":") + 1)] : [] });
+      } else hataBildir(err);
     } finally {
       mesgul = false;
     }

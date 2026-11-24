@@ -9,7 +9,7 @@ const GORUNUM_ANAHTARI = "rubychat.gorunum";
 
 export type Tema = "sistem" | "koyu" | "acik";
 export type VurguAdi = "safir" | "zumrut" | "kehribar" | "ametist" | "yakut" | "ozel";
-export type YaziTipi = "inter" | "sistem" | "atkinson" | "nunito" | "mono" | "maple";
+export type YaziTipi = "inter" | "sistem" | "atkinson" | "maple";
 export type YaziBoyutu = "kucuk" | "normal" | "buyuk";
 export type AzAnimasyon = "sistem" | "acik";
 
@@ -42,7 +42,7 @@ function gorunumOku(): Gorunum {
     if (typeof ham.amoled === "boolean") g.amoled = ham.amoled;
     if (["safir", "zumrut", "kehribar", "ametist", "yakut", "ozel"].includes(ham.vurgu as string)) g.vurgu = ham.vurgu as VurguAdi;
     if (typeof ham.ozelRenk === "string" && /^#[0-9a-f]{6}$/i.test(ham.ozelRenk)) g.ozelRenk = ham.ozelRenk;
-    if (["inter", "sistem", "atkinson", "nunito", "mono", "maple"].includes(ham.yaziTipi as string)) g.yaziTipi = ham.yaziTipi as YaziTipi;
+    if (["inter", "sistem", "atkinson", "maple"].includes(ham.yaziTipi as string)) g.yaziTipi = ham.yaziTipi as YaziTipi;
     if (ham.yaziBoyutu === "kucuk" || ham.yaziBoyutu === "normal" || ham.yaziBoyutu === "buyuk") g.yaziBoyutu = ham.yaziBoyutu;
     if (ham.azAnimasyon === "sistem" || ham.azAnimasyon === "acik") g.azAnimasyon = ham.azAnimasyon;
   } catch {
@@ -109,6 +109,10 @@ class Ayarlar {
   uygula() {
     const kok = document.documentElement;
     kok.dataset.tema = this.tema;
+    // Android font size: applied to the root, so boxes (rem) grow together with the letters. Capped, or a phone would fit three rows.
+    // Android yazı boyutu: köke uygulanır; kutular (rem) harflerle birlikte büyür. Üst sınırı var, yoksa telefona üç satır sığardı.
+    const sistem = (window as unknown as { RubyArkaPlan?: { yaziOlcegi?(): number } }).RubyArkaPlan?.yaziOlcegi?.() ?? 1;
+    kok.style.setProperty("--sistem-olcegi", String(Math.min(1.35, Math.max(0.85, sistem || 1))));
     // Attributes that mean "default" are removed so the base CSS rules apply. · "Varsayılan" anlamındaki öznitelikler kaldırılır; temel CSS kuralları geçerli olur.
     const ayarla = (ad: string, deger: string | null) => (deger === null ? kok.removeAttribute(ad) : kok.setAttribute(ad, deger));
     ayarla("data-amoled", this.amoled ? "" : null);

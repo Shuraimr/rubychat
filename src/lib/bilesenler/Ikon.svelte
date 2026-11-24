@@ -68,31 +68,22 @@
 </script>
 
 <script lang="ts">
-  import { lucide } from "../ikonlar/lucide";
   import { material } from "../ikonlar/material";
-  import { phosphor } from "../ikonlar/phosphor";
-  import { tabler } from "../ikonlar/tabler";
-  import type { SimgePaketi } from "../ikonlar/tip";
-  import { tercihler } from "../durum/tercihler.svelte";
 
-  const PAKETLER: Record<string, SimgePaketi> = { material, lucide, phosphor, tabler };
-
-  /** `dolu` = the filled variant for an active state (Material Symbols has it; other packs ignore it) · `dolu` = etkin hal için dolu varyant (Material Symbols'ta var; diğer paketler yok sayar) */
+  /** `dolu` = the filled variant for an active state · `dolu` = etkin hal için dolu varyant */
   let { ad, boyut = 24, dolu = false }: { ad: IkonAdi; boyut?: number; dolu?: boolean } = $props();
-  // The selected pack is read live from the preferences, so switching it redraws every icon at once (no reload).
-  // Seçili paket tercihlerden canlı okunur; değiştirmek bütün simgeleri bir anda yeniden çizer (yeniden yükleme yok).
-  const paket = $derived(PAKETLER[tercihler.d.simgeSeti] ?? material);
-  const govde = $derived((dolu && paket.dolu[ad]) || paket.simgeler[ad] || null);
-  const cizgi = $derived(paket.mod === "cizgi");
+  // A bit larger than asked everywhere: the glyphs have their own padding. · Her yerde istenenden biraz büyük: gliflerin kendi iç boşluğu var.
+  const rem = $derived(Math.round(boyut * 1.1) / 16);
+  const govde = $derived((dolu && material.dolu[ad]) || material.simgeler[ad] || null);
 </script>
 
 <svg
-  style:width="{boyut / 16}rem"
-  style:height="{boyut / 16}rem"
+  style:width="{rem}rem"
+  style:height="{rem}rem"
   style:flex="none"
-  viewBox={govde ? paket.viewBox : "0 0 24 24"}
-  fill={govde && !cizgi ? "currentColor" : "none"}
-  stroke={!govde || cizgi ? "currentColor" : "none"}
+  viewBox={govde ? material.viewBox : "0 0 24 24"}
+  fill={govde ? "currentColor" : "none"}
+  stroke={!govde ? "currentColor" : "none"}
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"

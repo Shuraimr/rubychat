@@ -8,8 +8,6 @@ Buradaki bütün yazı tipleri **SIL Açık Yazı Tipi Lisansı 1.1** ile lisans
 | Inter | © The Inter Project Authors (https://github.com/rsms/inter) |
 | Space Grotesk | © The Space Grotesk Project Authors (https://github.com/floriankarsten/space-grotesk) |
 | Atkinson Hyperlegible | © Braille Institute of America, Inc. |
-| Nunito | © The Nunito Project Authors (https://github.com/googlefonts/nunito) |
-| JetBrains Mono | © The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) |
 | Maple Mono | © The Maple Mono Project Authors (https://github.com/subframe7536/maple-font); license text: maple-mono/OFL-LISANS.txt |
 
 Files were downloaded from Google Fonts (latin and latin-ext subsets only) · Dosyalar Google Fonts'tan indirildi (yalnızca latin ve latin-ext alt kümeleri).

@@ -24,7 +24,7 @@
 {/if}
 
 <style>
-  .serit { flex: none; min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; font-size: .8125rem; font-weight: 500; background: var(--yuzey-2); color: var(--yazi-2); border-bottom: 1px solid var(--kenar-ince); }
+  .serit { flex: none; min-height: 44px; display: flex; align-items: center; gap: 8px; padding: .25rem 1.25rem; font-size: .8125rem; font-weight: 500; background: var(--yuzey-2); color: var(--yazi-2); border-bottom: 1px solid var(--kenar-ince); }
   .serit.sari { background: color-mix(in srgb, var(--bekliyor) 14%, var(--yuzey-1)); color: var(--bekliyor); }
   .serit.kirmizi { color: var(--hata); }
   .metin { flex: 1; min-width: 0; }

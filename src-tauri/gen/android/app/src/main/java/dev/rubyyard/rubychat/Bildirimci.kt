@@ -122,12 +122,12 @@ object Bildirimci {
   private fun kanallariKur(ctx: Context) {
     if (Build.VERSION.SDK_INT < 26) return
     val nm = ctx.getSystemService(NotificationManager::class.java)
-    val mesajlar = NotificationChannel(KANAL_MESAJ, "Mesajlar", NotificationManager.IMPORTANCE_HIGH).apply {
-      description = "Yeni mesaj bildirimleri"
+    val mesajlar = NotificationChannel(KANAL_MESAJ, Dil.sec(ctx, "Mesajlar", "Messages"), NotificationManager.IMPORTANCE_HIGH).apply {
+      description = Dil.sec(ctx, "Yeni mesaj bildirimleri", "New message notifications")
       enableVibration(true)
     }
-    val aramalar = NotificationChannel(KANAL_ARAMA, "Aramalar", NotificationManager.IMPORTANCE_HIGH).apply {
-      description = "Gelen sesli aramalar"
+    val aramalar = NotificationChannel(KANAL_ARAMA, Dil.sec(ctx, "Aramalar", "Calls"), NotificationManager.IMPORTANCE_HIGH).apply {
+      description = Dil.sec(ctx, "Gelen sesli aramalar", "Incoming voice calls")
       enableVibration(true)
       lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
       setSound(
@@ -199,7 +199,7 @@ object Bildirimci {
   private fun mesajBildirimi(ctx: Context, odaId: String, odaAd: String) {
     val liste = synchronized(gecmis) { ArrayList(gecmis[odaId] ?: emptyList<Mesaj>()) }
     if (liste.isEmpty()) return
-    val ben = Person.Builder().setName("Sen").build()
+    val ben = Person.Builder().setName(Dil.sec(ctx, "Sen", "You")).build()
     val stil = NotificationCompat.MessagingStyle(ben)
     // DM: the sender is the room name. Group: show the room as the conversation title.
     // DM: gönderen oda adıdır. Grup: odayı konuşma başlığı olarak göster.
@@ -215,12 +215,12 @@ object Bildirimci {
       stil.addMessage(NotificationCompat.MessagingStyle.Message(m.metin, m.zaman, kisi))
     }
     val son = liste.last()
-    val yanit = NotificationCompat.Action.Builder(R.drawable.ic_bildirim, "Yanıtla", eylemNiyeti(ctx, EYLEM_YANIT, odaId, son.olayId, true))
-      .addRemoteInput(RemoteInput.Builder(YANIT_ANAHTARI).setLabel("Yanıtla").build())
+    val yanit = NotificationCompat.Action.Builder(R.drawable.ic_bildirim, Dil.sec(ctx, "Yanıtla", "Reply"), eylemNiyeti(ctx, EYLEM_YANIT, odaId, son.olayId, true))
+      .addRemoteInput(RemoteInput.Builder(YANIT_ANAHTARI).setLabel(Dil.sec(ctx, "Yanıtla", "Reply")).build())
       .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
       .setShowsUserInterface(false)
       .build()
-    val okundu = NotificationCompat.Action.Builder(R.drawable.ic_bildirim, "Okundu", eylemNiyeti(ctx, EYLEM_OKUNDU, odaId, son.olayId, false))
+    val okundu = NotificationCompat.Action.Builder(R.drawable.ic_bildirim, Dil.sec(ctx, "Okundu", "Mark as read"), eylemNiyeti(ctx, EYLEM_OKUNDU, odaId, son.olayId, false))
       .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ)
       .setShowsUserInterface(false)
       .build()
@@ -249,7 +249,7 @@ object Bildirimci {
       .setSmallIcon(R.drawable.ic_bildirim)
       .setColor(VURGU)
       .setContentTitle(arayan)
-      .setContentText("Gelen sesli arama")
+      .setContentText(Dil.sec(ctx, "Gelen sesli arama", "Incoming voice call"))
       .setCategory(NotificationCompat.CATEGORY_CALL)
       .setPriority(NotificationCompat.PRIORITY_MAX)
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

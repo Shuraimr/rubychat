@@ -11,7 +11,7 @@
 //! İki kipte de oda listesi, kayda değer bir şey değiştikçe istemcinin oda deposundan yeniden kurulur
 //! (iki kip için aynı ve basit; ağır işi SDK'nın deposu yapar).
 
-use std::{sync::Arc, time::Duration};
+use std::{sync::{Arc, Mutex}, time::Duration};
 
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, Client};
@@ -29,8 +29,18 @@ use crate::{
 pub const OLAY_ODALAR: &str = "odalar-guncellendi";
 pub const OLAY_DURUM: &str = "esitleme-durumu";
 
+/// The last state we announced: the UI asks for it once, because the event can fire before it subscribes.
+/// Duyurduğumuz son durum: olay arayüz abone olmadan önce gelebilir, bu yüzden arayüz bir kez de sorar.
+static SON_DURUM: Mutex<Option<EsitlemeDurumu>> = Mutex::new(None);
+
+pub fn son_durum() -> Option<EsitlemeDurumu> {
+    SON_DURUM.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 fn durum_yayinla(app: &AppHandle, durum: EsitlemeDurumuAdi, mesaj: Option<String>) {
-    let _ = app.emit(OLAY_DURUM, EsitlemeDurumu { durum, mesaj });
+    let d = EsitlemeDurumu { durum, mesaj };
+    *SON_DURUM.lock().unwrap_or_else(|e| e.into_inner()) = Some(d.clone());
+    let _ = app.emit(OLAY_DURUM, d);
 }
 
 pub async fn odalari_yayinla(app: &AppHandle, client: &Client) {
@@ -64,17 +74,29 @@ pub async fn baslat(app: AppHandle, client: Client) -> Sonuc<(Option<Arc<SyncSer
         // `with_offline_mode`: when the network drops, the service goes `Offline` and retries by itself.
         // `with_offline_mode`: ağ kopunca servis `Offline` olur ve kendiliğinden yeniden dener.
         let servis = Arc::new(SyncService::builder(client.clone()).with_offline_mode().build().await?);
-        servis.start().await;
+        // Subscribe BEFORE starting and handle the current value too: `next()` only yields later changes, so a quick `Running` was missed
+        // and the UI said "connecting" forever.
+        // Başlatmadan ÖNCE abone ol ve şimdiki değeri de işle: `next()` yalnızca sonraki değişimleri verir; hızlı gelen `Running` kaçıyor,
+        // arayüz sonsuza dek "bağlanıyor" diyordu.
         let mut durumlar = servis.state();
-        let app2 = app.clone();
+        servis.start().await;
+        let (app2, servis2) = (app.clone(), servis.clone());
         gorevler.push(tokio::spawn(async move {
-            while let Some(d) = durumlar.next().await {
+            let mut sonraki = Some(durumlar.get());
+            while let Some(d) = sonraki {
+                let dustu = matches!(d, State::Error(_) | State::Terminated);
                 match d {
                     State::Idle => durum_yayinla(&app2, EsitlemeDurumuAdi::Basliyor, None),
                     State::Running => durum_yayinla(&app2, EsitlemeDurumuAdi::Calisiyor, None),
                     State::Offline | State::Terminated => durum_yayinla(&app2, EsitlemeDurumuAdi::Cevrimdisi, None),
                     State::Error(e) => durum_yayinla(&app2, EsitlemeDurumuAdi::Hata, Some(e.to_string())),
                 }
+                // A stopped service never comes back by itself. · Duran servis kendiliğinden geri gelmez.
+                if dustu {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    servis2.start().await;
+                }
+                sonraki = durumlar.next().await;
             }
         }));
         Some(servis)

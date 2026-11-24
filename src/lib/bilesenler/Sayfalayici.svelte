@@ -33,6 +33,15 @@
     }
   });
 
+  // The remaining pages are built quietly, so the first swipe to them is only movement. · Kalan sayfalar sessizce kurulur; oraya ilk kaydırma yalnızca harekettir.
+  $effect(() => {
+    const l = sayfalar;
+    const z = setTimeout(() => {
+      for (const id of l.slice(0, 4)) if (!untrack(() => cizilen[id])) cizilen[id] = true;
+    }, 1200);
+    return () => clearTimeout(z);
+  });
+
   function git(yumusak: boolean) {
     const i = sayfalar.indexOf(secili);
     if (!el || i < 0 || !el.clientWidth) return;

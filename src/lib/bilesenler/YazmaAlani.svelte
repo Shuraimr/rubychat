@@ -12,7 +12,8 @@
   sayfası odanın özel emojilerini ve çıkartmalarını sunar, biri yazarken kutunun üstünde "X yazıyor…" görünür (kendi yazdığım da, seyreltilerek, bildirilir).
 -->
 <script lang="ts">
-  import { onDestroy, tick, untrack } from "svelte";
+  import { titret } from "../dokunma";
+  import { onDestroy, untrack } from "svelte";
   import { cikartmaGonder as cikartmaYolla, mesajDuzenle, yaziyorBildir } from "../api/komutlar";
   import type { PaketGorseli, ZamanOgesi } from "../api/tipler";
   import { markdownCevir } from "../bicim/markdown";
@@ -26,9 +27,8 @@
   import { hataBildir } from "../mesaj/eylemler";
   import { t } from "../i18n";
   import AnketOlustur from "./AnketOlustur.svelte";
-  import EkSayfasi, { type EkKaynagi } from "./EkSayfasi.svelte";
   import EmojiPaneli from "./EmojiPaneli.svelte";
-  import Ikon from "./Ikon.svelte";
+  import Ikon, { type IkonAdi } from "./Ikon.svelte";
   import YanitOnizleme from "./YanitOnizleme.svelte";
 
   let {
@@ -55,14 +55,12 @@
   } = $props();
 
   // The component is re-created per room ({#key}), so reading the room id once is intended. · Bileşen her odada yeniden kurulur ({#key}); oda kimliğini bir kez okumak bilerek yapılır.
+  type EkKaynagi = "galeri" | "kamera" | "dosya" | "anket";
   let deger = $state(untrack(() => odalar.taslaklar[odaId]) ?? "");
   let kutu: HTMLTextAreaElement | undefined = $state();
-  let odakta = $state(false);
   let ekAcik = $state(false);
-  let medyaKaynak = $state<Exclude<EkKaynagi, "anket" | "gifyap"> | null>(null);
+  let medyaKaynak = $state<Exclude<EkKaynagi, "anket"> | null>(null);
   let anketAcik = $state(false);
-  /** "GIF yap" (video trimmed to 6 s, muted) · "GIF yap" (6 sn'ye kesilmiş sessiz video) */
-  let gifYap = $state(false);
   let medyaKatmani = 0;
   /** Custom emoji inserted from packs: shortcode → mxc:// (turned into <img> when the message is sent) · Paketlerden eklenen özel emojiler: kısa kod → mxc:// (mesaj yollanırken <img> olur) */
   let ozelEmoji: Record<string, string> = {};
@@ -74,7 +72,7 @@
   function boyutla() {
     if (!kutu) return;
     kutu.style.height = "auto";
-    kutu.style.height = `${Math.min(kutu.scrollHeight, Math.max(44, Math.min(6 * parseFloat(getComputedStyle(kutu).lineHeight) + 20, innerHeight * 0.3)))}px`;
+    kutu.style.height = `${Math.min(kutu.scrollHeight, Math.max(44, Math.min(6 * parseFloat(getComputedStyle(kutu).lineHeight) + 28, innerHeight * 0.3)))}px`;
   }
   $effect(() => {
     deger;
@@ -148,6 +146,7 @@
   function yolla() {
     const metin = deger.trim();
     if (!metin) return;
+    titret("dokunus");
     yaziyorDur();
     // Markdown → HTML body; `bicim.html` is null when nothing needs formatting. · Markdown → HTML gövde; biçimlenecek bir şey yoksa `bicim.html` null.
     const bicim = markdownCevir(metin, ozelEmoji);
@@ -178,83 +177,58 @@
     if (e.key === "Escape" && (yazma.yanit || yazma.duzenle)) yazma.iptal();
   }
 
-  // ---- Emoji panel: takes the keyboard's place UNDER the box, so the text stays visible while picking ----
-  // ---- Emoji paneli: klavyenin yerini kutunun ALTINDA alır; seçerken metin görünür kalır ----
+  // ---- Emoji card above the bar: the text and the keyboard stay where they are ----
+  // ---- Çubuğun üstünde emoji kartı: metin ve klavye yerinde kalır ----
   let emojiAcik = $state(false);
-  let emojiAramada = $state(false);
   let panelKatmani = 0;
-  let cubuk: HTMLDivElement | undefined = $state();
-  let panel: HTMLDivElement | undefined = $state();
   /** Built on the first opening and kept: later openings only show it · İlk açılışta kurulur ve tutulur: sonraki açılışlar yalnızca gösterir */
   let panelKuruldu = $state(false);
-  let kapaniyor = $state(false);
-  let kapanisSirasi = 0;
 
-  async function panelAc() {
-    if (emojiAcik) return klavyeyeDon();
-    const klavyeVardi = parseFloat(document.documentElement.style.getPropertyValue("--klavye-simdi")) > 0;
-    kapanisSirasi++;
-    kapaniyor = false;
+  // Built quietly once the room has settled, so the first opening is only a movement and not a construction. · Oda oturunca sessizce kurulur; ilk açılış yalnızca hareket olur, kurulum değil.
+  $effect(() => {
+    const z = setTimeout(() => (panelKuruldu = true), 1500);
+    return () => clearTimeout(z);
+  });
+
+  // Neither the bar nor the keyboard moves: the card only appears above them. · Ne çubuk ne klavye oynar: kart yalnızca üstlerinde belirir.
+  function panelAc() {
+    if (emojiAcik) return panelKapat();
+    ekKapat();
+    // Little room above the keyboard: let it go, or the card would be a slit. · Klavyenin üstünde yer az: klavye kapansın, yoksa kart ince bir şerit olurdu.
+    if ((window.visualViewport?.height ?? innerHeight) < 460) kutu?.blur();
     panelKuruldu = true;
     emojiAcik = true;
-    emojiAramada = false;
     panelKatmani = gezinme.katmanAc(() => {
       panelKatmani = 0;
-      panelCik();
       emojiAcik = false;
-      emojiAramada = false;
     });
-    // Re-focus with inputmode="none": the keyboard leaves, the caret stays. · inputmode="none" ile yeniden odakla: klavye gider, imleç kalır.
-    const imlec: [number, number] = [kutu?.selectionStart ?? deger.length, kutu?.selectionEnd ?? deger.length];
-    kutu?.blur();
-    await tick();
-    kutu?.focus({ preventScroll: true });
-    kutu?.setSelectionRange(...imlec);
-    // With the keyboard open the panel simply takes its place; otherwise bar + panel slide up as one piece (transform only).
-    // Klavye açıksa panel onun yerini alır; değilse çubuk + panel tek parça yukarı kayar (yalnızca transform).
-    const stil = getComputedStyle(document.documentElement);
-    const sure = parseFloat(stil.getPropertyValue("--sure-orta")) || 0;
-    // Re-opened while still closing: undo the closing position. · Kapanırken yeniden açıldı: kapanış konumunu geri al.
-    panel?.removeAttribute("style");
-    if (klavyeVardi || sure === 0 || !panel || !cubuk) return;
-    const y = `translateY(${panel.offsetHeight}px)`;
-    cubuk.animate([{ transform: y }, { transform: "none" }], { duration: sure * 1.2, easing: stil.getPropertyValue("--egri-cikis") });
-    if (altta) cubuk.parentElement?.querySelector(".zaman-sarmal")?.animate([{ transform: y }, { transform: "none" }], { duration: sure * 1.2, easing: stil.getPropertyValue("--egri-cikis") });
   }
-  /** The bar + panel go down together; the keyboard takes over without motion. · Çubuk + panel birlikte iner; klavye devralırken hareket yok. */
-  function panelCik() {
-    if (!panel || !cubuk) return;
-    const stil = getComputedStyle(document.documentElement);
-    const sure = klavyeGeliyor ? 0 : parseFloat(stil.getPropertyValue("--sure-orta")) || 0;
-    const h = panel.offsetHeight;
-    if (sure === 0 || h === 0) return;
-    kapaniyor = true;
-    const sira = ++kapanisSirasi;
-    // Out of the flow at once (the timeline gets its final size), then only transforms move. · Hemen akıştan çıkar (çizelge son boyunu alır), sonra yalnızca transform oynar.
-    Object.assign(panel.style, { position: "absolute", left: "0", right: "0", top: "100%", height: `${h}px` });
-    const a: [Keyframe[], KeyframeAnimationOptions] = [[{ transform: `translateY(${-h}px)` }, { transform: "none" }], { duration: sure, easing: stil.getPropertyValue("--egri-cikis") }];
-    const bitti = () => {
-      if (sira !== kapanisSirasi) return;
-      kapaniyor = false;
-      panel?.removeAttribute("style");
-    };
-    const oynat = cubuk.animate(...a);
-    oynat.onfinish = bitti;
-    oynat.oncancel = bitti;
-    if (altta) cubuk.parentElement?.querySelector(".zaman-sarmal")?.animate(...a);
-  }
-  let klavyeGeliyor = false;
   function panelKapat() {
-    klavyeGeliyor = false;
     if (panelKatmani) gezinme.katmanKapat(panelKatmani);
   }
-  async function klavyeyeDon() {
-    klavyeGeliyor = true;
-    if (panelKatmani) gezinme.katmanKapat(panelKatmani);
-    kutu?.blur();
-    await tick();
-    kutu?.focus({ preventScroll: true });
+  // ---- Attach menu: the same kind of card above "+" ---- · ---- Ek menüsü: "+" üstünde aynı tür kart ----
+  let ekKatmani = 0;
+  const ekler: { id: EkKaynagi; ikon: IkonAdi; renk: string }[] = [
+    { id: "galeri", ikon: "galeri", renk: "var(--tas-ametist)" },
+    { id: "kamera", ikon: "kamera", renk: "var(--tas-safir)" },
+    { id: "dosya", ikon: "dosya", renk: "var(--tas-zumrut)" },
+    { id: "anket", ikon: "anket", renk: "var(--tas-kehribar)" },
+  ];
+  function ekAc() {
+    if (ekAcik) return ekKapat();
+    panelKapat();
+    ekAcik = true;
+    ekKatmani = gezinme.katmanAc(() => {
+      ekKatmani = 0;
+      ekAcik = false;
+    });
   }
+  function ekKapat() {
+    if (ekKatmani) gezinme.katmanKapat(ekKatmani);
+  }
+  onDestroy(() => {
+    if (ekKatmani) gezinme.katmanBirak(ekKatmani);
+  });
   onDestroy(() => {
     if (panelKatmani) gezinme.katmanBirak(panelKatmani);
   });
@@ -322,23 +296,17 @@
   // The media flow registers its OWN back-button layer (medya/katman.ts → gezinme stack); registering here too would need two presses.
   // Medya akışı KENDİ geri tuşu katmanını kaydeder (medya/katman.ts → gezinme yığını); burada da kaydetmek iki basış gerektirirdi.
   function medyaAc(k: EkKaynagi) {
-    ekAcik = false;
+    ekKapat();
     // The poll sheet is not part of the media flow. · Anket sayfası medya akışının parçası değil.
     if (k === "anket") anketAcik = true;
-    else if (k === "gifyap") {
-      gifYap = true;
-      medyaKaynak = "galeri";
-    } else {
-      gifYap = false;
-      medyaKaynak = k;
-    }
+    else medyaKaynak = k;
   }
   function medyaKapat() {
     medyaKaynak = null;
   }
 </script>
 
-<div class="yazma" class:panelli={emojiAcik} data-alt-cubuk bind:this={cubuk} bind:clientHeight={yukseklik}>
+<div class="yazma" data-alt-cubuk bind:clientHeight={yukseklik}>
   <!-- "X is typing" now lives in the room header (design D) · "X yazıyor" artık oda başlığında (tasarım D) -->
   {#if yazma.duzenle}
     <YanitOnizleme tur="duzenle" metin={yazma.duzenle.metin ?? ""} iptal={() => yazma.iptal()} />
@@ -348,7 +316,9 @@
   {#if cevrimdisi}
     <div class="cevrimdisi" role="status"><Ikon ad="saat" boyut={14} />{t("yazma.cevrimdisi")}</div>
   {/if}
-  {#if !altta}
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  {#if emojiAcik || ekAcik}<div class="disari" onmousedown={(e) => e.preventDefault()} onclick={() => { panelKapat(); ekKapat(); }}></div>{/if}
+  {#if !altta && !emojiAcik && !ekAcik}
     <!-- Counted as a bottom bar, so toasts stay above it. mousedown is cancelled: the focus (and the keyboard) stays. · Alt çubuk sayılır, bildirimler üstünde durur. mousedown iptal: odak (ve klavye) kalır. -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="inis" data-alt-cubuk onmousedown={(e) => e.preventDefault()}>
@@ -356,40 +326,41 @@
     </div>
   {/if}
   <div class="satir">
-    <!-- Pill: emoji / keyboard · text · attach · send. The round ends and the 44px buttons share a centre; send grows in from the right end when there is text. -->
-    <!-- Hap: emoji / klavye · metin · ek · gönder. Yuvarlak uçlarla 44px düğmelerin merkezi ortaktır; yazı varken gönder sağ uçtan büyüyerek gelir. -->
-    <div class="kutu kristal" class:odakta>
-      <button class="uc" class:acik={emojiAcik} type="button" aria-pressed={emojiAcik} aria-label={emojiAcik ? t("emoji.klavye") : t("emoji.baslik")} onmousedown={(e) => e.preventDefault()} onclick={panelAc}><Ikon ad={emojiAcik ? "klavye" : "emoji"} boyut={24} /></button>
+    <!-- Material You: tonal "+" · text pill with the emoji key at the thumb's side · send, which grows in when there is text. All 52px, bottom aligned. -->
+    <!-- Material You: tonlu "+" · başparmak tarafında emoji tuşlu metin hapı · yazı varken büyüyerek gelen gönder. Hepsi 52px, alta hizalı. -->
+    <button class="yan" class:acik={ekAcik} type="button" aria-expanded={ekAcik} aria-label={t("oda.ekle")} onmousedown={(e) => e.preventDefault()} onclick={() => { titret("tik"); ekAc(); }}><Ikon ad="artik" boyut={26} /></button>
+    <div class="kutu">
       <textarea
         bind:this={kutu}
         bind:value={deger}
         oninput={degisti}
         onkeydown={tus}
-        onpointerdown={() => { if (emojiAcik) void klavyeyeDon(); }}
-        onfocus={() => (odakta = true)}
-        onblur={() => (odakta = false)}
+        onpointerdown={() => { panelKapat(); ekKapat(); }}
         rows="1"
-        inputmode={emojiAcik ? "none" : undefined}
         placeholder={t("oda.yazi")}
         aria-label={sifreli ? t("oda.yaziSifreli") : t("oda.yazi")}
       ></textarea>
-      <button class="uc" type="button" aria-label={t("oda.ekle")} onclick={() => { panelKapat(); ekAcik = true; }}><Ikon ad="atac" boyut={24} /></button>
-      <span class="gonder-yer" class:acik={yazili}>
-        <button class="gonder" type="button" aria-label={t("oda.gonder")} disabled={!yazili} tabindex={yazili ? 0 : -1} onmousedown={(e) => e.preventDefault()} onclick={yolla}><Ikon ad={yazma.duzenle ? "onay" : "gonder"} boyut={22} /></button>
-      </span>
+      <button class="uc" class:acik={emojiAcik} type="button" aria-pressed={emojiAcik} aria-label={t("emoji.baslik")} onmousedown={(e) => e.preventDefault()} onclick={() => { titret("tik"); panelAc(); }}><Ikon ad="emoji" boyut={26} /></button>
     </div>
+    <span class="gonder-yer" class:acik={yazili}>
+      <button class="gonder" type="button" aria-label={t("oda.gonder")} disabled={!yazili} tabindex={yazili ? 0 : -1} onmousedown={(e) => e.preventDefault()} onclick={yolla}><Ikon ad={yazma.duzenle ? "onay" : "gonder"} boyut={24} /></button>
+    </span>
+  </div>
+  <div class="ek acilir" class:acik={ekAcik} inert={!ekAcik} role="menu" aria-label={t("ek.baslik")}>
+    {#each ekler as e (e.id)}
+      <button class="ek-satir" role="menuitem" data-dalga style:--r={e.renk} onmousedown={(o) => o.preventDefault()} onclick={() => medyaAc(e.id)}><span class="ek-simge"><Ikon ad={e.ikon} boyut={22} /></span><span class="ek-metin"><strong>{t(`ek.${e.id}`)}</strong><small>{t(`ek.${e.id}Alt`)}</small></span></button>
+    {/each}
   </div>
   {#if panelKuruldu}
-    <div class="emoji-panel" class:gizli={!emojiAcik && !kapaniyor} class:aramada={emojiAramada} bind:this={panel}>
-      <EmojiPaneli acik={emojiAcik} ekle={emojiEkle} sil={geriSil} aramada={(a) => (emojiAramada = a)} odakGeri={() => kutu?.focus({ preventScroll: true })} {odaId} ozelEkle={ozelEmojiEkle} {cikartmaGonder} {gifGonder} />
+    <div class="emoji acilir" class:acik={emojiAcik} inert={!emojiAcik}>
+      <EmojiPaneli acik={emojiAcik} ekle={emojiEkle} sil={geriSil} odakGeri={() => kutu?.focus({ preventScroll: true })} {odaId} ozelEkle={ozelEmojiEkle} {cikartmaGonder} {gifGonder} />
     </div>
   {/if}
 </div>
 
-{#if ekAcik}<EkSayfasi sec={medyaAc} onkapat={() => (ekAcik = false)} />{/if}
 {#if anketAcik}<AnketOlustur {odaId} onkapat={() => (anketAcik = false)} />{/if}
 {#if medyaKaynak}
-  <div class="medya-kap"><MedyaAkisi {odaId} kaynak={medyaKaynak} gif={gifYap} onkapat={medyaKapat} /></div>
+  <div class="medya-kap"><MedyaAkisi {odaId} kaynak={medyaKaynak} onkapat={medyaKapat} /></div>
 {/if}
 
 <style>
@@ -400,40 +371,46 @@
   .yazma > .satir, .yazma > .inis { pointer-events: none; }
   /* Messages fade out under the pill instead of being cut by a line · Mesajlar çizgiyle kesilmek yerine hapın altında solar */
   .yazma::before { content: ""; position: absolute; z-index: -1; inset: -16px 0 0; background: linear-gradient(transparent, var(--sohbet-zemin, var(--zemin)) 60%); pointer-events: none; }
-  .panelli::before { display: none; }
-  .yazma.panelli { padding-bottom: 0; }
   .cevrimdisi { display: flex; align-items: center; gap: 6px; min-height: 1.75rem; padding: .25rem 1rem 0; font-size: .75rem; font-weight: 500; color: var(--bekliyor); }
-  .satir { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px; }
-  .panelli { background: var(--yuzey-1); border-top: 1px solid var(--kenar-ince); border-radius: 24px 24px 0 0; box-shadow: var(--kat-2); }
-  .panelli .satir { padding-bottom: 4px; }
-  /* 56px pill, 28px radius: a 44px button inset by 6px is concentric with the round end. · 56px hap, 28px yarıçap: 6px içeride duran 44px düğme yuvarlak uçla eşmerkezlidir. */
-  .kutu { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 4px; padding: 5px; border-radius: 28px; min-height: 56px; pointer-events: auto; transition: border-color var(--sure-hizli) var(--egri-cikis); }
-  .kutu.odakta { border-color: var(--vurgu); }
+  .satir { display: flex; align-items: flex-end; gap: .5rem; padding: .5rem .75rem; }
+  .yan, .gonder { pointer-events: auto; flex: none; width: min(3.25rem, 54px); height: min(3.25rem, 54px); border-radius: 1.625rem; display: inline-flex; align-items: center; justify-content: center; }
+  .yan { background: var(--ton); color: var(--ton-ustu); }
+  /* Opaque tonal surface, no border: the shape itself is the field. · Opak tonlu yüzey, kenarlık yok: biçimin kendisi alandır. */
+  .kutu { pointer-events: auto; flex: 1; min-width: 0; min-height: min(3.25rem, 54px); display: flex; align-items: flex-end; border-radius: 1.625rem; background: var(--yuzey-3); transition: border-radius var(--sure-orta) var(--egri-cikis); }
   textarea {
     flex: 1; min-width: 0; min-height: 44px; resize: none; background: none; border: 0; outline: none;
-    scrollbar-width: none; padding: 10px 0; line-height: 1.5rem; font-size: 1rem; color: var(--yazi);
+    scrollbar-width: none; padding: .875rem 0 .875rem min(1.25rem, 18px); line-height: 1.5rem; font-size: 1rem; color: var(--yazi);
   }
   textarea::placeholder { color: var(--yazi-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .uc { flex: none; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; color: var(--yazi-2); transition: background var(--sure-hizli) var(--egri-cikis), color var(--sure-hizli) var(--egri-cikis); }
-  .uc:active { background: var(--yuzey-3); }
-  .uc.acik { background: var(--ton); color: var(--ton-ustu); }
-  /* Send: a plain accent disc; its place opens from 0 to 48px while the glyph scales in · Gönder: düz vurgu dairesi; yeri 0'dan 48px'e açılırken simge büyür */
-  .gonder-yer { flex: none; width: 0; margin-left: -4px; height: 44px; display: flex; justify-content: flex-end; overflow: hidden; border-radius: 22px; transition: width var(--sure-orta) var(--egri-cikis), margin var(--sure-orta) var(--egri-cikis); }
-  .gonder-yer.acik { width: 44px; margin-left: 0; }
-  .gonder { flex: none; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--vurgu); color: var(--vurgu-ustu); transform: scale(.3); opacity: 0; transition: transform var(--sure-orta) var(--egri-yay-sakin, var(--egri-cikis)), opacity var(--sure-hizli) var(--egri-cikis); }
+  .uc { flex: none; width: min(3rem, 48px); height: min(3.25rem, 54px); border-radius: 1.5rem; display: inline-flex; align-items: center; justify-content: center; color: var(--yazi-2); transition: color var(--sure-orta) var(--egri-cikis); }
+  .uc.acik { color: var(--vurgu); }
+  /* Send: its place opens from 0 while the button scales in; squarer than the rest so it reads as the main action. · Gönder: yeri 0'dan açılırken düğme büyür; ana eylem olduğu için ötekilerden daha köşeli. */
+  .gonder-yer { pointer-events: auto; flex: none; width: 0; margin-left: -.5rem; display: flex; justify-content: flex-end; overflow: hidden; border-radius: 1.125rem; transition: width var(--sure-orta) var(--egri-vurgulu), margin var(--sure-orta) var(--egri-vurgulu); }
+  .gonder-yer.acik { width: min(3.25rem, 54px); margin-left: 0; }
+  .gonder { border-radius: 1.125rem; background: var(--vurgu); color: var(--vurgu-ustu); transform: scale(.5); opacity: 0; transition: transform var(--sure-orta) var(--egri-vurgulu), opacity var(--sure-hizli) var(--egri-cikis); }
   .acik > .gonder { transform: none; opacity: 1; }
   /* Outside the flow: the bar (and the timeline padding measured from it) keeps its height · Akışın dışında: çubuğun (ve ondan ölçülen boşluğun) boyu değişmez */
   .inis { position: absolute; right: 14px; bottom: 100%; height: 48px; }
-  .in { position: relative; pointer-events: auto; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--yuzey-2); color: var(--yazi); border: 1px solid var(--kenar-ince); box-shadow: var(--kat-2); animation: in-gel var(--sure-orta) var(--egri-cikis) backwards; }
+  .in { position: relative; pointer-events: auto; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--yuzey-2); color: var(--yazi); box-shadow: var(--kat-2); animation: in-gel var(--sure-orta) var(--egri-cikis) backwards; }
   .in.var { color: var(--vurgu); }
   @keyframes in-gel { from { transform: translateY(12px) scale(.7); opacity: 0; } }
   .sayi { position: absolute; top: -6px; right: -4px; border: 2px solid var(--zemin); }
-  /* Same height as the keyboard it replaces; while the keyboard is still moving the two always add up to one height, so the box does not jump. */
-  /* Yerini aldığı klavye kadar; klavye hâlâ hareket ederken ikisinin toplamı hep aynıdır, kutu zıplamaz. */
-  .emoji-panel { box-sizing: border-box; display: flex; flex-direction: column; background: var(--yuzey-1); padding-bottom: max(0px, calc(env(safe-area-inset-bottom) - var(--klavye-simdi, 0px))); height: max(0px, calc(min(max(var(--klavye-son, 320px), 300px), 52vh + var(--klavye-simdi, 0px)) - var(--klavye-simdi, 0px))); overflow: hidden; }
-  .emoji-panel.gizli { display: none; }
-  /* Searching: as tall as the space above the keyboard allows, keeping the header and a message in sight. · Ararken: klavyenin üstündeki yer kadar; başlık ve bir mesaj görünür kalır. */
-  .emoji-panel.aramada { height: clamp(11rem, calc(var(--gorunen-yukseklik, 100vh) - 17rem), 18rem); }
+  /* Popover cards above the bar; each grows from its own button. · Çubuğun üstündeki açılır kartlar; her biri kendi düğmesinden büyür. */
+  /* Everything between the room header and the bar, never more: the card must not slide under the header. · Oda başlığıyla çubuk arası, fazlası değil: kart başlığın altına girmemeli. */
+  .ek, .emoji { --kart-yer: calc(var(--gorunen-yukseklik, 100vh) - var(--tepe-yer, 88px) - var(--yazma-yer, 72px) - 12px); position: absolute; z-index: 4; bottom: 100%; box-sizing: border-box; }
+  .ek { left: .75rem; width: max-content; min-width: 15.5rem; max-width: calc(100% - 1.5rem); max-height: var(--kart-yer); overflow-y: auto; padding: 8px; border-radius: 1.75rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; transform-origin: 1.6rem 100%; }
+  .emoji { right: .75rem; width: min(26rem, calc(100% - 1.5rem)); height: min(22rem, var(--kart-yer)); border-radius: 1.75rem; display: flex; flex-direction: column; overflow: hidden; transform-origin: calc(100% - 2rem) 100%; }
+  .ek-satir { position: relative; overflow: hidden; min-height: 3.75rem; padding: .5rem 1rem .5rem .625rem; display: flex; align-items: center; gap: .875rem; text-align: left; border-radius: .375rem; background: var(--yuzey-2); transition: background var(--sure-hizli) linear; }
+  .ek-satir:first-child { border-top-left-radius: 1.25rem; border-top-right-radius: 1.25rem; }
+  .ek-satir:last-child { border-bottom-left-radius: 1.25rem; border-bottom-right-radius: 1.25rem; }
+  .ek-simge { flex: none; width: 2.75rem; height: 2.75rem; border-radius: 1rem; display: inline-flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--r) 22%, transparent); color: var(--r); }
+  .ek-metin { min-width: 0; display: grid; }
+  .ek-metin strong { font-size: 1rem; font-weight: 500; line-height: 1.3; }
+  .ek-metin small { font-size: .8125rem; line-height: 1.35; color: var(--yazi-2); }
+  /* Outside tap closes; messages stay readable, nothing dims. · Dışa dokunma kapatır; mesajlar okunur kalır, hiçbir şey kararmaz. */
+  .disari { position: fixed; inset: 0; z-index: -1; }
+  .yan :global(svg) { transition: transform var(--sure-orta) var(--egri-ac); }
+  .yan.acik :global(svg) { transform: rotate(45deg); }
   /* Full-screen media flow sits above everything in the room (toasts are higher) · Tam ekran medya akışı odadaki her şeyin üstünde durur */
   .medya-kap { position: fixed; inset: 0; z-index: 35; background: var(--zemin); }
 </style>

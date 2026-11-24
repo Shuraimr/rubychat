@@ -121,6 +121,25 @@ pub async fn odalari_al(durum: State<'_, AppState>) -> Sonuc<Vec<OdaOzeti>> {
     Ok(odalar::liste(&client).await)
 }
 
+/// Last announced sync state (see `esitleme::son_durum`). · Duyurulan son eşitleme durumu.
+#[tauri::command]
+pub fn esitleme_durumu() -> Option<crate::tipler::EsitlemeDurumu> {
+    esitleme::son_durum()
+}
+
+/// Pin / unpin a room: the Matrix `m.favourite` tag, so it follows the account to other clients.
+/// Odayı sabitle / kaldır: Matrix `m.favourite` etiketi; hesapla birlikte öbür istemcilere de gider.
+#[tauri::command]
+pub async fn oda_sabitle(app: AppHandle, durum: State<'_, AppState>, oda_id: String, sabit: bool) -> Sonuc<()> {
+    let client = durum.client().await?;
+    let id = matrix_sdk::ruma::RoomId::parse(&oda_id)?;
+    if let Some(oda) = client.get_room(&id) {
+        oda.set_is_favourite(sabit, None).await?;
+    }
+    esitleme::odalari_yayinla(&app, &client).await;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn odayi_ac(app: AppHandle, durum: State<'_, AppState>, oda_id: String) -> Sonuc<OdaBilgisi> {
     let client = durum.client().await?;
