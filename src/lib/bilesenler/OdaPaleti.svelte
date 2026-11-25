@@ -6,7 +6,6 @@
   import { onDestroy, onMount, tick } from "svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { odalar } from "../durum/odalar.svelte";
-  import { tercihler } from "../durum/tercihler.svelte";
   import { menuGir, perdeGir } from "../gecis";
   import { t } from "../i18n";
   import { klavye } from "../klavyeKisayol.svelte";
@@ -65,8 +64,7 @@
   async function git(id: string) {
     gezinme.katmanKapat(katman);
     gezinme.odaAc(id);
-    if (tercihler.d.vim) return;
-    // Without vim keys the next thing is writing. · Vim tuşları yoksa sıradaki iş yazmaktır.
+    // Focus the composer right away so typing (and modeless Ctrl shortcuts) work at once. · Yazma alanını hemen odakla; yazma (ve kipsiz Ctrl kısayolları) anında çalışsın.
     await tick();
     setTimeout(() => document.querySelector<HTMLElement>(".yazma textarea")?.focus(), 50);
   }

@@ -1,0 +1,1281 @@
+// Copyright 2026 Element Creations Ltd.
+//
+// SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+// Please see LICENSE in the repository root for full details.
+
+//! The host-facing objects: an [`RtcClient`] per backend, an [`RtcRoom`] per
+//! room the host opens, and an [`RtcSession`] — or, for a call slot, an
+//! [`RtcCall`] — per slot it joins.
+//!
+//! Opening a room, its feeds and the to-device routing are the core's
+//! [`BaseRtcClient`], over this crate's room state and read in the room's
+//! [`MembershipFormat`]. Everything room-scoped is on the room, everything
+//! about our own participation on the session. The library runs its own
+//! background work on the core's [`executor`](matrix_rtc_core::executor): a
+//! room's feeds while the room object lives; the core's upkeep (keep-alive,
+//! key rotations) and, for a call, the raised hand following our membership
+//! event and a DM call's ring and lifecycle while the session does. Off wasm32
+//! that is the current tokio runtime, so a native host opens rooms and joins
+//! from within one.
+
+use std::collections::HashMap;
+use std::ops::Deref;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex, MutexGuard};
+use std::time::Duration;
+
+use matrix_rtc_core::{
+    ApplicationInfo, BackendError, BaseRtcClient, BaseRtcRoom, BaseRtcRoomHandle, CommandError,
+    EncryptionConfig, EncryptionKeySignalHandler, JoinError, JoinSessionParams, JoinedMembership,
+    LeaveCode, LeaveError, LeaveReason, LeaveSessionParams, MatrixBackend, OpenError, Outbox,
+    ROOM_APPLICATION_SLOT_ID, RtcIdentityMapper, SignallingHealth, SlotEncryption, SlotState,
+    TransportIntent,
+    executor::{self, AbortHandle, AbortOnDrop, JoinHandleExt},
+};
+use tokio::sync::{Mutex, broadcast, watch};
+
+use crate::direct_call::{CallKind, DirectCall, DirectCallEnd, DirectCallState};
+use crate::intent::{CallIntent, CallIntentConsensus};
+use crate::reactions::{
+    HandRequests, RaisedHand, ReactionError, ReactionsConfig, ReceivedReaction,
+};
+use crate::room_state::{CallJoinParams, CallRoomState, HandNext};
+use crate::status::{CallStatus, CallStatusCell, MediaStatusReporter};
+use crate::transports::{self, JoinTransport};
+use matrix_rtc_core::RoomOptions;
+use matrix_rtc_core::compat::{DialectBackend, MembershipFormat};
+use matrix_rtc_core::feeder::RoomAlreadyOpen;
+use matrix_rtc_core::outbox::{BACKOFF_INITIAL, BACKOFF_MAX};
+
+type Backend<B> = DialectBackend<B>;
+
+/// How long [`RtcRoom::join`] and [`RtcRoom::join_call`] may take, from the
+/// call to our membership being published (034 R6).
+pub const JOIN_BUDGET: Duration = Duration::from_millis(matrix_rtc_core::DEFAULT_JOIN_BUDGET_MS);
+type State<B> = CallRoomState<Backend<B>>;
+type SharedState<B> = Arc<Mutex<State<B>>>;
+
+/// Why a client, room or session call failed.
+#[derive(Debug, thiserror::Error)]
+pub enum RtcError {
+    /// R5: the room already has a live room object.
+    #[error(transparent)]
+    RoomAlreadyOpen(#[from] RoomAlreadyOpen),
+    #[error("backend: {0}")]
+    Backend(#[from] BackendError),
+    #[error(transparent)]
+    Join(#[from] JoinError),
+    #[error(transparent)]
+    Leave(#[from] LeaveError),
+    #[error(transparent)]
+    Command(#[from] CommandError),
+    #[error(transparent)]
+    Reaction(#[from] ReactionError),
+    /// R9: the session has left, or its room was closed; join again for a new
+    /// one.
+    #[error("this session is over; join again for a new one")]
+    SessionOver,
+    /// The join asked to notify nobody: no user named and not the room
+    /// (spec 038 R28).
+    #[error("the notification targets nobody: name users or the room")]
+    InviteTargetsNobody,
+}
+
+impl From<OpenError> for RtcError {
+    fn from(error: OpenError) -> Self {
+        match error {
+            OpenError::RoomAlreadyOpen(error) => Self::RoomAlreadyOpen(error),
+            OpenError::Backend(error) => Self::Backend(error),
+        }
+    }
+}
+
+/// A join into any application's slot.
+#[derive(Clone, Debug)]
+pub struct JoinOptions {
+    /// Must start with `{application_type}#` (MSC4143).
+    pub slot_id: String,
+    pub application: ApplicationInfo,
+    /// Defaults to [`JoinTransport::Advertised`].
+    pub transport: JoinTransport,
+    pub encryption_config: Option<EncryptionConfig>,
+    pub keep_alive_timeout_ms: Option<u64>,
+    /// How often the session restarts its delayed leave; `None` is
+    /// [`DEFAULT_KEEP_ALIVE_INTERVAL_MS`](matrix_rtc_core::DEFAULT_KEEP_ALIVE_INTERVAL_MS).
+    /// Clamped to half the keep-alive timeout, so one late tick does not end
+    /// the membership.
+    pub keep_alive_interval_ms: Option<u64>,
+    pub sticky_duration_ms: Option<u64>,
+    pub degraded_lifetime_ms: Option<u64>,
+}
+
+impl JoinOptions {
+    /// Joins `application`'s room-wide slot, `{application}#room`, with
+    /// everything else defaulted; each setter overrides one default.
+    pub fn application(application: impl Into<ApplicationInfo>) -> Self {
+        let application = application.into();
+        Self {
+            slot_id: matrix_rtc_core::slot_id_of(&application, ROOM_APPLICATION_SLOT_ID),
+            application,
+            transport: JoinTransport::Advertised,
+            encryption_config: None,
+            keep_alive_timeout_ms: None,
+            keep_alive_interval_ms: None,
+            sticky_duration_ms: None,
+            degraded_lifetime_ms: None,
+        }
+    }
+
+    /// Joins the application's slot `{application}#{application_slot_id}`.
+    pub fn slot(mut self, application_slot_id: impl AsRef<str>) -> Self {
+        self.slot_id = matrix_rtc_core::slot_id_of(&self.application, application_slot_id.as_ref());
+        self
+    }
+
+    pub fn transport(mut self, transport: impl Into<JoinTransport>) -> Self {
+        self.transport = transport.into();
+        self
+    }
+
+    pub fn encryption_config(mut self, config: EncryptionConfig) -> Self {
+        self.encryption_config = Some(config);
+        self
+    }
+
+    pub fn keep_alive_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.keep_alive_timeout_ms = Some(timeout_ms);
+        self
+    }
+
+    pub fn keep_alive_interval_ms(mut self, interval_ms: u64) -> Self {
+        self.keep_alive_interval_ms = Some(interval_ms);
+        self
+    }
+
+    pub fn sticky_duration_ms(mut self, duration_ms: u64) -> Self {
+        self.sticky_duration_ms = Some(duration_ms);
+        self
+    }
+
+    pub fn degraded_lifetime_ms(mut self, lifetime_ms: u64) -> Self {
+        self.degraded_lifetime_ms = Some(lifetime_ms);
+        self
+    }
+}
+
+/// A join into a call slot: the generic join plus what a call adds.
+#[derive(Clone, Debug)]
+pub struct CallJoinOptions {
+    pub join: JoinOptions,
+    /// A group call, or a DM call; only a DM call can ring. A notification or
+    /// a ring is suppressed when somebody else is already in the slot, so it
+    /// is the intent to summon, not a guarantee of one.
+    pub kind: CallKind,
+    /// `None` is [`ReactionsConfig::default`].
+    pub reactions: Option<ReactionsConfig>,
+    /// The user's explicit voice or video choice, from starting a call or
+    /// answering a ring that said which. It wins over a call in progress;
+    /// `None` (a room's call button) follows the call. See
+    /// [`CallIntentConsensus::resolve`].
+    pub intent: Option<CallIntent>,
+}
+
+impl CallJoinOptions {
+    /// A quiet join of the room-wide call, `m.call#room`, with default
+    /// reactions.
+    pub fn new() -> Self {
+        Self {
+            join: JoinOptions::application(CALL_APPLICATION),
+            kind: CallKind::default(),
+            reactions: None,
+            intent: None,
+        }
+    }
+
+    /// Joins the call slot `m.call#{application_slot_id}`.
+    pub fn slot(mut self, application_slot_id: impl AsRef<str>) -> Self {
+        self.join = self.join.slot(application_slot_id);
+        self
+    }
+
+    /// See [`JoinOptions::transport`].
+    pub fn transport(mut self, transport: impl Into<JoinTransport>) -> Self {
+        self.join = self.join.transport(transport);
+        self
+    }
+
+    /// What kind of call this is: see [`CallKind`].
+    pub fn kind(mut self, kind: CallKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    pub fn reactions(mut self, reactions: ReactionsConfig) -> Self {
+        self.reactions = Some(reactions);
+        self
+    }
+
+    /// See [`Self::intent`](CallJoinOptions#structfield.intent).
+    pub fn intent(mut self, intent: CallIntent) -> Self {
+        self.intent = Some(intent);
+        self
+    }
+}
+
+impl Default for CallJoinOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The MSC4143 application type of a call.
+const CALL_APPLICATION: &str = "m.call";
+
+/// One per backend. Creating it does no I/O (R1).
+pub struct RtcClient<B: MatrixBackend + 'static> {
+    base: BaseRtcClient<B, State<B>>,
+}
+
+impl<B: MatrixBackend + 'static> RtcClient<B> {
+    pub fn new(backend: Arc<B>) -> Self {
+        Self {
+            base: BaseRtcClient::new(backend),
+        }
+    }
+
+    /// [`Self::new`] with the retry layer given, whose clock every deadline
+    /// of the client's calls is read from: how a test runs a call on paused
+    /// time.
+    pub fn with_outbox(backend: Arc<B>, outbox: Outbox) -> Self {
+        Self {
+            base: BaseRtcClient::with_outbox(backend, outbox),
+        }
+    }
+
+    /// The host's backend behind the dialect wrapper, for what sends outside
+    /// the rooms (a media layer's token exchange).
+    pub fn backend(&self) -> &Arc<DialectBackend<B>> {
+        self.base.backend()
+    }
+
+    /// Whether the homeserver is answering the library's sends (034 R9).
+    pub fn signalling_health(&self) -> SignallingHealth {
+        self.base.signalling_health()
+    }
+
+    /// Signalling health, current value first; live before any call or media
+    /// exists.
+    pub fn subscribe_signalling_health(&self) -> watch::Receiver<SignallingHealth> {
+        self.base.subscribe_signalling_health()
+    }
+
+    /// Whether our homeserver offers what the MSC format needs (spec 038
+    /// R45), from the `unstable_features` of its `/versions` that are on,
+    /// which the host reads, and the transports it advertises, which this
+    /// asks for. Names each missing piece; never chooses the format.
+    pub async fn msc_support(
+        &self,
+        server_features: &[String],
+    ) -> Result<matrix_rtc_core::MscSupport, BackendError> {
+        let transports = self.backend().rtc_transports().await?;
+        Ok(matrix_rtc_core::msc_support(server_features, &transports))
+    }
+
+    /// The host reports its Matrix client offline, or online once a request
+    /// has succeeded since it was offline (R11). Optional: without it the
+    /// library goes by its own sends.
+    pub fn report_connectivity(&self, online: bool) {
+        self.base.report_connectivity(online);
+    }
+
+    /// Opens `room_id` (R2) through the core's
+    /// [`BaseRtcClient::open_with`], in the room's membership format.
+    /// The feeds run on the executor; await [`RtcRoom::seeded`] before
+    /// joining.
+    ///
+    /// Refused while the room has a live room object (R5). Cancelling the call
+    /// part-way leaves nothing behind.
+    pub async fn room(
+        &self,
+        room_id: impl Into<String>,
+        options: RoomOptions,
+    ) -> Result<RtcRoom<B>, RtcError> {
+        let room_id = room_id.into();
+        let mode = options.format;
+        let backend = self.base.backend().clone();
+        let outbox = self.base.outbox().clone();
+        let state = Arc::new(Mutex::new(CallRoomState::new(
+            BaseRtcRoom::with_backend(room_id.clone(), backend.clone()).with_outbox(outbox.clone()),
+        )));
+        let handle = self
+            .base
+            .open_with(room_id.clone(), state.clone(), options)
+            .await?;
+
+        Ok(RtcRoom {
+            room_id,
+            mode,
+            state,
+            backend,
+            outbox,
+            handle: Some(handle),
+            sessions: StdMutex::new(HashMap::new()),
+        })
+    }
+}
+
+/// One open room (R3). Dropping it without [`close`](Self::close) ends its
+/// subscriptions only (R4): no leave is sent, and a membership left behind
+/// expires through its delayed leave.
+pub struct RtcRoom<B: MatrixBackend + 'static> {
+    room_id: String,
+    mode: MembershipFormat,
+    state: SharedState<B>,
+    backend: Arc<Backend<B>>,
+    /// The client's retry layer, for the join's steps taken before the room's
+    /// lock is.
+    outbox: Outbox,
+    /// The core's open room, which feeds `state`; `None` once detached.
+    handle: Option<BaseRtcRoomHandle<B, State<B>>>,
+    /// Each slot's current session, shared with it so closing the room ends it.
+    sessions: StdMutex<HashMap<String, Arc<SessionEnd>>>,
+}
+
+impl<B: MatrixBackend + 'static> RtcRoom<B> {
+    pub fn room_id(&self) -> &str {
+        &self.room_id
+    }
+
+    pub fn format(&self) -> MembershipFormat {
+        self.mode
+    }
+
+    /// Whether the call in `slot_id` is a voice or a video call, by what the
+    /// members other than this device state: for a lobby to preview the
+    /// camera a join would start with ([`CallIntentConsensus::resolve`]).
+    pub async fn call_intent_consensus(&self, slot_id: &str) -> CallIntentConsensus {
+        self.state.lock().await.intent_consensus(slot_id)
+    }
+
+    /// The host's backend behind the dialect wrapper.
+    pub fn backend(&self) -> &Arc<DialectBackend<B>> {
+        &self.backend
+    }
+
+    /// Resolves once the room's current state is applied, so a join issued
+    /// afterwards sees it.
+    pub async fn seeded(&self) {
+        if let Some(handle) = &self.handle {
+            handle.seeded().await;
+        }
+    }
+
+    pub fn is_seeded(&self) -> bool {
+        self.handle
+            .as_ref()
+            .is_some_and(BaseRtcRoomHandle::is_seeded)
+    }
+
+    /// Opens a slot by publishing its `m.rtc.slot` state. See
+    /// [`matrix_rtc_core::BaseRtcRoom::open_slot`].
+    pub async fn open_slot(
+        &self,
+        slot_id: impl Into<String>,
+        application_type: impl Into<String>,
+        encryption: Option<SlotEncryption>,
+    ) -> Result<(), RtcError> {
+        let state = self.state.lock().await;
+        Ok(state
+            .rtc()
+            .open_slot(slot_id.into(), application_type.into(), encryption)
+            .await?)
+    }
+
+    pub async fn close_slot(&self, slot_id: impl Into<String>) -> Result<(), RtcError> {
+        let state = self.state.lock().await;
+        Ok(state.rtc().close_slot(slot_id.into()).await?)
+    }
+
+    /// `None` until the room's slot state has been supplied.
+    pub async fn slot_state(&self, slot_id: &str) -> Option<SlotState> {
+        self.state.lock().await.rtc().slot_state(slot_id)
+    }
+
+    /// Who is in a slot, without joining it (R7).
+    pub async fn member_count(&self, slot_id: &str) -> usize {
+        self.observe(slot_id).await.borrow().len()
+    }
+
+    /// The slot's joined memberships as they change, without joining it (R7).
+    pub async fn observe(&self, slot_id: &str) -> watch::Receiver<Vec<JoinedMembership>> {
+        self.state.lock().await.rtc_mut().observe_slot(slot_id)
+    }
+
+    /// Everything the room believes, as JSON, for bug reports.
+    pub async fn debug_snapshot(&self) -> serde_json::Value {
+        self.state.lock().await.rtc().debug_snapshot()
+    }
+
+    /// Joins a slot of any application (R6). Refused while the slot is joined
+    /// through a live session of this room (R8).
+    ///
+    /// Completes or fails within [`JOIN_BUDGET`] of this call (034 R6): every
+    /// step's transient failures are retried inside it, a refusal fails it at
+    /// once ([`JoinError::Refused`]), and the budget's end fails it with
+    /// [`JoinError::TimedOut`].
+    pub async fn join(&self, options: JoinOptions) -> Result<RtcSession<B>, RtcError> {
+        let deadline = executor::Instant::now() + JOIN_BUDGET;
+        let slot_id = options.slot_id.clone();
+        let transport = self.transport(options.transport.clone(), deadline).await?;
+        let mut state = self.state.lock().await;
+        let params = self
+            .prepare_join(&mut state, options, transport.clone())
+            .await?;
+        let member_id = params.membership_id();
+        state.rtc_mut().join_within(params, Some(deadline)).await?;
+        let upkeep = state.rtc().upkeep_abort_handle(&slot_id);
+        let auto_leaves = state.rtc().subscribe_auto_leaves(&slot_id);
+        drop(state);
+        Ok(self.session(slot_id, member_id, transport, upkeep, auto_leaves))
+    }
+
+    /// Joins a call slot: the generic join, then the call layer — reactions
+    /// for this participation, a group's notification, or a DM call's ring and
+    /// lifecycle.
+    ///
+    /// Under the same budget as [`Self::join`] (034 R6); a group's
+    /// notification shares it and never fails the join.
+    pub async fn join_call(&self, options: CallJoinOptions) -> Result<RtcCall<B>, RtcError> {
+        let deadline = executor::Instant::now() + JOIN_BUDGET;
+        let CallJoinOptions {
+            join,
+            kind,
+            reactions,
+            intent,
+        } = options;
+        if let CallKind::Group {
+            notify: Some(notify),
+        } = &kind
+            && notify.mentions.targets_nobody()
+        {
+            return Err(RtcError::InviteTargetsNobody);
+        }
+        let slot_id = join.slot_id.clone();
+        let transport = self.transport(join.transport.clone(), deadline).await?;
+        let mut state = self.state.lock().await;
+        let rtc = self
+            .prepare_join(&mut state, join, transport.clone())
+            .await?;
+        let member_id = rtc.membership_id();
+        let joined = state
+            .join_within(
+                CallJoinParams {
+                    rtc,
+                    kind,
+                    reactions,
+                    intent,
+                },
+                Some(deadline),
+            )
+            .await?;
+        let upkeep = state.rtc().upkeep_abort_handle(&slot_id);
+        let auto_leaves = state.rtc().subscribe_auto_leaves(&slot_id);
+        let event_moves = state.rtc().subscribe_own_membership_event_id(&slot_id);
+        let hand_requests = state.subscribe_hand_requests(&slot_id);
+        let outbox = state.rtc().outbox().clone();
+        drop(state);
+        let session = self.session(slot_id.clone(), member_id, transport, upkeep, auto_leaves);
+        session.end.report_to(joined.status.clone());
+        // After the lock is released: the ring may be retried for seconds, and
+        // a pickup or a decline must be able to arrive meanwhile.
+        let ring = joined
+            .direct
+            .as_ref()
+            .zip(joined.ring)
+            .map(|(direct, job)| {
+                executor::spawn(job.run(self.backend.clone(), direct.clone())).abort_on_drop()
+            });
+        let follow_direct = joined.direct.as_ref().map(|direct| {
+            self.follow_direct_call(slot_id.clone(), direct.clone(), session.end.clone())
+        });
+        Ok(RtcCall {
+            _follow_media_loss: self.follow_media_loss(
+                slot_id.clone(),
+                session.end.clone(),
+                joined.status.clone(),
+            ),
+            _hand: event_moves.zip(hand_requests).map(|(moves, requests)| {
+                self.follow_hand(slot_id, moves, requests, outbox, session.end.clone())
+            }),
+            status: joined.status,
+            intent: joined.intent,
+            _ring: ring,
+            _follow_direct: follow_direct,
+            session,
+        })
+    }
+
+    /// Leaves every slot joined through this room, then ends its
+    /// subscriptions (R4). Every session of the room is over afterwards.
+    pub async fn close(mut self) {
+        self.end_sessions(LeaveReason::new(LeaveCode::Leave));
+        let joined = self.state.lock().await.rtc().joined_slots();
+        for slot_id in joined {
+            log::info!("[{}/{slot_id}] leaving before closing", self.room_id);
+            let result = self
+                .state
+                .lock()
+                .await
+                .leave(&slot_id, LeaveSessionParams::new())
+                .await;
+            if let Err(error) = result {
+                log::warn!(
+                    "[{}/{slot_id}] leave before close failed: {error}",
+                    self.room_id
+                );
+            }
+        }
+        self.detach();
+    }
+
+    /// What the join's [`JoinTransport`] resolves to. Asked before the room's
+    /// lock is taken: it may be a request to the homeserver, and the feed would
+    /// wait on it otherwise.
+    async fn transport(
+        &self,
+        chosen: JoinTransport,
+        deadline: executor::Instant,
+    ) -> Result<TransportIntent, RtcError> {
+        Ok(transports::resolve(
+            self.backend.as_ref(),
+            &self.outbox,
+            &self.room_id,
+            chosen,
+            self.format(),
+            deadline,
+        )
+        .await?)
+    }
+
+    /// Everything else a join needs that the host does not say: who we are,
+    /// the `member.id` our mode joins with, and our sends' dialect. The state
+    /// lock is held so the R8 check and the join cannot interleave with
+    /// another join of the slot.
+    async fn prepare_join(
+        &self,
+        state: &mut State<B>,
+        options: JoinOptions,
+        transport: TransportIntent,
+    ) -> Result<JoinSessionParams, RtcError> {
+        let JoinOptions {
+            slot_id,
+            application,
+            transport: _,
+            encryption_config,
+            keep_alive_timeout_ms,
+            keep_alive_interval_ms,
+            sticky_duration_ms,
+            degraded_lifetime_ms,
+        } = options;
+
+        // Before anything below acts on the slot: MSC4143's grammar, and the
+        // slot belonging to the application joining it (spec 038 R8).
+        if let Err(reason) = matrix_rtc_core::validate_slot_id(
+            &slot_id,
+            application.application_type().unwrap_or_default(),
+        ) {
+            return Err(JoinError::InvalidSlotId { slot_id, reason }.into());
+        }
+
+        if self.live_session(&slot_id) {
+            return Err(JoinError::AlreadyJoined(
+                state.rtc().own_member_id(&slot_id).unwrap_or_default(),
+            )
+            .into());
+        }
+        // Joined in the core with no live session object: the host dropped
+        // it without leaving. Leave that participation first rather than
+        // refusing the slot until its delayed leave fires.
+        if state.rtc().own_member_id(&slot_id).is_some() {
+            log::info!(
+                "[{}/{slot_id}] leaving a participation whose session was dropped",
+                self.room_id,
+            );
+            state.leave(&slot_id, LeaveSessionParams::new()).await?;
+        }
+
+        let mut params = JoinSessionParams {
+            membership_id: None,
+            slot_id,
+            application,
+            transport: Some(transport),
+            keep_alive_timeout_ms,
+            keep_alive_interval_ms,
+            sticky_duration_ms,
+            degraded_lifetime_ms,
+            encryption_config,
+        };
+        // The `member.id` and our sends' dialect, in the room's format.
+        if let Some(handle) = &self.handle {
+            handle.prepare_join(&mut params);
+        }
+        Ok(params)
+    }
+
+    fn sessions(&self) -> MutexGuard<'_, HashMap<String, Arc<SessionEnd>>> {
+        self.sessions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn live_session(&self, slot_id: &str) -> bool {
+        self.sessions()
+            .get(slot_id)
+            .is_some_and(|end| end.is_live())
+    }
+
+    /// The session object for a join that just succeeded. `upkeep` is the
+    /// core's, stopped when the session object goes; `auto_leaves` is the
+    /// core's announcement of the leaves it makes on its own, subscribed under
+    /// the same lock as the join so none can slip past.
+    fn session(
+        &self,
+        slot_id: String,
+        member_id: String,
+        transport: TransportIntent,
+        upkeep: Option<AbortHandle>,
+        auto_leaves: Option<broadcast::Receiver<LeaveReason>>,
+    ) -> RtcSession<B> {
+        let end = Arc::new(SessionEnd::new());
+        self.sessions().insert(slot_id.clone(), end.clone());
+        RtcSession {
+            _follow_auto_leave: auto_leaves.map(|leaves| {
+                follow_auto_leave(leaves, end.clone(), self.state.clone(), slot_id.clone())
+            }),
+            room_id: self.room_id.clone(),
+            slot_id,
+            member_id,
+            transport,
+            format: self.mode,
+            state: self.state.clone(),
+            end,
+            upkeep,
+        }
+    }
+
+    /// Our hand's sender (034 R5): sends what the hand needs, one attempt at
+    /// a time and without the room's lock, whenever a raise or lower is asked
+    /// for or a sticky refresh moves our membership event, until it stands
+    /// where it was asked to be. A transient failure waits on capped backoff,
+    /// cut short by a new request, a move, or signalling coming back. Ends
+    /// with the participation.
+    fn follow_hand(
+        &self,
+        slot_id: String,
+        mut moves: watch::Receiver<Option<String>>,
+        mut requests: watch::Receiver<HandRequests>,
+        outbox: Outbox,
+        end: Arc<SessionEnd>,
+    ) -> AbortOnDrop<()> {
+        let state = self.state.clone();
+        executor::spawn(async move {
+            let mut ended = end.ended.subscribe();
+            let mut recoveries = outbox.subscribe_recoveries();
+            let mut backoff = BACKOFF_INITIAL;
+            loop {
+                moves.borrow_and_update();
+                requests.borrow_and_update();
+                recoveries.borrow_and_update();
+                let step = state.lock().await.hand_step(&slot_id);
+                let delay = match step {
+                    None => None,
+                    Some(step) => {
+                        let outcome = step.send().await;
+                        match state.lock().await.hand_sent(&slot_id, &step, outcome) {
+                            HandNext::Again => {
+                                backoff = BACKOFF_INITIAL;
+                                continue;
+                            }
+                            HandNext::Stop => break,
+                            HandNext::Backoff(retry_after) => {
+                                let delay = retry_after.map_or(backoff, |after| after.max(backoff));
+                                backoff = (backoff * 2).min(BACKOFF_MAX);
+                                Some(delay)
+                            }
+                        }
+                    }
+                };
+                tokio::select! {
+                    () = executor::sleep(delay.unwrap_or_default()), if delay.is_some() => {}
+                    changed = moves.changed() => if changed.is_err() { break },
+                    changed = requests.changed() => if changed.is_err() { break },
+                    Ok(()) = recoveries.changed(), if delay.is_some() => {}
+                    _ = ended.wait_for(Option::is_some) => break,
+                }
+            }
+        })
+        .abort_on_drop()
+    }
+
+    /// Leaves when a DM call's lifecycle ends it — a decline, no answer, no
+    /// ring, nobody left, nobody there — and ends the lifecycle as
+    /// [`DirectCallEnd::Left`] when the participation ends any other way.
+    fn follow_direct_call(
+        &self,
+        slot_id: String,
+        direct: Arc<DirectCall>,
+        end: Arc<SessionEnd>,
+    ) -> AbortOnDrop<()> {
+        let state = self.state.clone();
+        let room_id = self.room_id.clone();
+        executor::spawn(async move {
+            let mut states = direct.subscribe();
+            let mut ended = end.ended.subscribe();
+            let reason = tokio::select! {
+                result = states.wait_for(|state| matches!(state, DirectCallState::Ended { .. })) => {
+                    match result.map(|state| state.clone()) {
+                        Ok(DirectCallState::Ended { reason }) => reason,
+                        _ => return,
+                    }
+                }
+                _ = ended.wait_for(Option::is_some) => {
+                    direct.finish_left();
+                    return;
+                }
+            };
+            if reason == DirectCallEnd::Left {
+                return;
+            }
+            // Ended before the send, as a host leave is, so media stops at once.
+            let leave_reason = LeaveReason::with_reason(LeaveCode::Leave, reason.as_str());
+            if !end.end(leave_reason.clone()) {
+                return;
+            }
+            log::info!("[{room_id}/{slot_id}] leaving: {}", reason.as_str());
+            let params = LeaveSessionParams {
+                leave_reason: Some(leave_reason),
+            };
+            if let Err(error) = state.lock().await.leave(&slot_id, params).await {
+                log::warn!("[{room_id}/{slot_id}] leave failed ({error}); the delayed leave follows");
+            }
+        })
+        .abort_on_drop()
+    }
+
+    /// Ends the call when its media gives our own connection up (034 R26):
+    /// publishing stops first, then our one leave attempt is issued, then the
+    /// end is reported, without waiting for the leave's outcome. Until then,
+    /// republishes our membership naming each focus our media moves to
+    /// (034 R25).
+    fn follow_media_loss(
+        &self,
+        slot_id: String,
+        end: Arc<SessionEnd>,
+        status: Arc<CallStatusCell>,
+    ) -> AbortOnDrop<()> {
+        let mut losses = status.follow_losses();
+        let mut moves = status.follow_moves();
+        let state = self.state.clone();
+        let tag = format!("{}/{slot_id}", self.room_id);
+        executor::spawn(async move {
+            let mut ended = end.ended.subscribe();
+            let (reason, message) = loop {
+                let transport = tokio::select! {
+                    loss = losses.wait_for(Option::is_some) => match loss.as_deref() {
+                        Ok(Some(loss)) => break loss.clone(),
+                        _ => return,
+                    },
+                    moved = moves.changed() => match moved {
+                        Ok(()) => moves.borrow_and_update().clone(),
+                        Err(_) => return,
+                    },
+                    _ = ended.wait_for(Option::is_some) => return,
+                };
+                let Some(transport) = transport else {
+                    continue;
+                };
+                // Detached: retried until it lands, is superseded or the join
+                // leaves, while a loss must still be followed.
+                let send = state
+                    .lock()
+                    .await
+                    .rtc()
+                    .republish_transports(&slot_id, transport);
+                if let Some(send) = send {
+                    executor::spawn(send);
+                }
+            };
+            let leave_reason = LeaveReason::with_reason(
+                LeaveCode::Other("connection_lost".to_owned()),
+                message.clone(),
+            );
+            if !end.end_quietly(leave_reason.clone()) {
+                return;
+            }
+            log::warn!("[{tag}] our media connection was given up ({reason:?}): leaving");
+            let params = LeaveSessionParams {
+                leave_reason: Some(leave_reason),
+            };
+            issue_leave(&state, &slot_id, tag, params).await;
+            status.connection_closed(reason, message);
+        })
+        .abort_on_drop()
+    }
+
+    fn end_sessions(&self, reason: LeaveReason) {
+        for (_, end) in self.sessions().drain() {
+            end.end(reason.clone());
+        }
+    }
+}
+
+/// The one place a participation becomes over and says why, whatever ended it.
+struct SessionEnd {
+    live: AtomicBool,
+    ended: watch::Sender<Option<LeaveReason>>,
+    /// A call's status, told the end as it happens.
+    status: StdMutex<Option<Arc<CallStatusCell>>>,
+}
+
+impl SessionEnd {
+    fn new() -> Self {
+        Self {
+            live: AtomicBool::new(true),
+            ended: watch::channel(None).0,
+            status: StdMutex::new(None),
+        }
+    }
+
+    /// An end that already happened is reported at once.
+    fn report_to(&self, status: Arc<CallStatusCell>) {
+        let mut slot = self
+            .status
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(reason) = &*self.ended.borrow() {
+            status.on_session_ended(reason);
+        }
+        *slot = Some(status);
+    }
+
+    fn is_live(&self) -> bool {
+        self.live.load(Ordering::SeqCst)
+    }
+
+    /// [`Self::end`], leaving the call's status to the caller, which reports
+    /// a reason of its own once it has done what precedes it.
+    fn end_quietly(&self, reason: LeaveReason) -> bool {
+        let live = self.live.swap(false, Ordering::SeqCst);
+        if live {
+            self.ended.send_replace(Some(reason));
+        }
+        live
+    }
+
+    /// `false` if it was already over.
+    fn end(&self, reason: LeaveReason) -> bool {
+        let status = self
+            .status
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let live = self.live.swap(false, Ordering::SeqCst);
+        if live {
+            if let Some(status) = &*status {
+                status.on_session_ended(&reason);
+            }
+            self.ended.send_replace(Some(reason));
+        }
+        live
+    }
+
+    /// A dropped session sends no leave, so there is no ending to report.
+    fn abandon(&self) {
+        self.live.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Our participation's part of a leave under the room's lock, then its one
+/// send attempt detached (034 R8): returns once the leave is issued, never
+/// waiting for its outcome.
+async fn issue_leave<B: MatrixBackend + 'static>(
+    state: &SharedState<B>,
+    slot_id: &str,
+    tag: String,
+    params: LeaveSessionParams,
+) {
+    let (pending, dialect) = {
+        let mut state = state.lock().await;
+        // The room may be shut down before this goes out, and that forgets
+        // the format the leave has to be written in.
+        let dialect = state
+            .rtc()
+            .backend()
+            .map(|backend| backend.hold_dialect(state.rtc().room_id()));
+        (state.begin_leave(slot_id, params).await, dialect)
+    };
+    let send = async move {
+        let _dialect = dialect;
+        match pending {
+            Ok(pending) => {
+                if let Err(error) = pending.send().await {
+                    log::warn!(
+                        "[{tag}] our leave was not sent ({error}); the delayed leave removes us"
+                    );
+                }
+            }
+            Err(error) => log::warn!("[{tag}] nothing to leave: {error}"),
+        }
+    };
+    if executor::can_spawn() {
+        executor::spawn(send);
+    } else {
+        send.await;
+    }
+}
+
+/// Ends a session when the core leaves its slot on its own. The core's channel
+/// is per slot, so this stops at the first leave rather than adopt a later
+/// join's. A slot closing withdraws the invite we sent to it (spec 038 R31).
+fn follow_auto_leave<B: MatrixBackend + 'static>(
+    mut leaves: broadcast::Receiver<LeaveReason>,
+    end: Arc<SessionEnd>,
+    state: Arc<Mutex<State<B>>>,
+    slot_id: String,
+) -> AbortOnDrop<()> {
+    executor::spawn(async move {
+        let reason = loop {
+            match leaves.recv().await {
+                Ok(reason) => break reason,
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => return,
+            }
+        };
+        let slot_closed = reason.code == LeaveCode::SlotClosed;
+        end.end(reason);
+        if slot_closed {
+            state.lock().await.withdraw_invite(&slot_id).await;
+        }
+    })
+    .abort_on_drop()
+}
+
+impl<B: MatrixBackend + 'static> RtcRoom<B> {
+    /// Ends the subscription and forgets the room; idempotent.
+    fn detach(&mut self) {
+        drop(self.handle.take());
+    }
+}
+
+impl<B: MatrixBackend + 'static> Drop for RtcRoom<B> {
+    fn drop(&mut self) {
+        self.detach();
+    }
+}
+
+/// Our participation in one slot (R6). Over after [`leave`](Self::leave), after
+/// its room closes, or once dropped (R9): every call then fails with
+/// [`RtcError::SessionOver`] or reports nothing to do, and joining again yields
+/// a new session. Dropping it sends no leave; the membership expires through its
+/// delayed leave unless the slot is joined again, which leaves it first.
+pub struct RtcSession<B: MatrixBackend + 'static> {
+    room_id: String,
+    slot_id: String,
+    member_id: String,
+    transport: TransportIntent,
+    format: MembershipFormat,
+    state: SharedState<B>,
+    end: Arc<SessionEnd>,
+    /// The core's upkeep for this join, aborted when the session object
+    /// drops: a dropped session sends no leave and stops keeping alive.
+    upkeep: Option<AbortHandle>,
+    _follow_auto_leave: Option<AbortOnDrop<()>>,
+}
+
+impl<B: MatrixBackend + 'static> RtcSession<B> {
+    pub fn room_id(&self) -> &str {
+        &self.room_id
+    }
+
+    pub fn slot_id(&self) -> &str {
+        &self.slot_id
+    }
+
+    /// Our `member.id` in this participation.
+    pub fn member_id(&self) -> &str {
+        &self.member_id
+    }
+
+    /// The membership format this session was joined in.
+    pub fn format(&self) -> MembershipFormat {
+        self.format
+    }
+
+    /// What this participation publishes on, as its join resolved it.
+    pub fn transport(&self) -> &TransportIntent {
+        &self.transport
+    }
+
+    pub fn is_live(&self) -> bool {
+        self.end.is_live()
+    }
+
+    /// The event id of our current membership event. Moves on every sticky
+    /// refresh, so read it at the moment of use.
+    pub async fn membership_event_id(&self) -> Option<String> {
+        if !self.is_live() {
+            return None;
+        }
+        self.state
+            .lock()
+            .await
+            .rtc()
+            .own_membership_event_id(&self.slot_id)
+    }
+
+    pub async fn member_count(&self) -> usize {
+        self.subscribe_memberships().await.borrow().len()
+    }
+
+    pub async fn subscribe_memberships(&self) -> watch::Receiver<Vec<JoinedMembership>> {
+        self.state
+            .lock()
+            .await
+            .rtc_mut()
+            .observe_slot(&self.slot_id)
+    }
+
+    /// Why this participation ended — the host left, the slot closed
+    /// ([`LeaveCode::SlotClosed`]) or the room closed — or `None` while live.
+    /// Whatever runs media tears down here. Not set when the session is dropped.
+    pub fn subscribe_ended(&self) -> watch::Receiver<Option<LeaveReason>> {
+        self.end.ended.subscribe()
+    }
+
+    pub async fn set_encryption_signal_handler(
+        &self,
+        handler: Arc<dyn EncryptionKeySignalHandler>,
+    ) -> bool {
+        self.is_live()
+            && self
+                .state
+                .lock()
+                .await
+                .rtc_mut()
+                .set_encryption_signal_handler(&self.slot_id, handler)
+    }
+
+    /// Whether this call's media is frame-encrypted: `false` in a room whose
+    /// encryption is off (spec 038 R11), and once the call has ended.
+    pub async fn encrypts_media(&self) -> bool {
+        self.is_live()
+            && self
+                .state
+                .lock()
+                .await
+                .rtc()
+                .encrypts_media(&self.slot_id)
+                .unwrap_or(false)
+    }
+
+    pub async fn set_encryption_identity_mapper(&self, mapper: RtcIdentityMapper) -> bool {
+        self.is_live()
+            && self
+                .state
+                .lock()
+                .await
+                .rtc_mut()
+                .set_encryption_identity_mapper(&self.slot_id, mapper)
+    }
+
+    pub async fn replay_encryption_keys(&self) -> bool {
+        self.is_live()
+            && self
+                .state
+                .lock()
+                .await
+                .rtc()
+                .replay_encryption_keys(&self.slot_id)
+                .await
+    }
+
+    /// Leaves the slot; the session is over afterwards (R9).
+    ///
+    /// Returns once our participation has ended, without waiting for the
+    /// leave to be sent (034 R8): the leave is one attempt, made on its own,
+    /// and if it fails the delayed leave — or, without one, the membership's
+    /// lifetime — removes us. Fails only with [`RtcError::SessionOver`], when
+    /// the session was already over.
+    pub async fn leave(&self, params: LeaveSessionParams) -> Result<(), RtcError> {
+        let reason = params
+            .leave_reason
+            .clone()
+            .unwrap_or_else(|| LeaveReason::new(LeaveCode::Leave));
+        // Ended before the send, so media stops publishing at once rather than
+        // after a slow or failing one.
+        if !self.end.end(reason) {
+            return Err(RtcError::SessionOver);
+        }
+        let tag = format!("{}/{}", self.room_id, self.slot_id);
+        issue_leave(&self.state, &self.slot_id, tag, params).await;
+        Ok(())
+    }
+
+    fn check_live(&self) -> Result<(), RtcError> {
+        if self.is_live() {
+            Ok(())
+        } else {
+            Err(RtcError::SessionOver)
+        }
+    }
+}
+
+impl<B: MatrixBackend + 'static> Drop for RtcSession<B> {
+    fn drop(&mut self) {
+        self.end.abandon();
+        if let Some(upkeep) = &self.upkeep {
+            upkeep.abort();
+        }
+    }
+}
+
+/// Our participation in a call slot: an [`RtcSession`] (reached through
+/// `Deref`) plus reactions, the raised hand, its status and, in a DM, the ring
+/// and the lifecycle.
+pub struct RtcCall<B: MatrixBackend + 'static> {
+    session: RtcSession<B>,
+    /// Keeps our raised hand on our current membership event.
+    _hand: Option<AbortOnDrop<()>>,
+    /// Ends the call when its media gives our own connection up.
+    _follow_media_loss: AbortOnDrop<()>,
+    status: Arc<CallStatusCell>,
+    /// The intent our membership states.
+    intent: CallIntent,
+    /// Sends the ring and times it.
+    _ring: Option<AbortOnDrop<()>>,
+    /// Leaves when the lifecycle ends the call.
+    _follow_direct: Option<AbortOnDrop<()>>,
+}
+
+impl<B: MatrixBackend + 'static> RtcCall<B> {
+    pub fn session(&self) -> &RtcSession<B> {
+        &self.session
+    }
+
+    /// Whether this is a voice or a video call, as the join settled it: the
+    /// call's own intent when it had one, else the one asked for. The host
+    /// starts with the camera on for [`CallIntent::Video`] only.
+    pub fn intent(&self) -> CallIntent {
+        self.intent
+    }
+
+    /// Sends an emoji reaction relating to our membership. Only the first
+    /// grapheme of `emoji` is sent; `name` selects the sound peers play.
+    /// Returns the event id.
+    ///
+    /// Retried for at most 5 s, without the room's lock, and failing with
+    /// [`ReactionError::NotSent`](crate::ReactionError::NotSent) rather than
+    /// landing late (034 R4).
+    pub async fn send_reaction(&self, emoji: &str, name: &str) -> Result<String, RtcError> {
+        self.check_live()?;
+        let reaction = self
+            .state
+            .lock()
+            .await
+            .prepare_reaction(&self.slot_id, emoji, name)?;
+        let event_id = reaction.send().await?;
+        self.state.lock().await.reaction_sent(&self.slot_id);
+        Ok(event_id)
+    }
+
+    /// Raises our hand: shown at once, and returns once it has landed, a
+    /// lower superseded it, or the call ended (034 R5). Fails only when the
+    /// homeserver refuses it for good, the hand back where it was. Dropping
+    /// the future leaves the request standing; only a lower withdraws it.
+    pub async fn raise_hand(&self) -> Result<(), RtcError> {
+        self.request_hand(true).await
+    }
+
+    /// Lowers our hand, as [`Self::raise_hand`] raises it.
+    pub async fn lower_hand(&self) -> Result<(), RtcError> {
+        self.request_hand(false).await
+    }
+
+    async fn request_hand(&self, up: bool) -> Result<(), RtcError> {
+        self.check_live()?;
+        let answered = self.state.lock().await.request_hand(&self.slot_id, up)?;
+        let mut ended = self.session.end.ended.subscribe();
+        tokio::select! {
+            result = answered => Ok(result?),
+            // The hand went with the membership: nothing to report.
+            _ = ended.wait_for(Option::is_some) => Ok(()),
+        }
+    }
+
+    /// The client's signalling health (034 R9), for the call's media to
+    /// report beside its own.
+    pub async fn subscribe_signalling_health(&self) -> watch::Receiver<SignallingHealth> {
+        self.state.lock().await.rtc().outbox().subscribe_health()
+    }
+
+    /// Whether our membership has lapsed for the other members (034 R17);
+    /// `None` once we are no longer joined.
+    pub async fn subscribe_own_membership_lapsed(&self) -> Option<watch::Receiver<bool>> {
+        self.state
+            .lock()
+            .await
+            .rtc()
+            .subscribe_own_membership_lapsed(&self.slot_id)
+    }
+
+    /// The slot's raised hands, oldest first.
+    pub async fn raised_hands(&self) -> Vec<RaisedHand> {
+        self.state
+            .lock()
+            .await
+            .raised_hands(&self.slot_id)
+            .unwrap_or_default()
+    }
+
+    pub async fn subscribe_raised_hands(&self) -> Option<watch::Receiver<Vec<RaisedHand>>> {
+        self.state
+            .lock()
+            .await
+            .subscribe_raised_hands(&self.slot_id)
+    }
+
+    pub async fn subscribe_reactions(&self) -> Option<broadcast::Receiver<ReceivedReaction>> {
+        self.state.lock().await.subscribe_reactions(&self.slot_id)
+    }
+
+    pub async fn reactions_config(&self) -> Option<ReactionsConfig> {
+        self.state.lock().await.reactions_config(&self.slot_id)
+    }
+
+    /// Where the call is: what a host gates its timer, its "Calling…" and
+    /// its system call report on.
+    pub fn status(&self) -> CallStatus {
+        self.status.status()
+    }
+
+    /// The status as it changes, current value first. In a DM, every `Ended`
+    /// but [`crate::CallEnd::Left`] is a leave the call makes itself.
+    pub fn subscribe_status(&self) -> watch::Receiver<CallStatus> {
+        self.status.subscribe()
+    }
+
+    /// For the media layer, which alone knows when our own connection is up.
+    pub fn media_status_reporter(&self) -> MediaStatusReporter {
+        MediaStatusReporter::new(self.status.clone())
+    }
+}
+
+impl<B: MatrixBackend + 'static> Deref for RtcCall<B> {
+    type Target = RtcSession<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.session
+    }
+}
+
+#[cfg(test)]
+mod tests;

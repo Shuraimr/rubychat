@@ -1,6 +1,6 @@
 // Open-room timeline state. Backend sends the FULL item list on every change (simple and robust).
 // Açık odanın zaman çizelgesi durumu. Arka uç her değişiklikte TÜM öğe listesini yollar (basit ve sağlam).
-import { geriSayfala, mesajGonder, mesajYenidenDene, odayiAc, odayiKapat, okunduIsaretle } from "../api/komutlar";
+import { geriSayfala, mesajGonder, medyaGonderimiIptal, mesajYenidenDene, odayiAc, odayiKapat, okunduIsaretle } from "../api/komutlar";
 import { acilisOlc, onYukle } from "./onYukle.svelte";
 import { yaziyorGuncellendi, zamanGuncellendi } from "../api/olaylar";
 import type { Hata, KisiBilgisi, OdaBilgisi, ZamanHazir, ZamanOgesi } from "../api/tipler";
@@ -37,6 +37,7 @@ class Zaman {
   yazanlar = $state<KisiBilgisi[]>([]);
 
   #aktifId: string | null = null;
+  #sayfaSira = 0;
   #abone: UnlistenFn | null = null;
   #yaziyorAbone: UnlistenFn | null = null;
 
@@ -113,25 +114,44 @@ class Zaman {
   }
 
   async eskileriYukle() {
-    if (!this.#aktifId || this.eskiYukleniyor || this.basaUlasildi) return;
+    const id = this.#aktifId;
+    if (!id || this.eskiYukleniyor || this.basaUlasildi) return;
+    // The update arrives before the call returns and may already have started the next page: only the newest call clears the flag.
+    // Güncelleme çağrı dönmeden gelir ve sonraki sayfayı başlatmış olabilir: bayrağı yalnızca en yeni çağrı indirir.
+    const sira = ++this.#sayfaSira;
     this.eskiYukleniyor = true;
     try {
-      await geriSayfala(this.#aktifId);
+      await geriSayfala(id);
     } catch (e) {
       console.error(e);
-      this.eskiYukleniyor = false;
+    } finally {
+      // Clear only if the same room is still active (a room switch already reset state for the next room).
+      // Yalnızca aynı oda hâlâ etkinse temizle (oda değişimi sonraki oda için durumu zaten sıfırladı).
+      if (this.#aktifId === id && sira === this.#sayfaSira) this.eskiYukleniyor = false;
     }
   }
 
-  /** Sends text; `html` = formatted body, `yanitOlayId` = reply target · Metin yollar; `html` = biçimli gövde, `yanitOlayId` = yanıtlanan mesaj */
-  async gonder(metin: string, html: string | null = null, yanitOlayId: string | null = null) {
+  /** Sends text; `html` = formatted body, `yanitOlayId` = reply target, `bahsedilenler`/`odaBahset` = `m.mentions` · Metin yollar; `html` = biçimli gövde, `yanitOlayId` = yanıtlanan mesaj, `bahsedilenler`/`odaBahset` = `m.mentions` */
+  async gonder(
+    metin: string,
+    html: string | null = null,
+    yanitOlayId: string | null = null,
+    bahsedilenler: string[] = [],
+    odaBahset = false,
+  ) {
     if (!this.#aktifId) return;
-    await mesajGonder({ odaId: this.#aktifId, metin, html, yanitOlayId });
+    await mesajGonder({ odaId: this.#aktifId, metin, html, yanitOlayId, bahsedilenler, odaBahset });
   }
 
   async yenidenDene(ogeId: string) {
     if (!this.#aktifId) return;
     await mesajYenidenDene(this.#aktifId, ogeId);
+  }
+
+  /** Drops a message that was not sent; the ones behind it go out. · Gönderilmemiş mesajı bırakır; arkasındakiler yola çıkar. */
+  async vazgec(ogeId: string) {
+    if (!this.#aktifId) return;
+    await medyaGonderimiIptal(this.#aktifId, ogeId);
   }
 
   /** A room prepared in the background · Arka planda hazırlanan oda */

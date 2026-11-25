@@ -12,6 +12,7 @@
   import { gezinme } from "../durum/gezinme.svelte";
   import { kullaniciKartiAc } from "../durum/kullaniciKarti.svelte";
   import { odalar } from "../durum/odalar.svelte";
+  import { oturum } from "../durum/oturum.svelte";
   import { t } from "../i18n";
   import { gorselUrl } from "../medya";
   import BicimDugum from "./BicimDugum.svelte";
@@ -22,7 +23,7 @@
 
   function pillAc(tur: "kullanici" | "oda", kimlik: string, ad: string) {
     if (tur === "kullanici") {
-      kullaniciKartiAc(kimlik, odaId, ad);
+      kullaniciKartiAc(kimlik, odaId, ad.replace(/^@/, "") || undefined);
       return;
     }
     // A room link: open it when I am in that room (by id or alias), otherwise fall back to the leaving-rubychat confirm.
@@ -56,7 +57,12 @@
 {:else if d.etiket === "a" && d.href}
   {#if d.pill}
     {@const pill = d.pill}
-    <button class="pill" onclick={() => pillAc(pill.tur, pill.kimlik, duzMetin(d.cocuk))}>{@render cocuklar(d.cocuk)}</button>
+    <button
+      class="pill"
+      class:ben={pill.tur === "kullanici" && pill.kimlik === oturum.ben?.kullaniciId}
+      type="button"
+      onclick={() => pillAc(pill.tur, pill.kimlik, duzMetin(d.cocuk))}
+    >{@render cocuklar(d.cocuk)}</button>
   {:else}
     {@const href = d.href}
     <button class="baglanti" use:baglantiBas={href} onclick={() => baglantiAc(href, duzMetin(d.cocuk))}>{@render cocuklar(d.cocuk)}</button>
@@ -74,7 +80,9 @@
   blockquote { margin: .25em 0; padding: 0 0 0 10px; border-left: 3px solid color-mix(in srgb, currentColor 40%, transparent); opacity: .9; }
   ul, ol { margin: .25em 0; padding-left: 1.4em; }
   .baglanti { display: inline; padding: 0; color: inherit; text-decoration: underline; text-underline-offset: 2px; font: inherit; text-align: left; overflow-wrap: anywhere; }
-  .pill { display: inline; padding: 0 6px; border-radius: 8px; font: inherit; font-weight: 600; background: var(--ton); color: var(--ton-ustu); }
+  .pill { display: inline; padding: 1px 6px; border-radius: 8px; font: inherit; font-weight: 600; text-align: left; overflow-wrap: anywhere; background: var(--ton); color: var(--ton-ustu); transition: opacity var(--sure-hizli) var(--egri-cikis); }
+  .pill.ben { background: var(--vurgu); color: var(--vurgu-ustu); }
+  .pill:active { opacity: .82; }
   /* Spoiler: the text is hidden behind a blur until tapped (reduced motion: the blur just switches). · Spoiler: dokunulana dek metin bulanıklığın arkasında (az harekette bulanıklık yalnızca değişir). */
   .spoiler { display: inline; padding: 0 2px; font: inherit; color: inherit; border-radius: 4px; text-align: left; filter: blur(6px); background: color-mix(in srgb, currentColor 18%, transparent); transition: filter var(--sure-orta) var(--egri-cikis); }
   .spoiler.acik { filter: none; background: color-mix(in srgb, currentColor 10%, transparent); }

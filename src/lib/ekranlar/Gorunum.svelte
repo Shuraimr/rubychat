@@ -10,7 +10,6 @@
   import Ikon from "../bilesenler/Ikon.svelte";
   import OzellestirSayfasi from "../bilesenler/OzellestirSayfasi.svelte";
   import Secici from "../bilesenler/Secici.svelte";
-  import { klavye } from "../klavyeKisayol.svelte";
   import { tercihler, type Kompakt } from "../durum/tercihler.svelte";
   import { ayarlar, type AzAnimasyon, type Tema, type VurguAdi, type YaziBoyutu, type YaziTipi } from "../durum/ayarlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
@@ -138,15 +137,6 @@
         <div class="ay-kart">
           <div class="ay-satir"><div class="ay-metin"><strong>{t("klavye.kompakt")}</strong><span>{t("klavye.kompaktAlt")}</span></div></div>
           <div class="ay-secici"><Secici secenekler={kompaktlar} deger={tercihler.d.kompakt} sec={(id) => tercihler.yaz("kompakt", id)} etiket={t("klavye.kompakt")} /></div>
-          <div class="ay-satir">
-            <div class="ay-metin"><strong>{t("klavye.vim")}</strong><span>{t("klavye.vimAlt")}</span></div>
-            <Anahtar acik={tercihler.d.vim} degis={(v) => tercihler.yaz("vim", v)} etiket={t("klavye.vim")} />
-          </div>
-          <button class="ay-satir dugme" data-dalga onclick={() => (klavye.yardim = true)}>
-            <span class="ay-simge"><Ikon ad="klavye" boyut={20} /></span>
-            <div class="ay-metin"><strong>{t("klavye.kisayollar")}</strong></div>
-            <Ikon ad="sagOk" boyut={20} />
-          </button>
         </div>
       </section>
     {/if}

@@ -53,11 +53,46 @@ function satirIci(kaynak: string, ozelEmoji: Record<string, string>): string {
   return s.replace(/\u0000(\d+)\u0000/g, (_, i: string) => kodlar[Number(i)] ?? "");
 }
 
-/** Blocks: ``` fences, "> " quote runs and normal lines (joined with <br>). · Bloklar: ``` çitleri, "> " alıntı dizileri ve normal satırlar (<br> ile birleştirilir). */
-export function markdownCevir(metin: string, ozelEmoji: Record<string, string> = {}): BicimSonucu {
+/** Blocks: ``` fences, "> " quote runs and normal lines (joined with <br>). `korunan` = mention spans kept verbatim outside code blocks. · Bloklar: ``` çitleri, "> " alıntı dizileri ve normal satırlar (<br> ile birleştirilir). `korunan` = kod bloğu dışında aynen korunan bahsetme aralıkları. */
+export function markdownCevir(
+  metin: string,
+  ozelEmoji: Record<string, string> = {},
+  korunan: { bas: number; son: number }[] = [],
+): BicimSonucu {
+  const korunanHtml: string[] = [];
+  let kaynak = metin;
+  if (korunan.length > 0) {
+    // Protect mention display names outside code fences so characters like `*` or `_` in a name are not formatted as Markdown.
+    // Kod çitleri dışındaki bahsetme adlarını koru ki addaki `*` veya `_` gibi karakterler Markdown olarak biçimlenmesin.
+    const sirali = [...korunan].filter((a) => a.bas >= 0 && a.son > a.bas && a.son <= metin.length).sort((a, b) => a.bas - b.bas);
+    const citler: [number, number][] = [];
+    let citPos = 0;
+    while (true) {
+      const ac = metin.indexOf("```", citPos);
+      if (ac < 0) break;
+      const kapa = metin.indexOf("```", ac + 3);
+      if (kapa < 0) break;
+      citler.push([ac, kapa + 3]);
+      citPos = kapa + 3;
+    }
+    const citIcinde = (bas: number, son: number) => citler.some(([a, b]) => bas < b && son > a);
+    let parca = "";
+    let son = 0;
+    for (const a of sirali) {
+      if (a.bas < son || citIcinde(a.bas, a.son)) continue;
+      parca += metin.slice(son, a.bas);
+      const id = korunanHtml.length;
+      korunanHtml.push(kacir(metin.slice(a.bas, a.son)));
+      parca += `\u0001${id}\u0001`;
+      son = a.son;
+    }
+    parca += metin.slice(son);
+    kaynak = parca;
+  }
+
   const parcalar: string[] = [];
   // Split on fences; odd segments are code blocks. An unclosed fence is plain text. · Çitlere göre böl; tek sıradakiler kod bloğu. Kapanmamış çit düz metindir.
-  const bolumler = metin.split("```");
+  const bolumler = kaynak.split("```");
   // An unclosed fence is plain text: glue the last two parts back together. · Kapanmamış çit düz metindir: son iki parçayı geri birleştir.
   if (bolumler.length % 2 === 0) {
     const son = bolumler.pop() ?? "";
@@ -95,7 +130,10 @@ export function markdownCevir(metin: string, ozelEmoji: Record<string, string> =
     // A block next to a code fence: trim the <br> that only separated them. · Kod çitinin yanındaki blok: yalnızca onları ayıran <br>'ı kırp.
     parcalar.push(cikti.replace(/^(<br>)+|(<br>)+$/g, ""));
   });
-  const html = parcalar.filter((p) => p !== "").join("");
+  let html = parcalar.filter((p) => p !== "").join("");
+  if (korunanHtml.length > 0) {
+    html = html.replace(/\u0001(\d+)\u0001/g, (tam, i: string) => korunanHtml[Number(i)] ?? tam);
+  }
   // Nothing but escaped text and <br> = plain message. · Kaçırılmış metin ve <br>'dan başka bir şey yoksa = düz mesaj.
   const bicimli = /<(?!br>)/.test(html);
   return { metin, html: bicimli ? html : null };

@@ -6,7 +6,7 @@ import { arama } from "./arama.svelte";
 
 export type Sekme = "sohbetler" | "alanlar" | "ben";
 /** Sub-pages under "Ben" · "Ben" altındaki alt sayfalar */
-export type BenAlt = "gorunum" | "sohbet" | "bildirimler" | "guvenlik" | "hakkinda" | "profil" | "hesap";
+export type BenAlt = "gorunum" | "sohbet" | "bildirimler" | "klavye" | "guvenlik" | "hakkinda" | "profil" | "hesap";
 /**
  * Layout by SHAPE, not by width alone (design section 15):
  *  - yatay   = height <= 500px (a landscape phone, even if it is 844px wide): 64px rail, room replaces the list

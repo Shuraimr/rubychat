@@ -257,3 +257,41 @@ Svelte EcKatman (iframe: ec://localhost/element-call/index.html#?...)
 - **Ekran paylaşımı**: Linux'ta EC düğmeyi `getDisplayMedia` varsa gösterir (WebKitGTK ≥ 2.42, portal + PipeWire). Android WebView'de `getDisplayMedia` YOK: EC düğmeyi gizler;
   arayüz yükleme ekranında bunu söyler. Yerel çözüm planı: `docs/arastirma/element-call.md` "Sonraki adım".
 - **Lisans**: EC AGPL-3.0; Ben › Hakkında'da lisans notu + kaynak bağlantısı var. Dağıtıma EC lisans metni ve kaynak bağlantısı konmalı.
+
+## Gönderim kuyruğu ve takılan mesajlar (`matrix/kuyruk.rs`, 2026-11-25)
+
+- SDK bir hatadan sonra odanın kuyruğunu kapatır; "wedged" (takılan) mesaj (dosya çok büyük, yasak…) arkasındaki her şeyi bekletir.
+  `kuyruk::izle` geçici hatalarda kuyruğu artan beklemeyle yeniden açar ve önceki çalışmadan kalan gönderimleri sürdürür.
+- Dosya göndermeden önce `boyut_denetle` sunucunun yükleme sınırına bakar (`m.upload.size`): sınırı aşan dosya kuyruğa HİÇ girmez.
+- Takılan mesaja dokununca `GonderilemediSayfasi` açılır: **Tekrar dene** ya da **Sil** (`vazgec`: yerel yankıyı kaldırır, kuyruğu açar).
+  Böylece bir dosyanın başarısızlığı sonraki mesajları kilitlemez.
+
+## Çoklu hesap (`matrix/hesaplar.rs`, 2026-11-25)
+
+- `hesaplar.json` (gizli bilgi yok) hangi hesapların olduğunu tutar; ilk hesabın verisi uygulamanın veri klasöründe (eski kurulumlarla uyumlu),
+  ötekiler `hesaplar/<id>/` altında. Her hesabın gizli bilgisi `GizliDepo`'da ayrı anahtarla (`gizli_anahtar`).
+- Komutlar: `hesaplari_al`, `hesap_degistir` (eşitlemeyi ve aramayı durdurur, öteki hesabın oturumunu geri yükler). Arayüz: Ben ekranında profil
+  kartının altında `HesapListesi` (geç / hesap ekle); hesap eklerken Giriş ekranında "Geri dön".
+- "Hesaptan çık" artık onay ister (çıkınca tekrar giriş + kurtarma anahtarı gerekir).
+
+## Yerel arama motoru (Linux, `yerel-arama` özelliği, 2026-11-26; DERLENDİ, GERÇEK ARAMADA DENENMEDİ)
+
+WebKitGTK'da `RTCPeerConnection` olmadığı için masaüstü Linux'ta aramalar webview yerine Rust'ta yürür. Android Element Call'da kalır.
+
+```
+YerelArama.svelte ──invoke──▶ matrix/yerel_arama.rs (komutlar) ──▶ motor.rs (aktör görevi, LiveKitCall sahibi)
+       ▲  "yerel-arama" olayı (YerelDurum)                              │ matrix-rtc-call-sdk (motor/) + livekit 0.9.7 (yama: stereo)
+       └── yerel_arama_kare (ham I420, ipc::Response) ◀── video izleme ◀┘ ses.rs: parec/pacat + APM (yankı/gürültü/kazanç), karıştırıcı
+```
+
+- Üyelik `MembershipFormat::RoomState` (Element Call ile uyumlu). Katılınca mikrofon önce susturulmuş yayınlanır, sonra açılır.
+- **Ekran paylaşımı**: portal (libwebrtc DesktopCapturer) → I420, en çok 1080p30, 5 Mbps, simulcast yok (`ekran.rs`). Son kare 1 fps tekrar gönderilir.
+- **Uygulama sesleri ayrı**: paylaşılan her uygulama ayrı stereo iz (`MediaStreamKind::AppAudio(n)`); adları Olm şifreli to-device olayıyla
+  (`dev.rubyyard.rubychat.app_audio`, `{room_id, names}`) gider. İzleyen her sesi Sesler panelinden ayrı ayarlar (%0–200, yalnızca kendi duyduğu).
+  Uygulama listesi `pactl -f json list sink-inputs` (rubychat'in kendi akışları hariç), tek uygulama `parec --monitor-stream=N`.
+- Çalma borusu `F_SETPIPE_SZ` ile 4096 bayta kısaltılır (gecikmeyi ses kartı belirler). `LC_NUMERIC=C` GTK'dan önce ayarlanır (Türkçe yerelde libwebrtc
+  istatistik çıktısı süreci düşürüyordu).
+- **Derleme**: yalnızca Flatpak GNOME SDK 51 + llvm23 eklentisiyle (`flatpak/derle.sh`, denetim `flatpak/denetle.sh`); `LK_CUSTOM_WEBRTC`
+  `src-tauri/target/flatpak/webrtc` varsa indirme yapılmaz. Özellik kapalıyken `yerel_arama.rs` boş bir `motor` modülü kullanır, `yerel_arama_var` = false
+  ve arayüz Element Call'a döner.
+- Figma: sayfa "25 · rubychat arama ekranı" (133:2). Kamera yayını YOK; Element'te uygulama ses adları görünmez (yalnızca izler).

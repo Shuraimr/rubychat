@@ -41,17 +41,21 @@
   import IletSayfasi from "../bilesenler/IletSayfasi.svelte";
   import OkuyanListesi from "../bilesenler/OkuyanListesi.svelte";
   import SabitCubugu from "../bilesenler/SabitCubugu.svelte";
+  import GonderilemediSayfasi from "../bilesenler/GonderilemediSayfasi.svelte";
   import SilOnay from "../bilesenler/SilOnay.svelte";
   import TepkiCubugu from "../bilesenler/TepkiCubugu.svelte";
   import TepkiKimler from "../bilesenler/TepkiKimler.svelte";
+  import TepkiMenusu from "../bilesenler/TepkiMenusu.svelte";
   import VarlikRozeti from "../bilesenler/VarlikRozeti.svelte";
-  import { sil as mesajiSil, sabitle as mesajiSabitle, tepkiVer } from "../mesaj/eylemler";
+  import { mesajaGit } from "../arama-mesaj/atla";
+  import { gercekOlay, iletilebilir, sil as mesajiSil, sabitle as mesajiSabitle, tepkiVer } from "../mesaj/eylemler";
   import { yazma } from "../durum/yazma.svelte";
   import type { Tepki } from "../api/tipler";
   import { arama } from "../durum/arama.svelte";
   import { bildirim } from "../durum/bildirim.svelte";
   import { duzen } from "../durum/duzen.svelte";
   import { klavye, type OdaKlavye } from "../klavyeKisayol.svelte";
+  import { kullaniciKartiAc } from "../durum/kullaniciKarti.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { zaman } from "../durum/zaman.svelte";
   import { t, type Anahtar } from "../i18n";
@@ -82,6 +86,15 @@
   let oncekiIlkId: string | null = null;
   let oncekiSonId: string | null = null;
   let oncekiYukseklik = 0;
+  /** First visible event row captured right before a list DOM update (keeps position across Clear/refill) */
+  /** Liste DOM güncellemesinden hemen önce yakalanan ilk görünür olay satırı (Clear/yeniden doldurmada konumu korur) */
+  let capa: { olayId: string; ust: number } | null = null;
+  /** Consecutive automatic (non-scroll) pagination attempts that did not change the oldest visible row */
+  /** En eski görünür satırı değiştirmeyen ardışık otomatik (kaydırmasız) sayfalama denemeleri */
+  let otoBosSayac = 0;
+  let otoSonIlk: string | null | undefined = undefined;
+  let programatikKaydirma = false;
+  let programatikKonum = 0;
   let okunduZamanlayici: ReturnType<typeof setTimeout> | undefined;
   /** Id of the first unread message, remembered while the room stays open (the SDK marker moves once we mark as read) */
   /** İlk okunmamış mesajın kimliği; oda açıkken hatırlanır (okundu işaretleyince SDK işareti kayar) */
@@ -144,11 +157,91 @@
     if (sonraki && !sonraki.kendi) yeniKilit = sonraki.id;
   });
 
+  /** Sets `scrollTop` programmatically so the resulting `scroll` event is not mistaken for a user scroll.
+   *  `scrollTop`ı programlı ayarlar; oluşan `scroll` olayı kullanıcı kaydırması sanılmasın. */
+  function kaydirAyarla(hedef: number) {
+    if (!kutu) return;
+    const onceki = kutu.scrollTop;
+    kutu.scrollTop = hedef;
+    if (kutu.scrollTop !== onceki) {
+      programatikKaydirma = true;
+      programatikKonum = kutu.scrollTop;
+      requestAnimationFrame(() => (programatikKaydirma = false));
+    }
+  }
+
+  /** First message row visible below the floating header and its top offset inside `kutu`.
+   *  Yüzen başlığın altında görünür ilk mesaj satırı ve `kutu` içindeki üst konumu. */
+  function ilkGorunurOlay(): { olayId: string; ust: number } | null {
+    if (!kutu) return null;
+    const satirlar = kutu.querySelectorAll<HTMLElement>("[data-olay-id]");
+    if (satirlar.length === 0) return null;
+    const kutuUst = kutu.getBoundingClientRect().top;
+    const sinir = kutuUst + untrack(() => tepeYuk);
+    let lo = 0;
+    let hi = satirlar.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (satirlar[mid].getBoundingClientRect().bottom <= sinir) lo = mid + 1;
+      else hi = mid;
+    }
+    const el = satirlar[lo];
+    const olayId = el?.dataset.olayId;
+    if (!el || !olayId) return null;
+    return { olayId, ust: el.getBoundingClientRect().top - kutuUst };
+  }
+
+  /** Event id (or unique id) of the oldest rendered message row, used to stop empty automatic pagination.
+   *  Çizilen en eski mesaj satırının olay kimliği (veya tekil kimliği); boş otomatik sayfalamayı durdurmak için. */
+  function ilkListeOlayi(): string | null {
+    for (const g of gunler) {
+      for (const s of g.satirlar) {
+        if (s.tur === "oge") return s.oge.olayId ?? s.oge.id;
+      }
+    }
+    return null;
+  }
+
+  /** Requests older messages whenever the top buffer is short (scroll, list update or resize).
+   *  Üst tampon kısaldığında eski mesajları ister (kaydırma, liste güncellemesi veya boyut değişimi). */
+  function eskiGerekli(kaydirmadan = false) {
+    if (!kutu || !ilkKaydirmaYapildi || zaman.onbellekten || zaman.yukleniyor || zaman.eskiYukleniyor || zaman.basaUlasildi || zaman.hata || zamanAsimi) return;
+    if (kutu.scrollTop >= Math.max(400, kutu.clientHeight * 1.5)) return;
+    if (!kaydirmadan) {
+      const ilk = ilkListeOlayi();
+      if (otoSonIlk !== undefined && ilk === otoSonIlk) {
+        if (otoBosSayac >= 9) {
+          otoBosSayac = 10;
+          return;
+        }
+        otoBosSayac++;
+      } else {
+        otoBosSayac = 0;
+        otoSonIlk = ilk;
+      }
+    }
+    oncekiYukseklik = kutu.scrollHeight;
+    void zaman.eskileriYukle();
+  }
+
+  // Capture the first visible row BEFORE Svelte mutates the DOM for the next item list.
+  // Svelte sonraki öğe listesi için DOM'u değiştirmeden ÖNCE ilk görünür satırı yakala.
+  $effect.pre(() => {
+    void zaman.ogeler;
+    void yeniKilit;
+    if (!kutu || !ilkKaydirmaYapildi || altaYapisik) {
+      capa = null;
+      return;
+    }
+    capa = ilkGorunurOlay();
+  });
+
   // After every list change: keep the view where the user expects it. · Her liste değişiminden sonra görünümü kullanıcının beklediği yerde tut.
   $effect(() => {
     const ogeler = zaman.ogeler;
     const ilkId = ogeler[0]?.id ?? null;
     const sonId = ogeler.at(-1)?.id ?? null;
+    const anlikCapa = capa;
     void yeniKilit;
 
     // Mark what arrived at the bottom since the last run (not older pages added on top, not the first load).
@@ -177,23 +270,38 @@
         if (yeni) {
           // Open at the first unread message. · İlk okunmamış mesajda aç.
           altaYapisik = false;
-          kutu.scrollTop += yeni.getBoundingClientRect().top - kutu.getBoundingClientRect().top - tepeYuk - 40;
+          kaydirAyarla(kutu.scrollTop + yeni.getBoundingClientRect().top - kutu.getBoundingClientRect().top - tepeYuk - 40);
           // A short room may already show everything: no scroll event will come, so measure. · Kısa oda zaten her şeyi gösteriyor olabilir: kaydırma olayı gelmez, ölç.
           altaYapisik = kutu.scrollHeight - kutu.scrollTop - kutu.clientHeight < 80;
           if (altaYapisik) okunduPlanla();
         } else {
-          kutu.scrollTop = kutu.scrollHeight;
+          kaydirAyarla(kutu.scrollHeight);
         }
       } else if (ilkId !== oncekiIlkId && oncekiIlkId !== null && !altaYapisik) {
-        // Older messages were added on top: keep the same message under the finger. · Üste eski mesajlar eklendi: aynı mesaj parmağın altında kalsın.
-        kutu.scrollTop += kutu.scrollHeight - oncekiYukseklik;
+        // Older messages were added on top or rows were re-created after a Clear: restore the anchored event row,
+        // falling back to the scroll-height delta if no event row was anchored.
+        // Üste eski mesajlar eklendi ya da Clear sonrası satırlar yeniden kuruldu: çapalanan olay satırını geri koy,
+        // çapalanan olay satırı yoksa yükseklik farkına düş.
+        const el = anlikCapa ? kutu.querySelector<HTMLElement>(`[data-olay-id="${CSS.escape(anlikCapa.olayId)}"]`) : null;
+        if (el && anlikCapa) {
+          const duzelt = () => {
+            const yeniUst = el.getBoundingClientRect().top - kutu!.getBoundingClientRect().top;
+            const fark = yeniUst - anlikCapa.ust;
+            if (Math.abs(fark) > 0.5) kaydirAyarla(kutu!.scrollTop + fark);
+            return Math.abs(fark);
+          };
+          if (duzelt() > 200) duzelt();
+        } else {
+          kaydirAyarla(kutu.scrollTop + (kutu.scrollHeight - oncekiYukseklik));
+        }
       } else if (altaYapisik) {
-        kutu.scrollTop = kutu.scrollHeight;
+        kaydirAyarla(kutu.scrollHeight);
       }
       oncekiIlkId = ilkId;
       oncekiYukseklik = kutu.scrollHeight;
       altaGorunur = altaYapisik;
       if (altaYapisik) sonGorulenId = sonId;
+      eskiGerekli();
     });
     if (altaYapisik) okunduPlanla();
   });
@@ -204,7 +312,8 @@
     const g = new ResizeObserver(() => {
       if (!kutu) return;
       kutuBoyu = kutu.clientHeight - altYuk;
-      if (altaYapisik) kutu.scrollTop = kutu.scrollHeight;
+      if (altaYapisik) kaydirAyarla(kutu.scrollHeight);
+      eskiGerekli();
     });
     g.observe(kutu);
     // Late images make the content taller · Geç yüklenen görseller içeriği uzatır
@@ -221,14 +330,20 @@
 
   function kaydir() {
     if (!kutu) return;
+    const kullanici = !programatikKaydirma || Math.abs(kutu.scrollTop - programatikKonum) > 2;
+    programatikKaydirma = false;
     const alttaydi = altaYapisik;
     // The box itself changed size (keyboard, emoji panel): this is not the user scrolling away, stay glued. · Kutunun boyu değişti (klavye, emoji paneli): kullanıcı kaydırmadı, yapışık kal.
     if (kutu.clientHeight - altYuk !== kutuBoyu) {
       kutuBoyu = kutu.clientHeight - altYuk;
       if (altaYapisik) {
-        kutu.scrollTop = kutu.scrollHeight;
+        kaydirAyarla(kutu.scrollHeight);
         return;
       }
+    }
+    if (kullanici) {
+      otoBosSayac = 0;
+      otoSonIlk = undefined;
     }
     // Two thresholds, so the button does not flicker at the edge. · İki eşik; düğme sınırda titremesin.
     altaYapisik = kutu.scrollHeight - kutu.scrollTop - kutu.clientHeight < (alttaydi ? 160 : 60);
@@ -237,11 +352,7 @@
       sonGorulenId = zaman.ogeler.at(-1)?.id ?? null;
       if (!alttaydi) okunduPlanla();
     }
-    // The next page is asked for well before the end is reached. · Sonraki sayfa sona varmadan çok önce istenir.
-    if (kutu.scrollTop < Math.max(400, kutu.clientHeight * 1.5)) {
-      oncekiYukseklik = kutu.scrollHeight;
-      zaman.eskileriYukle();
-    }
+    eskiGerekli(kullanici);
   }
 
   function asagiIn() {
@@ -253,11 +364,11 @@
     kutu.scrollTo({ top: kutu.scrollHeight, behavior: hareket ? "smooth" : "instant" });
   }
 
-  async function gonder(metin: string, html: string | null, yanitOlayId: string | null) {
+  async function gonder(metin: string, html: string | null, yanitOlayId: string | null, bahsedilenler: string[] = [], odaBahset = false) {
     altaYapisik = true;
     kendiGonderildi = true;
     try {
-      await zaman.gonder(metin, html, yanitOlayId);
+      await zaman.gonder(metin, html, yanitOlayId, bahsedilenler, odaBahset);
     } catch (e) {
       bildirim.goster(t(`hata.${(e as { tur: string }).tur}` as Anahtar), 4000, { tur: "hata" });
     }
@@ -271,6 +382,24 @@
     }
   }
 
+  async function vazgec(oge: ZamanOgesi) {
+    try {
+      await zaman.vazgec(oge.id);
+    } catch {
+      bildirim.goster(t("hata.diger"), 4000, { tur: "hata" });
+    }
+  }
+
+  // Ask once per failed message; `sorulan` is not reactive on purpose. · Başarısız mesaj başına bir kez sor; `sorulan` bilerek reaktif değil.
+  let basarisizHedef = $state<ZamanOgesi | null>(null);
+  const sorulan = new Set<string>();
+  $effect(() => {
+    const b = zaman.ogeler.find((o) => o.kendi && o.durum === "hata" && !sorulan.has(o.id));
+    if (!b || untrack(() => basarisizHedef)) return;
+    sorulan.add(b.id);
+    basarisizHedef = b;
+  });
+
   // ---- Layers owned by the room: info, members, customize sheet, in-chat search · Odanın sahip olduğu katmanlar: bilgi, üyeler, özelleştir sayfası, sohbet içi arama ----
   let bilgiAcik = $state(false);
   let uyelerAcik = $state(false);
@@ -282,6 +411,7 @@
 
   // ---- Context menu: only actions that really work · Bağlam menüsü: yalnızca gerçekten çalışan eylemler ----
   let menu = $state<{ x: number; y: number; oge: ZamanOgesi } | null>(null);
+  let hizliTepki = $state<{ x: number; y: number; oge: ZamanOgesi } | null>(null);
   // Sheets opened from the menu · Menüden açılan sayfalar
   let tepkiSecici = $state<ZamanOgesi | null>(null);
   let tepkiKimlerHedef = $state<{ oge: ZamanOgesi; anahtar: string } | null>(null);
@@ -310,10 +440,6 @@
     }
   }
 
-  /** A real, delivered event (not a deleted / undecryptable message or a system line): reactions, replies, pins and forwards need an event id. · Gerçek, ulaşmış olay (silinmiş / çözülemeyen mesaj ya da sistem satırı değil): tepki, yanıt, sabitleme ve iletme olay kimliği ister. */
-  const gercekOlay = (o: ZamanOgesi) => !!o.olayId && o.durum === "gonderildi" && !["silindi", "sifre_cozulemedi", "arama"].includes(o.tur);
-  const iletilebilir = (o: ZamanOgesi) => ["metin", "resim", "video", "dosya"].includes(o.tur);
-
   function eylemleriKur(oge: ZamanOgesi): MenuEylemi[] {
     const liste: MenuEylemi[] = [];
     const gercek = gercekOlay(oge);
@@ -329,40 +455,89 @@
     if (oge.okuyanlar.length > 0) liste.push({ ikon: "tikCift", etiket: t("menu.gorenler", { n: oge.okuyanlar.length }), calistir: () => (okuyanHedef = oge) });
     if (gercek) liste.push({ ikon: "dosya", etiket: t("menu.mesajBaglantisi"), calistir: () => void panoya(`https://matrix.to/#/${encodeURIComponent(odaId)}/${encodeURIComponent(oge.olayId!)}`) });
     if (oge.kendi && oge.durum === "hata") liste.push({ ikon: "yenile", etiket: t("eylem.yenidenDene"), calistir: () => void yenidenDene(oge.id) });
+    if (oge.kendi && !oge.olayId && oge.durum !== "gonderildi") liste.push({ ikon: "cop", etiket: oge.durum === "hata" ? t("menu.sil") : t("gonderilemedi.iptal"), tehlike: true, calistir: () => void vazgec(oge) });
     if (oge.silinebilir) liste.push({ ikon: "cop", etiket: t("menu.sil"), tehlike: true, calistir: () => (silHedef = oge) });
     return liste;
   }
   const menuEylemleri = $derived(menu ? eylemleriKur(menu.oge) : []);
   const menuTepkiler = $derived(new Set(menu?.oge.tepkiler.filter((r) => r.benim).map((r) => r.anahtar) ?? []));
+  const hizliTepkiTepkiler = $derived(new Set(hizliTepki?.oge.tepkiler.filter((r) => r.benim).map((r) => r.anahtar) ?? []));
+  const seciliOge = $derived(klavye.seciliId ? zaman.ogeler.find((o) => o.olayId === klavye.seciliId) ?? null : null);
 
   function menuAc(x: number, y: number, oge: ZamanOgesi) {
     if (eylemleriKur(oge).length === 0 && !gercekOlay(oge)) return;
     menu = { x, y, oge };
   }
 
+  /** Event id currently in view (selected row, else newest when at bottom, else centred visible row) for Ctrl+O. */
+  /** Ctrl+O için şu an bakılan olay kimliği (seçili satır, yoksa en alttayken en yeni, yoksa ortadaki görünür satır). */
+  function mevcutKonum(): string | null {
+    if (klavye.seciliId) return klavye.seciliId;
+    if (!kutu) return null;
+    const satirlar = [...kutu.querySelectorAll<HTMLElement>(".satir[data-olay-id]")];
+    if (satirlar.length === 0) return null;
+    if (altaYapisik) return satirlar.at(-1)?.dataset.olayId ?? null;
+    const kr = kutu.getBoundingClientRect();
+    const orta = (kr.top + untrack(() => tepeYuk) + kr.bottom - untrack(() => altYuk)) / 2;
+    let enYakin: HTMLElement | null = null;
+    let enAz = Infinity;
+    for (const s of satirlar) {
+      const r = s.getBoundingClientRect();
+      const d = Math.abs((r.top + r.bottom) / 2 - orta);
+      if (d < enAz) {
+        enAz = d;
+        enYakin = s;
+      }
+    }
+    return enYakin?.dataset.olayId ?? null;
+  }
+
   // Keyboard shortcuts act on the open room through this. · Klavye kısayolları açık odada bununla iş görür.
   $effect(() => {
-    const bul = (id: string) => zaman.ogeler.find((o) => o.olayId === id);
     const k: OdaKlavye = {
+      odaId: buOda,
       kutu: () => kutu,
-      ara: () => (aramaAcik = true),
-      bilgi: () => (bilgiAcik = true),
+      seciliOge: () => seciliOge,
+      konum: mevcutKonum,
+      enYeniId: () => {
+        for (let i = zaman.ogeler.length - 1; i >= 0; i--) {
+          if (zaman.ogeler[i].olayId) return zaman.ogeler[i].olayId;
+        }
+        return null;
+      },
+      aramaAcik: () => aramaAcik,
+      sabitleyebilir: () => zaman.sabitleyebilir,
+      ara: () => {
+        if (aramaAcik) document.querySelector<HTMLInputElement>('.oda .cubuk input[type="search"]')?.focus();
+        else aramaAcik = true;
+      },
       enAlta: asagiIn,
-      menu: (id, x, y) => {
-        const o = bul(id);
-        if (o) menuAc(x, y, o);
+      olayaAtla: (olayId) => void mesajaGit(buOda, olayId, false),
+      menu: (o, x, y) => menuAc(x, y, o),
+      menuVar: (o) => eylemleriKur(o).length > 0 || gercekOlay(o),
+      yanitla: (o) => {
+        if (gercekOlay(o)) yazma.yanitla(o);
       },
-      yanitla: (id) => {
-        const o = bul(id);
-        if (o && gercekOlay(o)) yazma.yanitla(o);
+      duzenle: (o) => {
+        if (o.duzenlenebilir) yazma.duzenleBaslat(o);
       },
-      duzenle: (id) => {
-        const o = bul(id);
-        if (o?.duzenlenebilir) yazma.duzenleBaslat(o);
+      sil: (o) => {
+        if (o.silinebilir) silHedef = o;
       },
-      kopyala: (id) => {
-        const o = bul(id);
-        if (o?.metin) void panoya(o.metin);
+      tepki: (o, x, y) => {
+        if (gercekOlay(o)) hizliTepki = { x, y, oge: o };
+      },
+      kopyala: (o) => {
+        if (o.metin) void panoya(o.metin);
+      },
+      sabitle: (o) => {
+        if (gercekOlay(o) && zaman.sabitleyebilir) void mesajiSabitle(o, !o.sabit);
+      },
+      ilet: (o) => {
+        if (gercekOlay(o) && iletilebilir(o)) iletHedef = o;
+      },
+      profil: (o) => {
+        if (o.gonderen) kullaniciKartiAc(o.gonderen, buOda, o.gonderenAd, o.gonderenAvatarMxc);
       },
     };
     klavye.oda = k;
@@ -461,7 +636,7 @@
     {#if !gezinme.genis}
       <button class="simge-dugme geri" aria-label={t("oda.geri")} onclick={() => gezinme.odaKapat()}><Ikon ad="geri" /></button>
     {:else if duzen.listeGizli}
-      <button class="simge-dugme geri" aria-label={t("klavye.listeAc")} title="{t("klavye.listeAc")} (Ctrl+E)" onclick={() => duzen.degistir()}><Ikon ad="yanPanel" /></button>
+      <button class="simge-dugme geri" aria-label={t("klavye.listeAc")} title="{t("klavye.listeAc")} (Ctrl+B)" onclick={() => duzen.degistir()}><Ikon ad="yanPanel" /></button>
     {/if}
     <!-- Tap = room info, long press = customize sheet (both tactile) · Dokun = oda bilgisi, uzun bas = özelleştir sayfası (ikisi de dokunsal) -->
     {#if bilgi}
@@ -532,11 +707,11 @@
           {#each gunler as gun (gun.id)}
             <section class="gun">
               {#if gun.zaman !== null}<div class="tarih"><span>{gunEtiketi(gun.zaman)}</span></div>{/if}
-              {#each gun.satirlar as s, i (s.tur === "oge" ? s.oge.id : `yeni-${i}`)}
+              {#each gun.satirlar as s (s.tur === "oge" ? s.oge.id : "__yeni__")}
                 {#if s.tur === "yeni"}
                   <div class="yeni" data-yeni><span>{t("oda.yeniMesajlar")}</span></div>
                 {:else}
-                  <MesajBalonu oge={s.oge} konum={konumu(s)} uzak={s.uzak} gonderenGoster={grupOdasi} yeni={!!yeniGelenler[s.oge.id]} vurgulu={menu?.oge.id === s.oge.id} eslesme={aramaAcik && !!aktifOlay && s.oge.olayId === aktifOlay} vurguSorgu={aramaAcik ? aramaSorgu : ""} dm={aranabilir} okundu={okunanlar.has(s.oge.id)} yanitla={(o) => yazma.yanitla(o)} {tepkiKimleri} okuyanlarAc={(o) => (okuyanHedef = o)} {yenidenDene} {menuAc} />
+                  <MesajBalonu oge={s.oge} konum={konumu(s)} uzak={s.uzak} gonderenGoster={grupOdasi} yeni={!!yeniGelenler[s.oge.id]} vurgulu={menu?.oge.id === s.oge.id || hizliTepki?.oge.id === s.oge.id} secili={!!s.oge.olayId && klavye.seciliId === s.oge.olayId} eslesme={aramaAcik && !!aktifOlay && s.oge.olayId === aktifOlay} vurguSorgu={aramaAcik ? aramaSorgu : ""} dm={aranabilir} okundu={okunanlar.has(s.oge.id)} yanitla={(o) => yazma.yanitla(o)} {tepkiKimleri} okuyanlarAc={(o) => (okuyanHedef = o)} {yenidenDene} vazgec={(o) => void vazgec(o)} {menuAc} />
                 {/if}
               {/each}
             </section>
@@ -552,7 +727,7 @@
   {#if aramaAcik}
     <OdaIciArama {odaId} onkapat={() => (aramaAcik = false)} bind:aktifOlay bind:sorgu={aramaSorgu} />
   {:else}
-    <YazmaAlani {odaId} sifreli={bilgi?.sifreli ?? false} {gonder} altta={altaGorunur} {yeniSayi} enAlta={asagiIn} bind:yukseklik={altYuk} />
+    <YazmaAlani {odaId} sifreli={bilgi?.sifreli ?? false} {gonder} altta={altaGorunur} {yeniSayi} enAlta={asagiIn} {seciliOge} bind:yukseklik={altYuk} />
   {/if}
 
   {#if bilgiAcik}
@@ -585,6 +760,17 @@
 {#if menu && (menuEylemleri.length > 0 || gercekOlay(menu.oge))}
   <BaglamMenusu x={menu.x} y={menu.y} eylemler={menuEylemleri} ust={gercekOlay(menu.oge) ? tepkiUst : undefined} onizleme={{ ad: menu.oge.kendi ? t("menu.sen") : menu.oge.gonderenAd, zaman: saatYaz(menu.oge.zaman), metin: ozet(menu.oge) }} onkapat={() => (menu = null)} />
 {/if}
+{#if hizliTepki}
+  {@const hedef = hizliTepki.oge}
+  <TepkiMenusu
+    x={hizliTepki.x}
+    y={hizliTepki.y}
+    benim={hizliTepkiTepkiler}
+    sec={(e) => void tepkiVer(hedef, e)}
+    dahaFazla={() => (tepkiSecici = hedef)}
+    onkapat={() => (hizliTepki = null)}
+  />
+{/if}
 
 {#if tepkiSecici}
   {@const hedef = tepkiSecici}
@@ -597,6 +783,10 @@
 {#if silHedef}
   {@const hedef = silHedef}
   <SilOnay baskasininki={!hedef.kendi} onay={() => void mesajiSil(hedef)} onkapat={() => (silHedef = null)} />
+{/if}
+{#if basarisizHedef}
+  {@const b = basarisizHedef}
+  <GonderilemediSayfasi oge={b} yeniden={() => void yenidenDene(b.id)} sil={() => void vazgec(b)} onkapat={() => (basarisizHedef = null)} />
 {/if}
 {#if iletHedef}<IletSayfasi oge={iletHedef} {odaId} onkapat={() => (iletHedef = null)} />{/if}
 

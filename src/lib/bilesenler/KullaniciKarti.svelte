@@ -74,8 +74,7 @@
 
   function bahset() {
     if (!hedef || !odaId) return;
-    const eski = odalar.taslaklar[odaId] ?? "";
-    odalar.taslakYaz(odaId, `${eski}${eski && !eski.endsWith(" ") ? " " : ""}@${ad} `);
+    odalar.taslakBahisEkle(odaId, hedef.kullaniciId, ad);
     const id = odaId;
     kapat();
     gezinme.odaAc(id);

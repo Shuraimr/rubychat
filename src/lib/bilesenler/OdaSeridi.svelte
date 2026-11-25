@@ -26,7 +26,7 @@
 </script>
 
 <nav class="serit" aria-label={t("gezinme.baslik")}>
-  <button class="uc" class:aktif={acik && gezinme.sekme === "sohbetler"} aria-label={t("gezinme.sohbetler")} title="{t("gezinme.sohbetler")} (Ctrl+E)" aria-expanded={duzen.cekmece} onclick={() => ac("sohbetler")}><Ikon ad="yanPanel" boyut={22} /></button>
+  <button class="uc" class:aktif={acik && gezinme.sekme === "sohbetler"} aria-label={t("gezinme.sohbetler")} title="{t("gezinme.sohbetler")} (Ctrl+B)" aria-expanded={duzen.cekmece} onclick={() => ac("sohbetler")}><Ikon ad="yanPanel" boyut={22} /></button>
   <div class="odalar">
     {#each satirlar as o (o.id)}
       <button class="oda" class:secili={gezinme.acikOdaId === o.id} title={o.ad} aria-label={o.okunmamis > 0 ? `${o.ad}, ${t("sohbetler.okunmamisSayi", { n: o.okunmamis })}` : o.ad} aria-current={gezinme.acikOdaId === o.id ? "page" : undefined} onclick={() => gezinme.odaAc(o.id, true)}>

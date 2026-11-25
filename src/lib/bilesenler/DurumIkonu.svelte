@@ -13,12 +13,12 @@
 
   /** `okundu`: in a 1:1 chat the other person has read it → double tick · 1:1 sohbette karşı kişi okudu → çift tik */
   let { durum, okundu = false }: { durum: GonderimDurumu; okundu?: boolean } = $props();
-  const ad = $derived(durum === "gonderiliyor" ? t("oda.gonderiliyor") : durum === "hata" ? t("oda.gonderilemedi") : okundu ? t("okundu.okundu") : t("oda.gonderildi"));
+  const ad = $derived(durum === "gonderiliyor" ? t("oda.gonderiliyor") : durum === "bekliyor" ? t("oda.baglantiBekliyor") : durum === "hata" ? t("oda.gonderilemedi") : okundu ? t("okundu.okundu") : t("oda.gonderildi"));
 </script>
 
 {#key `${durum}${okundu}`}
   <span class="durum" class:hata={durum === "hata"} role="img" aria-label={ad}>
-    <Ikon ad={durum === "gonderiliyor" ? "saat" : durum === "hata" ? "uyari" : okundu ? "tikCift" : "onay"} boyut={14} />
+    <Ikon ad={durum === "gonderiliyor" || durum === "bekliyor" ? "saat" : durum === "hata" ? "uyari" : okundu ? "tikCift" : "onay"} boyut={14} />
   </span>
 {/key}
 

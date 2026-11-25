@@ -28,6 +28,10 @@ src/lib/bilesenler/          Avatar, Ikon, SohbetSatiri, MesajBalonu, YazmaAlani
 src/lib/i18n/                t() + tr.ts
 src/styles/                  tokens.css (rubyyard değişkenleri), temel.css
 src-tauri/src/               lib, komutlar, durum, hata, tipler, gizli_depo (GizliDepo: keyring / Android Keystore), matrix/{oturum,esitleme,odalar,zaman,arama,sifreleme}, medya.rs (medya:// şeması)
+                             matrix/hesaplar.rs (çoklu hesap, hesaplar.json), matrix/kuyruk.rs (gönderim kuyruğu: takılan mesaj, boyut sınırı)
+                             matrix/yerel_arama{.rs,/motor.rs,/ses.rs,/ekran.rs} (Linux yerel arama motoru; cargo özelliği `yerel-arama`)
+src/lib/arama-ec/            Element Call (iframe) + YerelArama.svelte / YerelVideo.svelte (yerel motorun arayüzü)
+motor/                       matrix-rust-rtc (AGPL) ağaç içi kopya + yama/livekit (stereo); yalnızca `yerel-arama` özelliğiyle derlenir
 src-tauri/gen/android/.../GizliKasa.kt  Android Keystore yardımcısı (Rust'tan JNI ile çağrılır; adı/imzası gizli_depo.rs ile eşleşmeli)
 ```
 

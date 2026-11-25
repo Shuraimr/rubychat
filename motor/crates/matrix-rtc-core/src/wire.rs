@@ -1,0 +1,98 @@
+// Copyright 2026 Element Creations Ltd.
+//
+// SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+// Please see LICENSE in the repository root for full details.
+
+//! Stable-to-unstable event type mapping for bindings without ruma.
+//!
+//! The core speaks the stable MSC4143 identifiers (`m.rtc.member`,
+//! `m.rtc.slot`) everywhere, because that is what the MSC will land as. Nothing
+//! deployed answers to them yet: Element Call, the SFU and every other client
+//! publish and match on the unstable `org.matrix.msc4143.*` ids, so a
+//! membership put on the wire as `m.rtc.member` is invisible to peers.
+//!
+//! Bindings must therefore translate on the way out. The `matrix-sdk` host does
+//! it through ruma's alias table (`matrix-rtc-matrix-sdk`'s `sdk::wire_event_type`);
+//! the FFI and WASM bindings hand event types to a native SDK that passes the
+//! string through verbatim, and neither has ruma to ask — they call
+//! [`wire_event_type`]
+//! instead. Keep the two in sync: when ruma flips to the stable ids after FCP,
+//! this table becomes the identity mapping and can go away.
+//!
+//! Only the outbound direction needs it. Inbound, the core accepts both
+//! spellings (see `RawStickyEvent::validate`), so peers on either id are seen.
+
+/// Translate a core event type to the identifier that goes on the wire.
+///
+/// Types the table does not know pass through untouched, so a host can route
+/// its own event types through the same command callbacks.
+pub fn wire_event_type(event_type: &str) -> &str {
+    match event_type {
+        "m.rtc.member" => "org.matrix.msc4143.rtc.member",
+        "m.rtc.slot" => "org.matrix.msc4143.rtc.slot",
+        // MSC4143 names Element Call's key type as the unstable id, so the
+        // room-state format's legacy key shape travels under the same type.
+        "m.rtc.encryption_key" => "io.element.call.encryption_keys",
+        // The room-state format's notification and the MSC format's invite
+        // both travel under MSC4075's unstable id; only the content differs.
+        "m.rtc.notification" | "m.rtc.invite" => "org.matrix.msc4075.rtc.notification",
+        "m.rtc.decline" => "org.matrix.msc4310.rtc.decline",
+        other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{KEY_MESSAGE_TYPE, SLOT_EVENT_TYPE};
+
+    #[test]
+    fn maps_the_types_the_core_sends() {
+        assert_eq!(
+            wire_event_type("m.rtc.member"),
+            "org.matrix.msc4143.rtc.member"
+        );
+        assert_eq!(
+            wire_event_type(SLOT_EVENT_TYPE),
+            "org.matrix.msc4143.rtc.slot"
+        );
+        // MSC4075, not MSC4143: notifications are their own proposal.
+        assert_eq!(
+            wire_event_type("m.rtc.notification"),
+            "org.matrix.msc4075.rtc.notification"
+        );
+        assert_eq!(
+            wire_event_type(KEY_MESSAGE_TYPE),
+            "io.element.call.encryption_keys"
+        );
+        // Spec 038 R26.
+        assert_eq!(
+            wire_event_type("m.rtc.invite"),
+            "org.matrix.msc4075.rtc.notification"
+        );
+        assert_eq!(
+            wire_event_type("m.rtc.decline"),
+            "org.matrix.msc4310.rtc.decline"
+        );
+    }
+
+    #[test]
+    fn leaves_unknown_types_alone() {
+        assert_eq!(wire_event_type("com.example.custom"), "com.example.custom");
+    }
+
+    #[test]
+    fn is_idempotent() {
+        for stable in [
+            "m.rtc.member",
+            SLOT_EVENT_TYPE,
+            KEY_MESSAGE_TYPE,
+            "m.rtc.notification",
+            "m.rtc.invite",
+            "m.rtc.decline",
+        ] {
+            let once = wire_event_type(stable);
+            assert_eq!(wire_event_type(once), once);
+        }
+    }
+}

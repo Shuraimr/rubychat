@@ -1,0 +1,2299 @@
+// Copyright 2026 Element Creations Ltd.
+//
+// SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+// Please see LICENSE in the repository root for full details.
+
+//! Core MatrixRTC domain crate.
+//!
+//! This crate keeps platform-agnostic RTC behavior and receives data through DTOs
+//! (`RawStickyEvent`, `StickyEventsUpdate`). DTOs are used on purpose so the core
+//! is decoupled from SDK-specific event types (JS SDK objects, FFI structs, etc.).
+
+mod base_rtc_room;
+mod client;
+pub mod compat;
+mod encryption;
+mod error;
+pub mod executor;
+pub mod feeder;
+mod host;
+mod join;
+mod maybe_send;
+mod membership_listener;
+pub mod outbox;
+mod own_membership;
+mod session;
+mod slot;
+mod support;
+mod transport;
+mod upkeep;
+mod wire;
+
+/// The SDK release version (the workspace version every crate shares), for a
+/// host to show or attach to its log reports.
+pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub use base_rtc_room::BaseRtcRoom;
+pub use client::{BaseRoom, BaseRtcClient, BaseRtcRoomHandle, OpenError, RoomOptions};
+pub use encryption::types::{
+    EncryptionConfig, InboundEncryptionKey, KeyMaterialSignal, KeyOrigin, KeyRejection,
+    OutboundEncryptionKey, OutdatedKeyFilter, ParticipantDeviceInfo, ReceivedEncryptionKey,
+};
+pub use encryption::{
+    DiscardedKey, EncryptionKeySignalHandler, EncryptionManager, IdentitySubject, KEY_MESSAGE_TYPE,
+    RtcClock, RtcIdentityMapper,
+};
+pub use error::{CommandError, JoinError, LeaveError};
+pub use host::application::ApplicationIntake;
+pub use host::backend::{
+    BackendError, EventEncryption, EventIn, LiveKitTokenRequest, MatrixBackend, OpenIdToken,
+    RoomSink, RoomSubjects, Subscription, ToDeviceDelivery, ToDeviceMessageIn, ToDeviceRecipient,
+    ToDeviceSink,
+};
+pub use host::event::{
+    EventConversionError, EventOrigin, RawStickyEvent, RawStickyEventContent, RawStickyEventUpdate,
+    RawTimelineEvent, RelationsRequest, StickyEventsUpdate,
+};
+pub use join::{
+    DEFAULT_JOIN_BUDGET_MS, DEFAULT_KEEP_ALIVE_INTERVAL_MS, DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
+    JoinSessionParams, LeaveSessionParams, ROOM_APPLICATION_SLOT_ID, TransportIntent,
+    generate_member_id, slot_id_of,
+};
+pub use maybe_send::MaybeSend;
+pub use membership_listener::MembershipListener;
+pub use outbox::{Outbox, SendFailure, SendKind, SendPolicy, SignallingHealth, SlotKey};
+pub use own_membership::{
+    DelayedLeaveSupport, KeepAliveInfo, MembershipTimings, OwnMembershipMachine,
+    OwnMembershipState, transport_to_json,
+};
+pub use session::{
+    ApplicationInfo, DELAYED_LEAVE_HOLD, JoinedMembership, LeaveCode, LeaveReason, LeftMembership,
+    MemberInfo, Membership, PendingLeave, RtcMembershipEvent, SlotSession,
+};
+pub use slot::{
+    EncryptionMechanism, MAX_SLOT_ID_BYTES, OpenSlot, RawSlotEvent, RawSlotEventContent,
+    RoomEncryption, SLOT_EVENT_TYPE, SlotEncryption, SlotState, SlotStatus, validate_slot_id,
+};
+pub use support::{MscRequirement, MscSupport, msc_support};
+pub use transport::{
+    LEGACY_LIVEKIT_TYPE, LiveKitAuthFlow, LiveKitTransport, MIN_MEDIA_KEY_LEN, MSC_LIVEKIT_TYPE,
+    MemberTransports, RawRtcTransport, RtcTransport, UnsupportedTransport, server_name_of,
+};
+pub use wire::wire_event_type;
+
+/// Test doubles for crates built on the core, behind the `testing` feature.
+#[cfg(feature = "testing")]
+pub mod testing {
+    pub use crate::host::backend::{
+        MockBackend, MockCall, MockMethod, MockOutcome, MockRoomSubscription,
+        MockToDeviceSubscription,
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::host::backend::NoopBackend;
+    use std::sync::Arc;
+
+    const ROOM_ID: &str = "!room:example.org";
+    const EVENT_TYPE_RTC_MEMBER: &str = "m.rtc.member";
+
+    fn sticky_event(
+        sender: &str,
+        slot_id: &str,
+        sticky_key: &str,
+        application_type: Option<&str>,
+        member: MemberInfo,
+        leave_reason: Option<LeaveReason>,
+    ) -> RawStickyEvent {
+        RawStickyEvent {
+            room_id: ROOM_ID.to_owned(),
+            event_id: None,
+            sender: sender.to_owned(),
+            origin: EventOrigin::Cleartext,
+            event_type: EVENT_TYPE_RTC_MEMBER.to_owned(),
+            origin_server_ts: None,
+            content: RawStickyEventContent {
+                slot_id: slot_id.to_owned(),
+                sticky_key: sticky_key.to_owned(),
+                application: ApplicationInfo {
+                    application_type: application_type.map(str::to_owned),
+                    extra: std::collections::BTreeMap::new(),
+                },
+                member,
+                transports: None,
+                leave_reason,
+                created_ts: None,
+            },
+        }
+    }
+
+    fn joined_event(sender: &str, slot_id: &str, sticky_key: &str) -> RawStickyEvent {
+        sticky_event(
+            sender,
+            slot_id,
+            sticky_key,
+            Some("m.call"),
+            MemberInfo {
+                id: Some(sticky_key.to_owned()),
+                membership: Some(Membership::Join),
+            },
+            None,
+        )
+    }
+
+    #[allow(dead_code)]
+    fn left_event(sender: &str, slot_id: &str, sticky_key: &str) -> RawStickyEvent {
+        sticky_event(
+            sender,
+            slot_id,
+            sticky_key,
+            None,
+            MemberInfo {
+                id: Some(sticky_key.to_owned()),
+                membership: Some(Membership::Leave),
+            },
+            Some(LeaveReason::new(LeaveCode::Leave)),
+        )
+    }
+
+    fn slot_event(slot_id: &str, json: &str) -> RawSlotEvent {
+        RawSlotEvent {
+            room_id: ROOM_ID.to_owned(),
+            slot_id: slot_id.to_owned(),
+            content: serde_json::from_str(json).expect("slot content must parse"),
+        }
+    }
+
+    fn open_call_slot() -> RawSlotEvent {
+        slot_event(
+            "m.call#room",
+            r#"{ "status": "open", "application": { "type": "m.call" } }"#,
+        )
+    }
+
+    /// An open slot prescribing MSC4143 per-member media keys, so joining it in
+    /// an encrypted room turns key distribution on.
+    fn encrypted_call_slot() -> RawSlotEvent {
+        slot_event(
+            "m.call#room",
+            r#"{ "status": "open",
+                 "application": { "type": "m.call" },
+                 "encryption": { "type": "m.per_member" } }"#,
+        )
+    }
+
+    /// Joins as alice under an explicit `member_id`, so a leave/rejoin pair can
+    /// be told apart in the assertions.
+    /// The account these tests join as: the backend's, as every join's is.
+    fn alice_backend() -> Arc<crate::host::backend::MockBackend> {
+        let mut backend = crate::host::backend::MockBackend::new();
+        backend.user_id = "@alice:example.org".to_owned();
+        backend.device_id = "ALICEDEV".to_owned();
+        Arc::new(backend)
+    }
+
+    async fn join_as(
+        room: &mut BaseRtcRoom<crate::host::backend::MockBackend>,
+        member_id: &str,
+    ) -> String {
+        let mut params = JoinSessionParams::application("m.call").transport(RtcTransport::LiveKit(
+            LiveKitTransport::sfu("wss://sfu.example.com"),
+        ));
+        params.membership_id = Some(member_id.to_owned());
+        room.join(params).await.expect("join should succeed")
+    }
+
+    /// Feeds the current sticky state containing one peer, the way a host does.
+    async fn admit_peer(
+        room: &mut BaseRtcRoom<crate::host::backend::MockBackend>,
+        user_id: &str,
+        device_id: &str,
+        member_id: &str,
+    ) {
+        let event = RawStickyEvent {
+            origin: EventOrigin::encrypted(Some(device_id.to_owned())),
+            ..joined_event(user_id, "m.call#room", member_id)
+        };
+        room.set_current_sticky_state(vec![event]).await.unwrap();
+    }
+
+    async fn leave_call(room: &mut BaseRtcRoom<crate::host::backend::MockBackend>) {
+        room.leave("m.call#room", LeaveSessionParams::new())
+            .await
+            .expect("leave should succeed");
+    }
+
+    fn joined_memberships(
+        room: &BaseRtcRoom<crate::host::backend::MockBackend>,
+    ) -> Vec<crate::session::JoinedMembership> {
+        room.subscribe_membership_snapshots("m.call#room")
+            .expect("the session should exist")
+            .borrow()
+            .clone()
+    }
+
+    async fn encrypted_call_room(
+        sender: Arc<crate::host::backend::MockBackend>,
+    ) -> BaseRtcRoom<crate::host::backend::MockBackend> {
+        let mut room = BaseRtcRoom::with_backend(ROOM_ID, sender);
+        room.on_encryption_received(true).await;
+        room.on_slots_received(vec![encrypted_call_slot()]).await;
+        room
+    }
+
+    /// 034 through a room's upkeep, the path every host takes: recovery on
+    /// the health transition, the catch-up republish, the lapse.
+    mod resilience {
+        use super::*;
+        use crate::host::backend::{BackendError, MockBackend, MockMethod, MockOutcome};
+        use std::time::Duration;
+
+        const T0_MS: u64 = 1_000_000_000;
+
+        fn fail() -> MockOutcome {
+            MockOutcome::Fail(BackendError::new("offline"))
+        }
+
+        /// A room whose client outbox, and so whose machines, keep paused
+        /// tokio time.
+        async fn room(mock: &Arc<MockBackend>) -> (BaseRtcRoom<MockBackend>, Outbox) {
+            let origin = tokio::time::Instant::now();
+            let outbox = Outbox::with_clock(Arc::new(move || {
+                T0_MS + origin.elapsed().as_millis() as u64
+            }));
+            let mut room =
+                BaseRtcRoom::with_backend(ROOM_ID, mock.clone()).with_outbox(outbox.clone());
+            room.on_slots_received(vec![open_call_slot()]).await;
+            (room, outbox)
+        }
+
+        fn own_event(event_id: &str) -> RawStickyEvent {
+            RawStickyEvent {
+                event_id: Some(event_id.to_owned()),
+                origin: EventOrigin::encrypted(Some("ALICEDEV".to_owned())),
+                ..joined_event("@alice:example.org", "m.call#room", "alice-a")
+            }
+        }
+
+        /// R10, R19, R22: the host's "online" starts a recovery: within the
+        /// random wait, a restart probes the delayed leave.
+        #[tokio::test(start_paused = true)]
+        async fn signalling_coming_back_starts_a_recovery() {
+            let mock = alice_backend();
+            let (mut room, outbox) = room(&mock).await;
+            join_as(&mut room, "alice-a").await;
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            outbox.report_connectivity(false);
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            let before = mock.calls_to(MockMethod::RestartDelayedEvent).len();
+            outbox.report_connectivity(true);
+            tokio::time::sleep(Duration::from_secs(3)).await;
+
+            let restarts = mock.calls_to(MockMethod::RestartDelayedEvent);
+            assert_eq!(restarts.len(), before + 1, "one probe: {restarts:?}");
+            let probe = *restarts.last().unwrap();
+            assert!(probe >= Duration::from_secs(5) && probe <= Duration::from_secs(8));
+        }
+
+        /// R19: after a recovery, a complete set without our membership makes
+        /// the upkeep republish it once; one with our current event id does
+        /// nothing.
+        #[tokio::test(start_paused = true)]
+        async fn a_catch_up_missing_our_membership_republishes_once() {
+            let mock = alice_backend();
+            let (mut room, outbox) = room(&mock).await;
+            join_as(&mut room, "alice-a").await;
+            let joined = room.own_membership_event_id("m.call#room").unwrap();
+
+            // Intact: our current event id is in the set.
+            outbox.report_connectivity(false);
+            outbox.report_connectivity(true);
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            room.set_current_sticky_state(vec![own_event(&joined)])
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            assert_eq!(
+                mock.sticky_events.lock().unwrap().len(),
+                1,
+                "intact: nothing"
+            );
+
+            // Gone: the set no longer holds us.
+            outbox.report_connectivity(false);
+            outbox.report_connectivity(true);
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            room.set_current_sticky_state(Vec::new()).await.unwrap();
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let sticky = mock.sticky_events.lock().unwrap().clone();
+            assert_eq!(sticky.len(), 2, "one republish");
+            assert_eq!(sticky[0].2, sticky[1].2, "the same member id");
+            assert_eq!(
+                room.own_member_id("m.call#room").as_deref(),
+                Some("alice-a")
+            );
+        }
+
+        /// Our own leave, with `reason` (`None`: the empty set a room-state leave makes).
+        fn own_leave(reason: Option<LeaveCode>) -> Vec<RawStickyEvent> {
+            let Some(code) = reason else {
+                return Vec::new();
+            };
+            let left = left_event("@alice:example.org", "m.call#room", "alice-a");
+            vec![RawStickyEvent {
+                content: RawStickyEventContent {
+                    leave_reason: Some(LeaveReason::new(code)),
+                    ..left.content
+                },
+                origin: EventOrigin::encrypted(Some("ALICEDEV".to_owned())),
+                ..left
+            }]
+        }
+
+        /// Joins, sees our membership in a set, then gets `leave`; returns the
+        /// memberships published and the delayed-leave restarts sent since.
+        async fn after_our_leave(leave: Vec<RawStickyEvent>) -> (usize, usize) {
+            let mock = alice_backend();
+            let (mut room, _outbox) = room(&mock).await;
+            join_as(&mut room, "alice-a").await;
+            let joined = room.own_membership_event_id("m.call#room").unwrap();
+            room.set_current_sticky_state(vec![own_event(&joined)])
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let published = mock.sticky_events.lock().unwrap().len();
+            let restarts = mock.calls_to(MockMethod::RestartDelayedEvent).len();
+
+            room.set_current_sticky_state(leave).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            (
+                mock.sticky_events.lock().unwrap().len() - published,
+                mock.calls_to(MockMethod::RestartDelayedEvent).len() - restarts,
+            )
+        }
+
+        /// A leave we did not send while the homeserver is reachable — our
+        /// delayed leave firing on a stall or on restarts lost, or any leave in
+        /// a format that carries no reason — puts our membership back at once,
+        /// the delayed leave probed first, well inside the others' hold (C9).
+        #[tokio::test(start_paused = true)]
+        async fn our_membership_leaving_while_we_are_in_the_call_is_put_back_at_once() {
+            assert_eq!(
+                after_our_leave(own_leave(Some(LeaveCode::DelayedLeave))).await,
+                (1, 1),
+                "our delayed leave firing"
+            );
+            assert_eq!(
+                after_our_leave(own_leave(None)).await,
+                (1, 1),
+                "a leave with no reason"
+            );
+        }
+
+        /// A leave with any other reason was meant, and is not undone.
+        #[tokio::test(start_paused = true)]
+        async fn our_membership_leaving_for_another_reason_is_left_be() {
+            assert_eq!(
+                after_our_leave(own_leave(Some(LeaveCode::Leave))).await,
+                (0, 0)
+            );
+        }
+
+        /// R17: the upkeep notices the lapse on its own, at the delayed leave's
+        /// deadline, while every restart fails; and clears it when one lands.
+        #[tokio::test(start_paused = true)]
+        async fn the_upkeep_reports_our_membership_lapsing() {
+            let mock = alice_backend();
+            let (mut room, _outbox) = room(&mock).await;
+            join_as(&mut room, "alice-a").await;
+            let mut lapsed = room.subscribe_own_membership_lapsed("m.call#room").unwrap();
+            mock.script(
+                MockMethod::RestartDelayedEvent,
+                std::iter::repeat_n(fail(), 7),
+            );
+
+            tokio::time::sleep(Duration::from_secs(29)).await;
+            assert!(!*lapsed.borrow_and_update());
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            assert!(*lapsed.borrow_and_update(), "lapsed at 30 s");
+        }
+
+        fn peer(user_id: &str, device_id: &str, member_id: &str) -> RawStickyEvent {
+            RawStickyEvent {
+                origin: EventOrigin::encrypted(Some(device_id.to_owned())),
+                ..joined_event(user_id, "m.call#room", member_id)
+            }
+        }
+
+        /// R20: the catch-up set's rollout serves, in one batch, every member
+        /// not yet served — the ones who arrived during the outage — and not
+        /// the ones who already hold the key.
+        #[tokio::test(start_paused = true)]
+        async fn the_catch_up_rollout_serves_every_member_not_yet_served_in_one_batch() {
+            let mock = alice_backend();
+            let mut room = encrypted_call_room(mock.clone()).await;
+            join_as(&mut room, "alice-a").await;
+            admit_peer(&mut room, "@bob:example.org", "BOBDEV", "bob-a").await;
+            assert!(
+                !mock
+                    .to_device_messages_for("@bob:example.org", "BOBDEV")
+                    .is_empty()
+            );
+            let batches = mock.calls_to(MockMethod::ToDevice).len();
+            let sent = mock.to_device_messages.lock().unwrap().len();
+
+            room.set_current_sticky_state(vec![
+                peer("@bob:example.org", "BOBDEV", "bob-a"),
+                peer("@carol:example.org", "CAROLDEV", "carol-a"),
+                peer("@dave:example.org", "DAVEDEV", "dave-a"),
+            ])
+            .await
+            .unwrap();
+
+            assert_eq!(
+                mock.calls_to(MockMethod::ToDevice).len(),
+                batches + 1,
+                "one batch"
+            );
+            let mut recipients: Vec<String> = mock.to_device_messages.lock().unwrap()[sent..]
+                .iter()
+                .map(|(user, _, _, _)| user.clone())
+                .collect();
+            recipients.sort();
+            assert_eq!(recipients, ["@carol:example.org", "@dave:example.org"]);
+        }
+
+        /// [`room`], encrypted, so a join distributes keys.
+        async fn encrypted_room(mock: &Arc<MockBackend>) -> (BaseRtcRoom<MockBackend>, Outbox) {
+            let (mut room, outbox) = room(mock).await;
+            room.on_encryption_received(true).await;
+            room.on_slots_received(vec![encrypted_call_slot()]).await;
+            (room, outbox)
+        }
+
+        /// The key indices delivered to one device, in order.
+        fn indices_to(mock: &MockBackend, user_id: &str, device_id: &str) -> Vec<u64> {
+            mock.to_device_messages_for(user_id, device_id)
+                .iter()
+                .map(|(_, content)| content["media_key"]["index"].as_u64().unwrap())
+                .collect()
+        }
+
+        /// R32: a key the host failed to send is retried to that member alone
+        /// on backoff until it lands, at the same index.
+        #[tokio::test(start_paused = true)]
+        async fn an_undelivered_key_is_retried_on_backoff_until_delivered() {
+            let mock = alice_backend();
+            let (mut room, _outbox) = encrypted_room(&mock).await;
+            join_as(&mut room, "alice-a").await;
+            mock.script(MockMethod::ToDevice, std::iter::repeat_n(fail(), 3));
+
+            room.set_current_sticky_state(vec![peer("@bob:example.org", "BOBDEV", "bob-a")])
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(20)).await;
+
+            let sends: Vec<u64> = mock
+                .calls_to(MockMethod::ToDevice)
+                .iter()
+                .map(Duration::as_secs)
+                .collect();
+            assert_eq!(sends, [0, 1, 3, 7], "the rollout, then 1 s doubling");
+            assert_eq!(indices_to(&mock, "@bob:example.org", "BOBDEV"), [0]);
+            assert!(room_undelivered(&room).is_empty());
+        }
+
+        /// A rotation deferred by a departure inside the key's grace goes out
+        /// at its deadline, read on the same clock as the manager's, not at the
+        /// next keep-alive beat.
+        #[tokio::test(start_paused = true)]
+        async fn a_deferred_rotation_goes_out_at_its_deadline() {
+            let mock = alice_backend();
+            let (mut room, _outbox) = encrypted_room(&mock).await;
+            join_as(&mut room, "alice-a").await;
+            let bob = || peer("@bob:example.org", "BOBDEV", "bob-a");
+            let carol = || peer("@carol:example.org", "CAROLDEV", "carol-a");
+            let dave = peer("@dave:example.org", "DAVEDEV", "dave-a");
+            room.set_current_sticky_state(vec![bob(), carol(), dave])
+                .await
+                .unwrap();
+
+            // Dave leaves once the key is stale: a rotation at once, off the beat.
+            tokio::time::sleep(Duration::from_millis(13_500)).await;
+            room.set_current_sticky_state(vec![bob(), carol()])
+                .await
+                .unwrap();
+            // Carol leaves inside the new key's grace: deferred to 23.5 s.
+            tokio::time::sleep(Duration::from_millis(1_500)).await;
+            room.set_current_sticky_state(vec![bob()]).await.unwrap();
+            tokio::time::sleep(Duration::from_secs(10)).await;
+
+            assert_eq!(indices_to(&mock, "@bob:example.org", "BOBDEV"), [0, 1, 2]);
+            let last = *mock.calls_to(MockMethod::ToDevice).last().unwrap();
+            assert!(
+                last >= Duration::from_millis(23_500) && last < Duration::from_secs(24),
+                "the deferred rotation went out at {last:?}, not at 23.5 s"
+            );
+        }
+
+        fn room_undelivered(room: &BaseRtcRoom<MockBackend>) -> Vec<String> {
+            room.undelivered_key_members("m.call#room")
+                .unwrap_or_default()
+        }
+
+        /// R32: a member the host answered for but did not deliver to is
+        /// retried too, without touching signalling health.
+        #[tokio::test(start_paused = true)]
+        async fn an_undelivered_recipient_is_retried_without_making_signalling_unreachable() {
+            let mock = alice_backend();
+            let (mut room, outbox) = encrypted_room(&mock).await;
+            join_as(&mut room, "alice-a").await;
+            let bob = ("@bob:example.org".to_owned(), "BOBDEV".to_owned());
+            mock.undeliverable.lock().unwrap().insert(bob.clone());
+
+            room.set_current_sticky_state(vec![
+                peer("@bob:example.org", "BOBDEV", "bob-a"),
+                peer("@carol:example.org", "CAROLDEV", "carol-a"),
+            ])
+            .await
+            .unwrap();
+            assert_eq!(room_undelivered(&room), ["bob-a"]);
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            assert_eq!(outbox.health(), SignallingHealth::Reachable);
+
+            mock.undeliverable.lock().unwrap().clear();
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            assert_eq!(indices_to(&mock, "@bob:example.org", "BOBDEV"), [0]);
+            assert_eq!(
+                indices_to(&mock, "@carol:example.org", "CAROLDEV"),
+                [0],
+                "carol once"
+            );
+            assert!(room_undelivered(&room).is_empty());
+        }
+
+        /// R32: a rotation addresses everyone, so the retry of the previous
+        /// key stops: the new index reaches bob, the old one never does.
+        #[tokio::test(start_paused = true)]
+        async fn a_rotation_supersedes_the_retry_of_the_previous_key() {
+            let mock = alice_backend();
+            let (mut room, _outbox) = encrypted_room(&mock).await;
+            join_as(&mut room, "alice-a").await;
+            let carol = peer("@carol:example.org", "CAROLDEV", "carol-a");
+            let bob = peer("@bob:example.org", "BOBDEV", "bob-a");
+            room.set_current_sticky_state(vec![carol.clone()])
+                .await
+                .unwrap();
+            mock.undeliverable
+                .lock()
+                .unwrap()
+                .insert(("@bob:example.org".to_owned(), "BOBDEV".to_owned()));
+            room.set_current_sticky_state(vec![carol, bob.clone()])
+                .await
+                .unwrap();
+
+            // carol leaves at 4 s; the rotation it owes comes at the end of
+            // the key's freshness, 10 s, and addresses bob with index 1.
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            room.set_current_sticky_state(vec![bob]).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(6_500)).await;
+            mock.undeliverable.lock().unwrap().clear();
+            tokio::time::sleep(Duration::from_secs(30)).await;
+
+            assert_eq!(indices_to(&mock, "@bob:example.org", "BOBDEV"), [1]);
+            assert!(room_undelivered(&room).is_empty());
+        }
+
+        /// R32: a departure ends the member's retry.
+        #[tokio::test(start_paused = true)]
+        async fn an_undelivered_key_stops_being_retried_when_the_member_leaves() {
+            let mock = alice_backend();
+            let (mut room, _outbox) = encrypted_room(&mock).await;
+            join_as(&mut room, "alice-a").await;
+            mock.script(MockMethod::ToDevice, std::iter::repeat_n(fail(), 100));
+            room.set_current_sticky_state(vec![peer("@bob:example.org", "BOBDEV", "bob-a")])
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let before = mock.calls_to(MockMethod::ToDevice).len();
+
+            room.set_current_sticky_state(Vec::new()).await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+
+            assert_eq!(mock.calls_to(MockMethod::ToDevice).len(), before);
+            assert!(room_undelivered(&room).is_empty());
+        }
+
+        /// R14: signalling unreachable for ten minutes ends nothing: the join
+        /// stays, and the session keeps trying.
+        #[tokio::test(start_paused = true)]
+        async fn signalling_unreachable_for_ten_minutes_never_ends_the_join() {
+            let mock = alice_backend();
+            let (mut room, outbox) = room(&mock).await;
+            join_as(&mut room, "alice-a").await;
+            for method in [
+                MockMethod::RestartDelayedEvent,
+                MockMethod::StickyEvent,
+                MockMethod::DelayedEvent,
+            ] {
+                mock.script(method, std::iter::repeat_n(fail(), 1_000));
+            }
+
+            tokio::time::sleep(Duration::from_secs(600)).await;
+
+            assert!(matches!(
+                outbox.health(),
+                SignallingHealth::Unreachable { .. }
+            ));
+            assert_eq!(
+                room.own_member_id("m.call#room").as_deref(),
+                Some("alice-a")
+            );
+            assert_eq!(room.joined_slots(), ["m.call#room"]);
+            let late = mock
+                .calls()
+                .into_iter()
+                .filter(|call| call.at > Duration::from_secs(570))
+                .count();
+            assert!(late > 0, "still trying at ten minutes");
+        }
+    }
+
+    /// 034 R21: the delayed-leave hold, at the room's entry point. Holds end
+    /// through `expire_holds`, which the feeder calls at `hold_expires_at`.
+    mod hold {
+        use super::*;
+        use std::time::Duration;
+
+        const SLOT: &str = "m.call#room";
+
+        fn member(sender: &str, key: &str, event_id: &str) -> RawStickyEvent {
+            RawStickyEvent {
+                event_id: Some(event_id.to_owned()),
+                origin: EventOrigin::encrypted(Some(format!("{key}-DEV"))),
+                ..joined_event(sender, SLOT, key)
+            }
+        }
+
+        fn leave(sender: &str, key: &str, code: LeaveCode) -> RawStickyEvent {
+            RawStickyEvent {
+                content: RawStickyEventContent {
+                    leave_reason: Some(LeaveReason::new(code)),
+                    ..left_event(sender, SLOT, key).content
+                },
+                origin: EventOrigin::encrypted(Some(format!("{key}-DEV"))),
+                ..left_event(sender, SLOT, key)
+            }
+        }
+
+        fn present(room: &BaseRtcRoom<NoopBackend>) -> Vec<String> {
+            let mut keys: Vec<String> = room
+                .subscribe_membership_snapshots(SLOT)
+                .expect("the session exists")
+                .borrow()
+                .iter()
+                .map(|member| member.sticky_key.clone())
+                .collect();
+            keys.sort();
+            keys
+        }
+
+        /// Advances paused time and expires what is due, as the feeder does.
+        async fn advance(room: &mut BaseRtcRoom<NoopBackend>, by: Duration) {
+            tokio::time::sleep(by).await;
+            room.expire_holds().await;
+        }
+
+        /// 034 R25: a peer republishing on another focus under the same
+        /// member id is an update, not a leave and a join: present throughout,
+        /// the snapshot naming the new focus.
+        #[tokio::test(start_paused = true)]
+        async fn a_republish_with_new_transports_is_a_move_not_a_leave() {
+            use crate::transport::{LiveKitTransport, RawRtcTransport, RtcTransport};
+
+            let on = |focus: &str, event_id: &str| {
+                let mut event = member("@bob:x", "bob", event_id);
+                event.content.transports = Some(MemberTransports::publishing(RawRtcTransport {
+                    transport_type: "m.livekit".to_owned(),
+                    extra_fields: [("url".to_owned(), focus.into())].into(),
+                }));
+                event
+            };
+            let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+            room.set_current_sticky_state(vec![on("wss://a", "$b1")])
+                .await
+                .unwrap();
+            let mut snapshots = room.subscribe_membership_snapshots(SLOT).unwrap();
+            snapshots.mark_unchanged();
+
+            room.set_current_sticky_state(vec![on("wss://b", "$b2")])
+                .await
+                .unwrap();
+            let snapshot = snapshots.borrow_and_update().clone();
+            assert_eq!(snapshot.len(), 1);
+            assert_eq!(snapshot[0].member_id, "bob");
+            assert_eq!(
+                snapshot[0].transports,
+                [RtcTransport::LiveKit(LiveKitTransport::sfu("wss://b"))]
+            );
+            assert_eq!(room.hold_expires_at(), None, "nothing held");
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn a_delayed_leave_is_held_ten_seconds_and_a_return_cancels_it() {
+            let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+            let mut snapshots = {
+                room.set_current_sticky_state(vec![member("@bob:x", "bob", "$b1")])
+                    .await
+                    .unwrap();
+                room.subscribe_membership_snapshots(SLOT).unwrap()
+            };
+            snapshots.mark_unchanged();
+
+            room.set_current_sticky_state(vec![leave("@bob:x", "bob", LeaveCode::DelayedLeave)])
+                .await
+                .unwrap();
+            assert!(!snapshots.has_changed().unwrap(), "held: nothing published");
+            assert!(room.hold_expires_at().is_some());
+
+            advance(&mut room, Duration::from_secs(6)).await;
+            room.set_current_sticky_state(vec![member("@bob:x", "bob", "$b2")])
+                .await
+                .unwrap();
+            assert_eq!(present(&room), ["bob"]);
+            assert_eq!(room.hold_expires_at(), None, "the return ends the hold");
+
+            advance(&mut room, Duration::from_secs(5)).await;
+            assert_eq!(present(&room), ["bob"], "still present after 10 s");
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn a_delayed_leave_not_returned_in_ten_seconds_is_a_departure() {
+            let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+            room.set_current_sticky_state(vec![member("@bob:x", "bob", "$b1")])
+                .await
+                .unwrap();
+            let leave_set = vec![leave("@bob:x", "bob", LeaveCode::DelayedLeave)];
+            room.set_current_sticky_state(leave_set.clone())
+                .await
+                .unwrap();
+
+            advance(&mut room, Duration::from_millis(9_900)).await;
+            // The same set re-delivered inside the window keeps the first hold.
+            room.set_current_sticky_state(leave_set).await.unwrap();
+            assert_eq!(present(&room), ["bob"]);
+
+            advance(&mut room, Duration::from_millis(100)).await;
+            assert!(present(&room).is_empty(), "gone at 10 s");
+            assert_eq!(room.hold_expires_at(), None);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn a_plain_leave_an_expiry_and_a_join_apply_at_once_inside_the_window() {
+            let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+            room.set_current_sticky_state(vec![
+                member("@bob:x", "bob", "$b1"),
+                member("@carol:x", "carol", "$c1"),
+                member("@erin:x", "erin", "$e1"),
+            ])
+            .await
+            .unwrap();
+            room.set_current_sticky_state(vec![
+                leave("@bob:x", "bob", LeaveCode::DelayedLeave),
+                member("@carol:x", "carol", "$c1"),
+                member("@erin:x", "erin", "$e1"),
+            ])
+            .await
+            .unwrap();
+
+            advance(&mut room, Duration::from_secs(3)).await;
+            // carol hangs up, erin's entry expires (absent), dave joins.
+            room.set_current_sticky_state(vec![
+                leave("@bob:x", "bob", LeaveCode::DelayedLeave),
+                leave("@carol:x", "carol", LeaveCode::Leave),
+                member("@dave:x", "dave", "$d1"),
+            ])
+            .await
+            .unwrap();
+            assert_eq!(present(&room), ["bob", "dave"], "bob still held");
+
+            advance(&mut room, Duration::from_secs(7)).await;
+            assert_eq!(present(&room), ["dave"]);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn a_synapse_restart_burst_of_delayed_leaves_is_absorbed() {
+            let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+            let users: Vec<(String, String)> = (0..20)
+                .map(|n| (format!("@u{n}:x"), format!("u{n}")))
+                .collect();
+            room.set_current_sticky_state(
+                users
+                    .iter()
+                    .map(|(user, key)| member(user, key, &format!("${key}-1"))),
+            )
+            .await
+            .unwrap();
+            let mut snapshots = room.subscribe_membership_snapshots(SLOT).unwrap();
+            snapshots.mark_unchanged();
+
+            // The restart fires every delayed leave in one set.
+            room.set_current_sticky_state(
+                users
+                    .iter()
+                    .map(|(user, key)| leave(user, key, LeaveCode::DelayedLeave)),
+            )
+            .await
+            .unwrap();
+            // 19 come back by 8 s, one by one.
+            let mut set: Vec<RawStickyEvent> = users
+                .iter()
+                .map(|(user, key)| leave(user, key, LeaveCode::DelayedLeave))
+                .collect();
+            for (n, (user, key)) in users.iter().enumerate().skip(1) {
+                advance(&mut room, Duration::from_millis(400)).await;
+                set[n] = member(user, key, &format!("${key}-2"));
+                room.set_current_sticky_state(set.clone()).await.unwrap();
+            }
+            let members: Vec<_> = snapshots.borrow_and_update().clone();
+            assert_eq!(members.len(), 20, "nobody reported gone yet");
+
+            advance(&mut room, Duration::from_millis(2_400)).await;
+            assert_eq!(present(&room).len(), 19);
+            assert!(!present(&room).contains(&"u0".to_owned()));
+        }
+
+        mod properties {
+            use super::*;
+            use proptest::prelude::*;
+
+            #[derive(Clone, Copy, Debug)]
+            enum Step {
+                Join(usize),
+                Leave(usize),
+                DelayedLeave(usize),
+                Expire(usize),
+                Advance(u64),
+            }
+
+            #[derive(Clone, Copy, PartialEq)]
+            enum Entry {
+                Absent,
+                Joined(u32),
+                Left(bool),
+            }
+
+            const USERS: usize = 5;
+
+            fn step() -> impl Strategy<Value = Step> {
+                prop_oneof![
+                    (0..USERS).prop_map(Step::Join),
+                    (0..USERS).prop_map(Step::Leave),
+                    (0..USERS).prop_map(Step::DelayedLeave),
+                    (0..USERS).prop_map(Step::Expire),
+                    (0u64..6_000).prop_map(Step::Advance),
+                ]
+            }
+
+            fn set(entries: &[Entry]) -> Vec<RawStickyEvent> {
+                entries
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(n, entry)| {
+                        let (user, key) = (format!("@u{n}:x"), format!("u{n}"));
+                        match *entry {
+                            Entry::Absent => None,
+                            Entry::Joined(version) => {
+                                Some(member(&user, &key, &format!("${key}-{version}")))
+                            }
+                            Entry::Left(delayed) => Some(leave(
+                                &user,
+                                &key,
+                                if delayed {
+                                    LeaveCode::DelayedLeave
+                                } else {
+                                    LeaveCode::Leave
+                                },
+                            )),
+                        }
+                    })
+                    .collect()
+            }
+
+            /// Interleavings of joins, plain and delayed leaves and expiries
+            /// inside and across the window: the published members are the
+            /// model's at every step, so no member flickers out and back.
+            fn check(steps: Vec<Step>) {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_time()
+                    .start_paused(true)
+                    .build()
+                    .unwrap();
+                runtime.block_on(async move {
+                    let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+                    let mut entries = [Entry::Absent; USERS];
+                    // Present members, and when a held one goes.
+                    let mut present: [bool; USERS] = [false; USERS];
+                    let mut held: [Option<tokio::time::Instant>; USERS] = [None; USERS];
+                    let mut version = 0u32;
+                    for step in steps {
+                        let now = tokio::time::Instant::now();
+                        match step {
+                            Step::Advance(ms) => {
+                                tokio::time::sleep(Duration::from_millis(ms)).await;
+                                room.expire_holds().await;
+                                let now = tokio::time::Instant::now();
+                                for n in 0..USERS {
+                                    if held[n].is_some_and(|until| until <= now) {
+                                        held[n] = None;
+                                        present[n] = false;
+                                    }
+                                }
+                            }
+                            Step::Join(n) => {
+                                version += 1;
+                                entries[n] = Entry::Joined(version);
+                                present[n] = true;
+                                held[n] = None;
+                            }
+                            Step::Leave(n) | Step::Expire(n) => {
+                                entries[n] = if matches!(step, Step::Leave(_)) {
+                                    Entry::Left(false)
+                                } else {
+                                    Entry::Absent
+                                };
+                                present[n] = false;
+                                held[n] = None;
+                            }
+                            Step::DelayedLeave(n) => {
+                                entries[n] = Entry::Left(true);
+                                if present[n] && held[n].is_none() {
+                                    held[n] = Some(now + DELAYED_LEAVE_HOLD);
+                                }
+                            }
+                        }
+                        if !matches!(step, Step::Advance(_)) {
+                            room.set_current_sticky_state(set(&entries)).await.unwrap();
+                        }
+                        let expected: Vec<String> = (0..USERS)
+                            .filter(|n| present[*n])
+                            .map(|n| format!("u{n}"))
+                            .collect();
+                        assert_eq!(present_keys(&room), expected, "after {step:?}");
+                    }
+                });
+            }
+
+            fn present_keys(room: &BaseRtcRoom<NoopBackend>) -> Vec<String> {
+                room.subscribe_membership_snapshots(SLOT)
+                    .map(|snapshots| {
+                        let mut keys: Vec<String> = snapshots
+                            .borrow()
+                            .iter()
+                            .map(|member| member.sticky_key.clone())
+                            .collect();
+                        keys.sort();
+                        keys
+                    })
+                    .unwrap_or_default()
+            }
+
+            proptest! {
+                #![proptest_config(ProptestConfig::with_cases(256))]
+                #[test]
+                fn hold_properties(steps in proptest::collection::vec(step(), 1..40)) {
+                    check(steps);
+                }
+            }
+        }
+
+        /// A departure confirmed at the end of the hold rotates the key; while
+        /// held, nothing is sent.
+        #[tokio::test(start_paused = true)]
+        async fn a_departure_confirmed_by_the_hold_rotates_the_key() {
+            let mock = alice_backend();
+            let origin = tokio::time::Instant::now();
+            let outbox = Outbox::with_clock(Arc::new(move || {
+                1_000_000_000 + origin.elapsed().as_millis() as u64
+            }));
+            let mut room = BaseRtcRoom::with_backend(ROOM_ID, mock.clone()).with_outbox(outbox);
+            room.on_encryption_received(true).await;
+            room.on_slots_received(vec![encrypted_call_slot()]).await;
+            join_as(&mut room, "alice-a").await;
+            let peers = |bob: RawStickyEvent| {
+                vec![
+                    bob,
+                    RawStickyEvent {
+                        origin: EventOrigin::encrypted(Some("CAROLDEV".to_owned())),
+                        ..joined_event("@carol:example.org", SLOT, "carol-a")
+                    },
+                ]
+            };
+            let bob = RawStickyEvent {
+                origin: EventOrigin::encrypted(Some("BOBDEV".to_owned())),
+                ..joined_event("@bob:example.org", SLOT, "bob-a")
+            };
+            room.set_current_sticky_state(peers(bob)).await.unwrap();
+            let to_carol = || {
+                mock.to_device_messages_for("@carol:example.org", "CAROLDEV")
+                    .len()
+            };
+            let served = to_carol();
+            assert_eq!(served, 1);
+
+            let bob_left = RawStickyEvent {
+                origin: EventOrigin::encrypted(Some("BOBDEV".to_owned())),
+                content: RawStickyEventContent {
+                    leave_reason: Some(LeaveReason::new(LeaveCode::DelayedLeave)),
+                    ..left_event("@bob:example.org", SLOT, "bob-a").content
+                },
+                ..left_event("@bob:example.org", SLOT, "bob-a")
+            };
+            room.set_current_sticky_state(peers(bob_left))
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(9)).await;
+            room.expire_holds().await;
+            room.flush_due_key_rotation(SLOT).await;
+            assert_eq!(to_carol(), served, "no rotation while bob is held");
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            room.expire_holds().await;
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            room.flush_due_key_rotation(SLOT).await;
+            assert!(to_carol() > served, "bob's departure rotated the key");
+        }
+    }
+
+    /// An MSC4354 sticky entry expires when its owner stops refreshing it — a
+    /// crashed client — and the lapse produces no event at all. So the current
+    /// state simply arrives smaller, and the member has to go: this call
+    /// replaces rather than merges. Merging kept them in the call for good and
+    /// pushed expiry detection onto every host.
+    #[tokio::test]
+    async fn a_member_whose_sticky_entry_expired_is_dropped() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+        let alice = joined_event("@alice:example.org", "m.call#room", "alice-a");
+        let bob = joined_event("@bob:example.org", "m.call#room", "bob-a");
+
+        room.set_current_sticky_state(vec![alice.clone(), bob])
+            .await
+            .unwrap();
+        assert_eq!(room.member_count("m.call#room"), Some(2));
+
+        // Bob's entry lapsed: no leave event, he is simply absent now.
+        room.set_current_sticky_state(vec![alice]).await.unwrap();
+        assert_eq!(
+            room.member_count("m.call#room"),
+            Some(1),
+            "an expired entry must leave the call, with no leave event to feed in"
+        );
+
+        // And an empty state empties the room, rather than being a no-op.
+        room.set_current_sticky_state(Vec::new()).await.unwrap();
+        assert_eq!(room.member_count("m.call#room"), Some(0));
+    }
+
+    /// A slot whose last member expired contributes no events at all, so it
+    /// vanishes from the payload entirely. It still has to be cleared, or the
+    /// replace has a hole exactly where the ghost would be.
+    #[tokio::test]
+    async fn a_slot_missing_from_the_current_state_is_cleared_too() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+        let in_call = joined_event("@alice:example.org", "m.call#room", "alice-a");
+        let in_other = joined_event("@bob:example.org", "m.call#other", "bob-a");
+
+        room.set_current_sticky_state(vec![in_call.clone(), in_other])
+            .await
+            .unwrap();
+        assert_eq!(room.member_count("m.call#other"), Some(1));
+
+        // Only the first slot is represented now; the second must empty.
+        room.set_current_sticky_state(vec![in_call]).await.unwrap();
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+        assert_eq!(
+            room.member_count("m.call#other"),
+            Some(0),
+            "a slot absent from the current state is empty, not untouched"
+        );
+    }
+
+    /// A second call in the same process must distribute a key just as the first
+    /// one did.
+    ///
+    /// The session survives `leave()` on purpose — it is keyed by `(room, slot)`
+    /// and a host may still want the joined memberships after hanging up — so the second
+    /// join starts with the first call's joined memberships already in place. Nothing else
+    /// changes: the incumbent's membership is byte-identical across our leave and
+    /// rejoin, so there is no membership change for the second call to ride on.
+    /// If distribution only ever happens on a membership *change*, the second
+    /// call silently never distributes and the incumbent is left at
+    /// `MISSING_KEY` — which is what an Android integration hit, four runs out of
+    /// four.
+    #[tokio::test]
+    async fn a_rejoin_in_the_same_process_distributes_a_key_to_the_incumbent() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+
+        // First call: bob arrives after we joined, so the joined memberships change while we
+        // hold a key and distribution is triggered.
+        join_as(&mut room, "alice-a").await;
+        admit_peer(&mut room, "@bob:example.org", "BOBDEV", "bob-a").await;
+        assert!(
+            !sender
+                .to_device_messages_for("@bob:example.org", "BOBDEV")
+                .is_empty(),
+            "first call should have distributed a key to the incumbent"
+        );
+
+        leave_call(&mut room).await;
+        sender.to_device_messages.lock().unwrap().clear();
+
+        // Second call: deliberately no further sticky events. Bob has not moved.
+        join_as(&mut room, "alice-b").await;
+
+        let sent = sender.to_device_messages_for("@bob:example.org", "BOBDEV");
+        assert!(
+            !sent.is_empty(),
+            "the second call in the same process distributed no key to the incumbent, so its \
+             media cannot be decrypted"
+        );
+        assert_eq!(
+            sent.len(),
+            1,
+            "the incumbent should be handed the key once, not once per code path \
+             that noticed the join"
+        );
+        let (_, content) = &sent[0];
+        assert_eq!(
+            content.pointer("/member_id").and_then(|v| v.as_str()),
+            Some("alice-b"),
+            "the key must be advertised under the member id of the current join"
+        );
+        assert_eq!(
+            content.pointer("/media_key/index").and_then(|v| v.as_u64()),
+            Some(0),
+            "a fresh join starts a fresh key index"
+        );
+    }
+
+    /// MSC4143 requires a fresh `member.id` per join, so the previous
+    /// participation of this very device is not a peer — it is us, one call ago.
+    /// Leaving it in the joined memberships gives the media layer a phantom member to open a
+    /// receive stream for and to expect a key from.
+    #[tokio::test]
+    async fn a_rejoin_does_not_advertise_the_previous_participation() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+
+        join_as(&mut room, "alice-a").await;
+        // The homeserver echoes our own membership back through the sticky map.
+        admit_peer(&mut room, "@alice:example.org", "ALICEDEV", "alice-a").await;
+        leave_call(&mut room).await;
+
+        join_as(&mut room, "alice-b").await;
+
+        let member_ids: Vec<_> = joined_memberships(&room)
+            .into_iter()
+            .map(|membership| membership.member_id)
+            .collect();
+        assert!(
+            !member_ids.iter().any(|id| id == "alice-a"),
+            "our superseded participation is still joined: {member_ids:?}"
+        );
+    }
+
+    /// An app killed without a delayed leave leaves its membership in the
+    /// sticky map, in everyone's call until it expires. Joining again from the
+    /// same device ends it with a leave under its sticky key, once, as the
+    /// room-state format does by reusing its state key.
+    #[tokio::test]
+    async fn a_rejoin_ends_the_previous_participation_that_never_left() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+        // A fresh process: the killed one's membership is still sticky.
+        admit_peer(&mut room, "@alice:example.org", "ALICEDEV", "alice-a").await;
+
+        join_as(&mut room, "alice-b").await;
+        // Seen again, as on the next sync: still one leave.
+        admit_peer(&mut room, "@alice:example.org", "ALICEDEV", "alice-a").await;
+        tokio::task::yield_now().await;
+
+        let leaves: Vec<serde_json::Value> = sender
+            .sticky_events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, _, content, _)| content.clone())
+            .filter(|content| content["msc4354_sticky_key"] == "alice-a")
+            .collect();
+        assert_eq!(
+            leaves.len(),
+            1,
+            "one leave for the stale participation: {leaves:?}"
+        );
+        assert_eq!(leaves[0]["member"]["membership"], "leave");
+        assert_eq!(leaves[0]["leave_reason"]["code"], "superseded");
+    }
+
+    /// A join hands back the event id of the membership it sent, so an
+    /// application can relate its own events to it without asking again.
+    #[tokio::test]
+    async fn a_join_returns_its_membership_event_id() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+
+        let event_id = join_as(&mut room, "alice-a").await;
+
+        assert!(!event_id.is_empty());
+        assert_eq!(room.own_membership_event_id("m.call#room"), Some(event_id));
+    }
+
+    /// A joined slot is not joined again under a fresh member id: that would
+    /// replace the live participation without leaving it.
+    #[tokio::test]
+    async fn joining_a_joined_slot_is_refused() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+        join_as(&mut room, "alice-a").await;
+
+        let mut params = JoinSessionParams::application("m.call").transport(RtcTransport::LiveKit(
+            LiveKitTransport::sfu("wss://sfu.example.com"),
+        ));
+        params.membership_id = Some("alice-b".to_owned());
+
+        assert!(matches!(
+            room.join(params).await,
+            Err(JoinError::AlreadyJoined(member_id)) if member_id == "alice-a"
+        ));
+        assert_eq!(
+            room.own_member_id("m.call#room").as_deref(),
+            Some("alice-a")
+        );
+    }
+
+    /// The session outliving a leave is the contract, not an accident: a host
+    /// that hangs up may still render "3 people are in this call", and the media
+    /// session is torn down separately with no ordering guarantee. Pinned so a
+    /// future "just drop the session on leave" refactor has to argue with a test.
+    #[tokio::test]
+    async fn a_left_session_still_publishes_the_peer_memberships() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+
+        join_as(&mut room, "alice-a").await;
+        admit_peer(&mut room, "@bob:example.org", "BOBDEV", "bob-a").await;
+        leave_call(&mut room).await;
+
+        assert!(
+            room.member_count("m.call#room").is_some(),
+            "the session should survive"
+        );
+        assert!(
+            joined_memberships(&room)
+                .iter()
+                .any(|membership| membership.member_id == "bob-a"),
+            "the peer memberships should survive our own departure"
+        );
+        assert_eq!(
+            room.member_count("m.call#room"),
+            Some(1),
+            "the incumbent is still in the call"
+        );
+        assert_eq!(
+            room.own_member_id("m.call#room"),
+            None,
+            "we are no longer joined, so we have no member id"
+        );
+    }
+
+    /// Restored after fixing the `BaseRtcRoom::new(ROOM_ID)` recursion that used
+    /// to overflow the stack (it was misattributed to watch channels).
+    #[tokio::test]
+    async fn room_routes_snapshot_and_diff_update_membership() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+        let joined = joined_event("@alice:example.org", "m.call#room", "alice-device-a");
+
+        room.set_current_sticky_state(vec![joined.clone()])
+            .await
+            .unwrap();
+
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+
+        // A departure reaches the core as a leave-shaped sticky replacing the
+        // join under the same key — and, once that lapses too, as plain absence.
+        let left = left_event("@alice:example.org", "m.call#room", "alice-device-a");
+        room.set_current_sticky_state(vec![left]).await.unwrap();
+
+        assert_eq!(room.member_count("m.call#room"), Some(0));
+    }
+
+    #[tokio::test]
+    async fn room_accepts_stable_and_unstable_rtc_member_event_types() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        let stable = joined_event("@alice:example.org", "m.call#room", "alice-device-a");
+        let unstable = RawStickyEvent {
+            event_type: "org.matrix.msc4143.rtc.member".to_owned(),
+            origin_server_ts: None,
+            ..joined_event("@bob:example.org", "m.call#room", "bob-device-a")
+        };
+
+        room.set_current_sticky_state(vec![stable, unstable])
+            .await
+            .unwrap();
+
+        assert_eq!(room.member_count("m.call#room"), Some(2));
+    }
+
+    #[tokio::test]
+    async fn room_ignores_non_membership_event_types() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        let event = RawStickyEvent {
+            event_type: "m.not.rtc.member".to_owned(),
+            origin_server_ts: None,
+            ..joined_event("@alice:example.org", "m.call#room", "alice-device-a")
+        };
+
+        room.set_current_sticky_state(vec![event]).await.unwrap();
+
+        assert_eq!(room.member_count("m.call#room"), None);
+    }
+
+    /// Until a host supplies room state the open-slot condition cannot be
+    /// evaluated, so it is not enforced; otherwise every existing consumer would
+    /// silently see an empty session.
+    #[tokio::test]
+    async fn members_are_joined_while_slot_state_is_unsupplied() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        room.set_current_sticky_state(vec![joined_event(
+            "@alice:example.org",
+            "m.call#room",
+            "alice-a",
+        )])
+        .await
+        .unwrap();
+
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+        assert_eq!(room.slot_state("m.call#room"), None);
+    }
+
+    /// Re-applying the same sticky state must publish nothing at all.
+    ///
+    /// `set_current_sticky_state` rebuilds the candidate set from scratch, and
+    /// used to refresh after *each* event in the batch. The joined memberships were therefore
+    /// republished on the way up — one member, then two, then three — so the
+    /// first publication of every tick looked like everyone but one participant
+    /// leaving. The encryption room believed it and rotated the key, once per
+    /// sticky tick per session, each rotation sending to every remaining member.
+    /// In a ten-device call that was a rotation every few seconds; the cost is
+    /// quadratic in participants.
+    ///
+    /// The sticky bridge re-sends the full live set on every tick, so "identical
+    /// input publishes nothing" is the property that matters.
+    #[tokio::test]
+    async fn re_applying_the_same_sticky_state_publishes_nothing() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+        let members = || {
+            vec![
+                joined_event("@alice:example.org", "m.call#room", "alice-a"),
+                joined_event("@bob:example.org", "m.call#room", "bob-a"),
+                joined_event("@carol:example.org", "m.call#room", "carol-a"),
+            ]
+        };
+
+        room.set_current_sticky_state(members()).await.unwrap();
+        assert_eq!(room.member_count("m.call#room"), Some(3));
+
+        let mut snapshots = room
+            .subscribe_membership_snapshots("m.call#room")
+            .expect("the session exists");
+        snapshots.borrow_and_update();
+
+        room.set_current_sticky_state(members()).await.unwrap();
+
+        assert!(
+            !snapshots.has_changed().unwrap(),
+            "an unchanged sticky state must not republish the joined memberships; every \
+             republication is a membership diff the encryption room acts on",
+        );
+        assert_eq!(room.member_count("m.call#room"), Some(3));
+    }
+
+    /// MSC4143: a member event only counts as joined against an *open* slot.
+    /// Supplying room state with no slot in it means the slot is closed.
+    #[tokio::test]
+    async fn members_are_left_when_no_slot_is_open() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        room.set_current_sticky_state(vec![joined_event(
+            "@alice:example.org",
+            "m.call#room",
+            "alice-a",
+        )])
+        .await
+        .unwrap();
+        room.on_slots_received(Vec::new()).await;
+
+        assert_eq!(room.member_count("m.call#room"), Some(0));
+        assert_eq!(room.slot_state("m.call#room"), Some(SlotState::Closed));
+    }
+
+    #[tokio::test]
+    async fn members_are_joined_against_an_open_slot() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        room.on_slots_received(vec![open_call_slot()]).await;
+        room.set_current_sticky_state(vec![joined_event(
+            "@alice:example.org",
+            "m.call#room",
+            "alice-a",
+        )])
+        .await
+        .unwrap();
+
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+    }
+
+    /// "Clients MUST constantly react to and respect the latest state of the
+    /// room": closing a slot mid-session leaves everyone in it, and reopening it
+    /// brings back the members whose events are still sticky.
+    #[tokio::test]
+    async fn closing_and_reopening_a_slot_re_evaluates_members() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        room.on_slots_received(vec![open_call_slot()]).await;
+        room.set_current_sticky_state(vec![joined_event(
+            "@alice:example.org",
+            "m.call#room",
+            "alice-a",
+        )])
+        .await
+        .unwrap();
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+
+        room.on_slots_received(vec![slot_event("m.call#room", r#"{ "status": "closed" }"#)])
+            .await;
+        assert_eq!(room.member_count("m.call#room"), Some(0));
+
+        room.on_slots_received(vec![open_call_slot()]).await;
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+    }
+
+    /// Slot state that arrives before the session exists still governs it.
+    #[tokio::test]
+    async fn slot_state_applies_to_sessions_created_later() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        room.on_slots_received(Vec::new()).await;
+        room.set_current_sticky_state(vec![joined_event(
+            "@alice:example.org",
+            "m.call#room",
+            "alice-a",
+        )])
+        .await
+        .unwrap();
+
+        assert_eq!(room.member_count("m.call#room"), Some(0));
+    }
+
+    /// The way back from "no open slots" to "not my business".
+    ///
+    /// A room of a MatrixRTC generation older than `m.rtc.slot` contains none, so
+    /// a host that fed slot state before learning that must be able to take it
+    /// back — otherwise every member of that room, itself included, stays
+    /// projected out for the rest of the process.
+    #[tokio::test]
+    async fn forgetting_a_room_s_slots_stops_the_condition_being_enforced() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        // No slot in the room: everyone is projected out.
+        room.on_slots_received(Vec::new()).await;
+        room.set_current_sticky_state(vec![joined_event(
+            "@alice:example.org",
+            "m.call#room",
+            "alice-a",
+        )])
+        .await
+        .unwrap();
+        assert_eq!(room.member_count("m.call#room"), Some(0));
+
+        room.forget_slots().await;
+        assert_eq!(
+            room.member_count("m.call#room"),
+            Some(1),
+            "an unenforced condition must not keep a live member out",
+        );
+        assert_eq!(
+            room.slot_state("m.call#room"),
+            None,
+            "the slot is unknown again, not open",
+        );
+
+        // And a session created afterwards is born unenforced too, rather than
+        // inheriting the forgotten "no slots".
+        room.set_current_sticky_state(vec![
+            joined_event("@alice:example.org", "m.call#room", "alice-a"),
+            joined_event("@bob:example.org", "m.call#other", "bob-a"),
+        ])
+        .await
+        .unwrap();
+        assert_eq!(room.member_count("m.call#other"), Some(1));
+    }
+
+    /// Slot state naming another room is dropped, and says nothing about the
+    /// same slot id here.
+    #[tokio::test]
+    async fn slot_events_for_another_room_are_dropped() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        room.on_slots_received(vec![RawSlotEvent {
+            room_id: "!other:example.org".to_owned(),
+            ..open_call_slot()
+        }])
+        .await;
+
+        assert!(
+            room.slot_state("m.call#room")
+                .is_some_and(|state| !state.is_open()),
+            "the state was supplied, but the only slot in it belonged elsewhere",
+        );
+    }
+
+    /// Sticky members naming another room are dropped rather than routed into
+    /// this room's slots.
+    #[tokio::test]
+    async fn sticky_events_for_another_room_are_dropped() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        room.set_current_sticky_state(vec![
+            joined_event("@alice:example.org", "m.call#room", "alice-a"),
+            RawStickyEvent {
+                room_id: "!other:example.org".to_owned(),
+                ..joined_event("@bob:example.org", "m.call#room", "bob-a")
+            },
+        ])
+        .await
+        .unwrap();
+
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+    }
+
+    /// MSC4143: a member event only counts while its sender is still joined to
+    /// the room.
+    #[tokio::test]
+    async fn members_who_left_the_room_are_not_joined() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        room.set_current_sticky_state(vec![
+            joined_event("@alice:example.org", "m.call#room", "alice-a"),
+            joined_event("@bob:example.org", "m.call#room", "bob-a"),
+        ])
+        .await
+        .unwrap();
+        assert_eq!(room.member_count("m.call#room"), Some(2));
+
+        // Bob is no longer in the room, though his member event is still sticky.
+        room.on_members_received(vec!["@alice:example.org".to_owned()])
+            .await;
+
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+    }
+
+    /// MSC4143: in an encrypted room a member event that was not encrypted
+    /// "MUST be considered left".
+    #[tokio::test]
+    async fn cleartext_member_events_are_left_in_an_encrypted_room() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        let encrypted = RawStickyEvent {
+            origin: EventOrigin::encrypted(Some("ALICEDEV".to_owned())),
+            ..joined_event("@alice:example.org", "m.call#room", "alice-a")
+        };
+        let cleartext = RawStickyEvent {
+            origin: EventOrigin::Cleartext,
+            ..joined_event("@bob:example.org", "m.call#room", "bob-a")
+        };
+
+        room.set_current_sticky_state(vec![encrypted, cleartext])
+            .await
+            .unwrap();
+        // Nothing has reported the room's encryption yet, so neither is judged.
+        assert_eq!(room.member_count("m.call#room"), Some(2));
+
+        room.on_encryption_received(true).await;
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+    }
+
+    /// Spec 038 R6: in an encrypted room a member's device is the one that
+    /// encrypted their member event. A cleartext event, or one decryption
+    /// attributed to no device, is not joined. A claimed device (room-state
+    /// format only) still is.
+    #[tokio::test]
+    async fn only_an_attributed_encrypted_member_is_joined_in_an_encrypted_room() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        let attributed = RawStickyEvent {
+            origin: EventOrigin::encrypted(Some("ALICEDEV".to_owned())),
+            ..joined_event("@alice:example.org", "m.call#room", "alice-a")
+        };
+        let no_device = RawStickyEvent {
+            origin: EventOrigin::encrypted(None),
+            ..joined_event("@bob:example.org", "m.call#room", "bob-a")
+        };
+        let cleartext = RawStickyEvent {
+            origin: EventOrigin::Cleartext,
+            ..joined_event("@carol:example.org", "m.call#room", "carol-a")
+        };
+        let claimed = RawStickyEvent {
+            origin: EventOrigin::claimed("DANDEV"),
+            ..joined_event("@dan:example.org", "m.call#room", "dan-a")
+        };
+
+        room.set_current_sticky_state(vec![attributed, no_device, cleartext, claimed])
+            .await
+            .unwrap();
+        room.on_encryption_received(true).await;
+
+        let mut joined: Vec<_> = room
+            .subscribe_membership_snapshots("m.call#room")
+            .expect("the session should exist")
+            .borrow()
+            .iter()
+            .map(|m| m.member_id.clone())
+            .collect();
+        joined.sort();
+        assert_eq!(joined, ["alice-a", "dan-a"]);
+    }
+
+    /// Spec 038 R9: a redacted member event makes the member leave. Redaction
+    /// empties the content under the same sticky key, and the host's sticky
+    /// map hands that back in its next snapshot.
+    #[tokio::test]
+    async fn a_redacted_member_event_makes_the_member_leave() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+        let bob = joined_event("@bob:example.org", "m.call#room", "bob-a");
+        room.set_current_sticky_state(vec![
+            joined_event("@alice:example.org", "m.call#room", "alice-a"),
+            bob.clone(),
+        ])
+        .await
+        .unwrap();
+        assert_eq!(room.member_count("m.call#room"), Some(2));
+
+        let redacted: RawStickyEventContent = serde_json::from_value(serde_json::json!({
+            "slot_id": "m.call#room",
+            "sticky_key": "bob-a",
+        }))
+        .expect("a redacted member content keeps only what redaction preserves");
+        room.set_current_sticky_state(vec![
+            joined_event("@alice:example.org", "m.call#room", "alice-a"),
+            RawStickyEvent {
+                content: redacted,
+                ..bob
+            },
+        ])
+        .await
+        .unwrap();
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+    }
+
+    /// Spec 038 R41: a membership whose stickiness lapsed is gone from the
+    /// host's sticky map, and so from the next snapshot; the member leaves.
+    #[tokio::test]
+    async fn a_member_missing_from_the_sticky_snapshot_has_left() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+        room.set_current_sticky_state(vec![
+            joined_event("@alice:example.org", "m.call#room", "alice-a"),
+            joined_event("@bob:example.org", "m.call#room", "bob-a"),
+        ])
+        .await
+        .unwrap();
+        room.set_current_sticky_state(vec![joined_event(
+            "@alice:example.org",
+            "m.call#room",
+            "alice-a",
+        )])
+        .await
+        .unwrap();
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+    }
+
+    /// Spec 038 R7: a member is joined only to a slot of its own application.
+    #[tokio::test]
+    async fn a_member_of_another_application_is_not_joined_to_the_slot() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+        room.on_slots_received(vec![open_call_slot()]).await;
+
+        let mut other = joined_event("@bob:example.org", "m.call#room", "bob-a");
+        other.content.application = "org.example.board".into();
+        room.set_current_sticky_state(vec![
+            joined_event("@alice:example.org", "m.call#room", "alice-a"),
+            other,
+        ])
+        .await
+        .unwrap();
+
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+    }
+
+    /// Spec 038 R8: a slot id that breaks MSC4143's grammar fails the join
+    /// before anything is sent.
+    #[tokio::test]
+    async fn a_join_with_an_invalid_slot_id_is_refused() {
+        let backend = alice_backend();
+        let mut room = BaseRtcRoom::with_backend(ROOM_ID, backend.clone());
+        let params = JoinSessionParams::application("m.call")
+            .slot("ROOM")
+            .transport(RtcTransport::LiveKit(LiveKitTransport::sfu(
+                "wss://sfu.example.com",
+            )));
+
+        assert!(matches!(
+            room.join(params).await,
+            Err(JoinError::InvalidSlotId { .. })
+        ));
+        assert!(backend.sticky_events.lock().unwrap().is_empty());
+    }
+
+    /// An unencrypted room imposes no such requirement.
+    #[tokio::test]
+    async fn cleartext_member_events_are_fine_in_an_unencrypted_room() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        let cleartext = RawStickyEvent {
+            origin: EventOrigin::Cleartext,
+            ..joined_event("@bob:example.org", "m.call#room", "bob-a")
+        };
+        room.set_current_sticky_state(vec![cleartext])
+            .await
+            .unwrap();
+        room.on_encryption_received(false).await;
+
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+    }
+
+    /// A slot with no encryption object is closed in an encrypted room, so its
+    /// members are left even though everything else about them is valid.
+    #[tokio::test]
+    async fn unencrypted_slot_closes_in_an_encrypted_room() {
+        let mut room: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+
+        room.on_slots_received(vec![open_call_slot()]).await;
+        room.set_current_sticky_state(vec![joined_event(
+            "@alice:example.org",
+            "m.call#room",
+            "alice-a",
+        )])
+        .await
+        .unwrap();
+        assert_eq!(room.member_count("m.call#room"), Some(1));
+
+        room.on_encryption_received(true).await;
+
+        assert_eq!(room.slot_state("m.call#room"), Some(SlotState::Closed));
+        assert_eq!(room.member_count("m.call#room"), Some(0));
+    }
+
+    /// Room encryption arriving after the slot re-resolves it, and vice versa;
+    /// the room keeps slots unresolved so either order works.
+    #[tokio::test]
+    async fn slot_resolution_reacts_to_room_encryption_in_either_order() {
+        let encrypted_slot = || {
+            slot_event(
+                "m.call#room",
+                r#"{ "status": "open",
+                     "application": { "type": "m.call" },
+                     "encryption": { "type": "m.per_member" } }"#,
+            )
+        };
+
+        // Encryption first, then the slot.
+        let mut a: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+        a.on_encryption_received(true).await;
+        a.on_slots_received(vec![encrypted_slot()]).await;
+        assert!(a.slot_state("m.call#room").unwrap().is_open());
+
+        // Slot first, then encryption.
+        let mut b: BaseRtcRoom<NoopBackend> = BaseRtcRoom::new(ROOM_ID);
+        b.on_slots_received(vec![encrypted_slot()]).await;
+        b.on_encryption_received(true).await;
+        assert!(b.slot_state("m.call#room").unwrap().is_open());
+    }
+
+    /// The slot's `encryption` object — not local configuration — decides
+    /// whether media keys are distributed. Exercised end to end: joining a slot
+    /// that prescribes `m.per_member` in an encrypted room produces key
+    /// to-device traffic to the other member.
+    #[tokio::test]
+    async fn slot_encryption_turns_key_distribution_on() {
+        let sender = alice_backend();
+        let mut room = BaseRtcRoom::with_backend(ROOM_ID, sender.clone());
+
+        room.on_encryption_received(true).await;
+        room.on_slots_received(vec![slot_event(
+            "m.call#room",
+            r#"{ "status": "open",
+                         "application": { "type": "m.call" },
+                         "encryption": { "type": "m.per_member" } }"#,
+        )])
+        .await;
+
+        // Local config asks for NO keys; the slot must override it upward.
+        join_and_admit_a_peer(&mut room, false).await;
+
+        assert!(
+            !sender.to_device_messages.lock().unwrap().is_empty(),
+            "keys should be distributed when the slot prescribes a mechanism"
+        );
+    }
+
+    /// Conversely, MSC4143 forbids RTC encryption in an unencrypted room, so no
+    /// keys are distributed there however the client is configured.
+    #[tokio::test]
+    async fn absent_slot_encryption_turns_key_distribution_off() {
+        let sender = alice_backend();
+        let mut room = BaseRtcRoom::with_backend(ROOM_ID, sender.clone());
+
+        room.on_encryption_received(false).await;
+        room.on_slots_received(vec![open_call_slot()]).await;
+
+        // Local config asks for keys; the slot must override it downward.
+        join_and_admit_a_peer(&mut room, true).await;
+
+        assert!(
+            sender.to_device_messages.lock().unwrap().is_empty(),
+            "no keys should be distributed when the slot prescribes no mechanism"
+        );
+    }
+
+    /// Spec 038 R11, with no slot to negotiate from (the room-state format
+    /// reads none): the room's encryption alone decides, over the caller's
+    /// preference, and decides the media too.
+    #[tokio::test]
+    async fn without_a_slot_the_room_decides_whether_media_is_encrypted() {
+        for (room_encrypted, expected) in [(false, false), (true, true)] {
+            let sender = alice_backend();
+            let mut room = BaseRtcRoom::with_backend(ROOM_ID, sender.clone());
+            room.on_encryption_received(room_encrypted).await;
+
+            join_and_admit_a_peer(&mut room, !room_encrypted).await;
+
+            assert_eq!(room.encrypts_media("m.call#room"), Some(expected));
+            assert_eq!(
+                !sender.to_device_messages.lock().unwrap().is_empty(),
+                expected,
+                "keys go out exactly when the room is encrypted (encrypted={room_encrypted})"
+            );
+        }
+    }
+
+    /// Joins as alice with `local_manage_media_keys` as the caller's own
+    /// preference, then lets bob in so a membership change triggers key
+    /// distribution (if it is enabled at all).
+    async fn join_and_admit_a_peer(
+        room: &mut BaseRtcRoom<crate::host::backend::MockBackend>,
+        local_manage_media_keys: bool,
+    ) {
+        let mut params = JoinSessionParams::application("m.call").transport(RtcTransport::LiveKit(
+            LiveKitTransport::sfu("wss://sfu.example.com"),
+        ));
+        params.membership_id = Some("alice-a".to_owned());
+        params.encryption_config = Some(EncryptionConfig {
+            manage_media_keys: local_manage_media_keys,
+            ..EncryptionConfig::default()
+        });
+        room.join(params).await.expect("join should succeed");
+
+        let bob = RawStickyEvent {
+            origin: EventOrigin::encrypted(Some("BOBDEV".to_owned())),
+            ..joined_event("@bob:example.org", "m.call#room", "bob-a")
+        };
+        room.set_current_sticky_state(vec![bob]).await.unwrap();
+    }
+
+    /// A member that only receives — a recorder, say — is a valid participant
+    /// under MSC4143: `transports` carries no REQUIRED marker, so publishing
+    /// nothing is a legitimate choice rather than a broken join.
+    #[tokio::test]
+    async fn a_receive_only_member_joins_and_publishes_nothing() {
+        let sender = alice_backend();
+        let mut room = BaseRtcRoom::with_backend(ROOM_ID, sender.clone());
+
+        let params =
+            JoinSessionParams::application("m.call").transport(TransportIntent::ReceiveOnly {
+                can_subscribe: vec!["livekit".to_owned()],
+            });
+        room.join(params).await.expect("join should succeed");
+
+        let sticky = sender.sticky_events.lock().unwrap();
+        let (_, _, content, _) = sticky.first().expect("a join should have been sent");
+
+        // Nothing published, but peers are still told what it can receive on,
+        // so they pick a transport it can actually hear.
+        assert!(content.pointer("/transports/published/0").is_none());
+        assert_eq!(
+            content
+                .pointer("/transports/can_subscribe/0")
+                .and_then(|v| v.as_str()),
+            Some("livekit")
+        );
+        assert_eq!(
+            content
+                .pointer("/member/membership")
+                .and_then(|v| v.as_str()),
+            Some("join")
+        );
+    }
+
+    /// Stating nothing at all is legal too; the object is then omitted entirely
+    /// rather than emitted empty.
+    #[tokio::test]
+    async fn a_receive_only_member_with_no_cue_omits_transports() {
+        let sender = alice_backend();
+        let mut room = BaseRtcRoom::with_backend(ROOM_ID, sender.clone());
+
+        let params =
+            JoinSessionParams::application("m.call").transport(TransportIntent::ReceiveOnly {
+                can_subscribe: Vec::new(),
+            });
+        room.join(params).await.expect("join should succeed");
+
+        let sticky = sender.sticky_events.lock().unwrap();
+        let (_, _, content, _) = sticky.first().expect("a join should have been sent");
+        assert!(content.get("transports").is_none());
+    }
+
+    /// A publishing member advertises the transport the application chose, and
+    /// declares it can receive on that type too.
+    #[tokio::test]
+    async fn a_publishing_member_advertises_its_transport() {
+        let sender = alice_backend();
+        let mut room = BaseRtcRoom::with_backend(ROOM_ID, sender.clone());
+
+        // Both fields advertised: MSC publishes by the `url` alone (spec 038
+        // R17).
+        let params = JoinSessionParams::application("m.call").transport(RtcTransport::LiveKit(
+            LiveKitTransport::new(
+                Some("wss://sfu.example.com".to_owned()),
+                Some("https://sfu.example.com/jwt".to_owned()),
+                None,
+            )
+            .unwrap(),
+        ));
+        room.join(params).await.expect("join should succeed");
+
+        let sticky = sender.sticky_events.lock().unwrap();
+        let (_, _, content, _) = sticky.first().expect("a join should have been sent");
+        assert_eq!(
+            content["transports"],
+            serde_json::json!({
+                "published": [{ "type": "m.livekit", "url": "wss://sfu.example.com" }],
+                "can_subscribe": ["m.livekit"],
+            })
+        );
+    }
+
+    #[test]
+    fn joined_event_with_livekit_transport_is_parsed_correctly() {
+        use crate::transport::{RawRtcTransport, RtcTransport};
+        use std::collections::BTreeMap;
+
+        let mut extra_fields = BTreeMap::new();
+        extra_fields.insert(
+            "url".to_owned(),
+            serde_json::Value::String("wss://sfu.example.com".to_owned()),
+        );
+
+        let event = RawStickyEvent {
+            room_id: ROOM_ID.to_owned(),
+            event_id: None,
+            sender: "@alice:example.org".to_owned(),
+            origin: EventOrigin::Cleartext,
+            event_type: "m.rtc.member".to_owned(),
+            origin_server_ts: None,
+            content: RawStickyEventContent {
+                slot_id: "m.call#room".to_owned(),
+                sticky_key: "alice-device-a".to_owned(),
+                application: ApplicationInfo {
+                    application_type: Some("m.call".to_owned()),
+                    extra: std::collections::BTreeMap::new(),
+                },
+                member: MemberInfo {
+                    id: Some("alice-device-a".to_owned()),
+                    membership: Some(Membership::Join),
+                },
+                transports: Some(MemberTransports::publishing(RawRtcTransport {
+                    transport_type: "m.livekit".to_owned(),
+                    extra_fields,
+                })),
+                leave_reason: None,
+                created_ts: None,
+            },
+        };
+
+        let membership_event = event.try_into_membership_event().unwrap();
+
+        match membership_event {
+            RtcMembershipEvent::Joined(joined) => {
+                assert_eq!(joined.transports.len(), 1);
+                match &joined.transports[0] {
+                    RtcTransport::LiveKit(livekit) => {
+                        assert_eq!(livekit.url(), Some("wss://sfu.example.com"));
+                    }
+                    RtcTransport::Unsupported(_) => panic!("Expected LiveKit transport"),
+                }
+            }
+            RtcMembershipEvent::Left(_) => panic!("Expected Joined membership"),
+        }
+    }
+
+    #[test]
+    fn joined_event_with_unknown_transport_is_preserved_as_unsupported() {
+        use crate::transport::{RawRtcTransport, RtcTransport};
+        use std::collections::BTreeMap;
+
+        let mut extra_fields = BTreeMap::new();
+        extra_fields.insert(
+            "custom_field".to_owned(),
+            serde_json::Value::String("custom_value".to_owned()),
+        );
+
+        let event = RawStickyEvent {
+            room_id: ROOM_ID.to_owned(),
+            event_id: None,
+            sender: "@alice:example.org".to_owned(),
+            origin: EventOrigin::Cleartext,
+            event_type: "m.rtc.member".to_owned(),
+            origin_server_ts: None,
+            content: RawStickyEventContent {
+                slot_id: "m.call#room".to_owned(),
+                sticky_key: "alice-device-a".to_owned(),
+                application: ApplicationInfo {
+                    application_type: Some("m.call".to_owned()),
+                    extra: std::collections::BTreeMap::new(),
+                },
+                member: MemberInfo {
+                    id: Some("alice-device-a".to_owned()),
+                    membership: Some(Membership::Join),
+                },
+                transports: Some(MemberTransports::publishing(RawRtcTransport {
+                    transport_type: "unknown_transport".to_owned(),
+                    extra_fields,
+                })),
+                leave_reason: None,
+                created_ts: None,
+            },
+        };
+
+        let membership_event = event.try_into_membership_event().unwrap();
+
+        match membership_event {
+            RtcMembershipEvent::Joined(joined) => {
+                assert_eq!(joined.transports.len(), 1);
+                match &joined.transports[0] {
+                    RtcTransport::Unsupported(unsupported) => {
+                        assert_eq!(unsupported.transport_type, "unknown_transport");
+                        assert!(unsupported.extra_fields.contains_key("custom_field"));
+                    }
+                    RtcTransport::LiveKit(_) => panic!("Expected Unsupported transport"),
+                }
+            }
+            RtcMembershipEvent::Left(_) => panic!("Expected Joined membership"),
+        }
+    }
+
+    fn restarts(sender: &crate::host::backend::MockBackend) -> usize {
+        sender.restarted_events.lock().unwrap().len()
+    }
+
+    const TICK: std::time::Duration =
+        std::time::Duration::from_millis(DEFAULT_KEEP_ALIVE_INTERVAL_MS);
+
+    /// The core keeps a join alive by itself: nobody ticks it.
+    #[tokio::test(start_paused = true)]
+    async fn a_joined_slot_keeps_itself_alive_until_it_leaves() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+        join_as(&mut room, "alice-a").await;
+        assert_eq!(
+            restarts(&sender),
+            0,
+            "the join itself armed the delayed leave"
+        );
+
+        tokio::time::sleep(TICK * 3 + std::time::Duration::from_millis(1)).await;
+        assert_eq!(restarts(&sender), 3, "one restart per interval");
+
+        room.leave("m.call#room", LeaveSessionParams::new())
+            .await
+            .expect("leave");
+        tokio::time::sleep(TICK * 3).await;
+        assert_eq!(restarts(&sender), 3, "nothing restarted after the leave");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropping_the_room_stops_its_upkeep() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+        join_as(&mut room, "alice-a").await;
+
+        drop(room);
+        tokio::time::sleep(TICK * 3).await;
+        assert_eq!(restarts(&sender), 0);
+    }
+
+    /// What lets an owner that drops a join without leaving stop its upkeep.
+    #[tokio::test(start_paused = true)]
+    async fn aborting_the_upkeep_handle_stops_it_and_sends_no_leave() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+        join_as(&mut room, "alice-a").await;
+
+        room.upkeep_abort_handle("m.call#room")
+            .expect("an upkeep runs")
+            .abort();
+        tokio::time::sleep(TICK * 3).await;
+        assert_eq!(restarts(&sender), 0);
+        assert!(sender.cancelled_events.lock().unwrap().is_empty());
+        assert!(room.own_member_id("m.call#room").is_some(), "still joined");
+    }
+
+    /// A slot closing under our own join ends it: we leave with `slot_closed`,
+    /// cancel the delayed leave, stop keeping alive, and announce the leave so
+    /// the host can tear its media down.
+    #[tokio::test(start_paused = true)]
+    async fn closing_the_slot_leaves_our_own_join() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+        join_as(&mut room, "alice-a").await;
+        let mut auto_leaves = room
+            .subscribe_auto_leaves("m.call#room")
+            .expect("joined session");
+
+        room.on_slots_received(vec![slot_event("m.call#room", r#"{ "status": "closed" }"#)])
+            .await;
+
+        assert_eq!(
+            auto_leaves.try_recv().expect("an auto-leave").code,
+            LeaveCode::SlotClosed
+        );
+        assert_eq!(room.own_member_id("m.call#room"), None);
+        let (_, _, leave, _) = sender.last_sticky_event().expect("a leave was sent");
+        assert_eq!(leave["leave_reason"]["code"], "slot_closed", "{leave}");
+        assert_eq!(sender.cancelled_events.lock().unwrap().len(), 1);
+        tokio::time::sleep(TICK * 3).await;
+        assert_eq!(restarts(&sender), 0, "nothing kept alive after the leave");
+    }
+
+    /// Spec 038 R37: a join made in the clear leaves the moment the room's
+    /// encryption turns on, even though the slot (already declaring a
+    /// mechanism) stays open: its media was set up unencrypted.
+    #[tokio::test(start_paused = true)]
+    async fn encryption_turning_on_leaves_a_clear_join() {
+        let sender = alice_backend();
+        let mut room = BaseRtcRoom::with_backend(ROOM_ID, sender.clone());
+        room.on_encryption_received(false).await;
+        room.on_slots_received(vec![encrypted_call_slot()]).await;
+        join_as(&mut room, "alice-a").await;
+        assert_eq!(room.encrypts_media("m.call#room"), Some(false));
+        let mut auto_leaves = room
+            .subscribe_auto_leaves("m.call#room")
+            .expect("joined session");
+
+        room.on_encryption_received(true).await;
+
+        assert_eq!(
+            auto_leaves.try_recv().expect("an auto-leave").code,
+            LeaveCode::SlotClosed
+        );
+        assert_eq!(room.own_member_id("m.call#room"), None);
+        let (_, _, leave, _) = sender.last_sticky_event().expect("a leave was sent");
+        assert_eq!(leave["leave_reason"]["code"], "slot_closed", "{leave}");
+    }
+
+    /// A leave that fails to send still ends our join and is announced, so the
+    /// host stops publishing; the delayed leave stays armed to remove us.
+    #[tokio::test(start_paused = true)]
+    async fn closing_the_slot_ends_our_join_even_when_the_leave_fails() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+        join_as(&mut room, "alice-a").await;
+        let mut auto_leaves = room
+            .subscribe_auto_leaves("m.call#room")
+            .expect("joined session");
+        let sent_before = sender.sticky_events.lock().unwrap().len();
+        *sender.sticky_event_error.lock().unwrap() = Some("offline".to_owned());
+
+        room.on_slots_received(vec![slot_event("m.call#room", r#"{ "status": "closed" }"#)])
+            .await;
+
+        assert_eq!(
+            auto_leaves.try_recv().expect("an auto-leave").code,
+            LeaveCode::SlotClosed
+        );
+        assert_eq!(room.own_member_id("m.call#room"), None);
+        assert_eq!(sender.sticky_events.lock().unwrap().len(), sent_before);
+        assert!(
+            sender.cancelled_events.lock().unwrap().is_empty(),
+            "the delayed leave is left to fire"
+        );
+        tokio::time::sleep(TICK * 3).await;
+        assert_eq!(restarts(&sender), 0, "nothing kept alive after the leave");
+    }
+
+    /// A host leave that fails to send is reported, but still ends our join:
+    /// the machine is gone, so the delayed leave removes the membership.
+    #[tokio::test(start_paused = true)]
+    async fn a_leave_that_fails_to_send_still_ends_our_join() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+        join_as(&mut room, "alice-a").await;
+        *sender.sticky_event_error.lock().unwrap() = Some("offline".to_owned());
+
+        let result = room.leave("m.call#room", LeaveSessionParams::new()).await;
+
+        assert!(result.is_err(), "the failed send is reported");
+        assert_eq!(room.own_member_id("m.call#room"), None);
+        assert!(sender.cancelled_events.lock().unwrap().is_empty());
+        tokio::time::sleep(TICK * 3).await;
+        assert_eq!(restarts(&sender), 0, "nothing kept alive after the leave");
+    }
+
+    /// Only the leaves the session makes on its own are announced; a host that
+    /// hung up knows it did.
+    #[tokio::test(start_paused = true)]
+    async fn a_host_leave_is_not_announced_as_an_auto_leave() {
+        let sender = alice_backend();
+        let mut room = encrypted_call_room(sender.clone()).await;
+        join_as(&mut room, "alice-a").await;
+        let mut auto_leaves = room
+            .subscribe_auto_leaves("m.call#room")
+            .expect("joined session");
+
+        leave_call(&mut room).await;
+        // Closing the slot now finds nobody of ours to leave.
+        room.on_slots_received(vec![slot_event("m.call#room", r#"{ "status": "closed" }"#)])
+            .await;
+
+        assert!(auto_leaves.try_recv().is_err());
+    }
+
+    /// Without a runtime the join still succeeds; the host ticks it instead.
+    #[test]
+    fn a_join_off_a_runtime_has_no_upkeep() {
+        let sender = alice_backend();
+        futures::executor::block_on(async {
+            let mut room = encrypted_call_room(sender.clone()).await;
+            join_as(&mut room, "alice-a").await;
+            assert!(room.upkeep_abort_handle("m.call#room").is_none());
+            assert!(room.keep_alive("m.call#room").await);
+        });
+        assert_eq!(restarts(&sender), 1);
+    }
+}

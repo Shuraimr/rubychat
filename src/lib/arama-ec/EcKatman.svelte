@@ -8,6 +8,7 @@
   import Ikon from "../bilesenler/Ikon.svelte";
   import { t } from "../i18n";
   import { sureYaz } from "../zaman-bicim";
+  import YerelArama from "./YerelArama.svelte";
   import { ec } from "./ec.svelte";
   import { androidMi } from "./ses";
 
@@ -18,7 +19,9 @@
   const android = androidMi();
 </script>
 
-{#if ec.gorunur}
+{#if ec.yerel}
+  <YerelArama />
+{:else if ec.gorunur}
   <div class="kapsam" class:gizli={!ec.ekranAcik} inert={!ec.ekranAcik} role="dialog" aria-modal="true" aria-label={ec.ad}>
     <header>
       <button class="simge-dugme" onclick={() => (ec.asama === "hata" ? ec.hataKapat() : ec.kucult())} aria-label={ec.asama === "hata" ? t("arama.kapat") : t("arama.ekraniKapat")}>

@@ -4,7 +4,7 @@
 
 /** Error sent by every failing command · Başarısız her komutun döndürdüğü hata */
 export interface Hata {
-  tur: "ag" | "giris" | "sunucu_bulunamadi" | "oturum_yok" | "oda_bulunamadi" | "oda_turu" | "depolama" | "matrix" | "sifreleme" | "diger";
+  tur: "ag" | "giris" | "sunucu_bulunamadi" | "oturum_yok" | "oda_bulunamadi" | "oda_turu" | "depolama" | "matrix" | "sifreleme" | "dosya_buyuk" | "diger";
   mesaj: string;
 }
 
@@ -70,7 +70,7 @@ export interface AramaSatiri {
   /** talk time in seconds when known · biliniyorsa konuşma süresi (sn) */
   sureSn: number | null;
 }
-export type GonderimDurumu = "gonderiliyor" | "gonderildi" | "hata";
+export type GonderimDurumu = "gonderiliyor" | "gonderildi" | "bekliyor" | "hata";
 
 export interface ZamanOgesi {
   id: string;
@@ -274,12 +274,16 @@ export interface SabitMesaj {
   metin: string | null;
 }
 
-/** UI → Rust: send a text message, optionally as a reply and/or HTML · Arayüzden Rust'a: metin mesajı, isteğe bağlı yanıt ve/veya HTML */
+/** UI → Rust: send a text message, optionally as a reply, with HTML and/or mentions · Arayüzden Rust'a: metin mesajı, isteğe bağlı yanıt, HTML ve/veya bahsetme */
 export interface MesajGonderIstegi {
   odaId: string;
   metin: string;
   html: string | null;
   yanitOlayId: string | null;
+  /** Mentioned Matrix user ids in order of appearance · Görünme sırasıyla bahsedilen kullanıcı kimlikleri */
+  bahsedilenler?: string[];
+  /** Notify the whole room (`@room`) · Tüm odaya bildir (`@room`) */
+  odaBahset?: boolean;
 }
 
 export interface AnketIstegi {
@@ -492,6 +496,8 @@ export interface BenimYetkilerim {
   yasaklayabilir: boolean;
   davetEdebilir: boolean;
   gucDegistirebilir: boolean;
+  /** May notify the whole room (`@room`) · Tüm odayı bildirebilir (`@room`) */
+  odayiBildirebilir: boolean;
 }
 
 /** One of my login sessions (device) · Oturum açtığım bir cihaz (profil.rs `OturumCihazi`) */
@@ -540,3 +546,12 @@ export interface Istekler {
 
 /** A preloaded room · Ön yüklenmiş oda */
 export interface ZamanHazir { bilgi: OdaBilgisi; zaman: ZamanGuncelleme }
+
+/** Code of the sign-in with the phone · Telefonla girişin kodu */
+export interface CihazKodu {
+  kod: string;
+  adres: string;
+  /** The page does not know the code yet: it must be typed · Sayfa kodu henüz bilmiyor: yazılmalı */
+  kodYazilir: boolean;
+  saniye: number;
+}

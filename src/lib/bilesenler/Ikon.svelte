@@ -20,6 +20,7 @@
     ayar: '<path d="M4 7h9m5 0h2M4 17h2m5 0h9"/><circle cx="15.500" cy="7" r="2.500"/><circle cx="8.500" cy="17" r="2.500"/>',
     // Not in rubyyard's set: written in the same style · rubyyard setinde yok: aynı stilde yazıldı
     geri: '<path d="m15 18-6-6 6-6"/>',
+    telefonCihaz: '<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/>',
     yanPanel: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9.500 4v16"/>',
     artik: '<path d="M12 5v14M5 12h14"/>',
     ucNokta: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
@@ -63,6 +64,12 @@
     cihaz: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
     bulut: '<path d="M17.5 19a4.5 4.5 0 1 0-1-8.9A6 6 0 1 0 6 17.5"/><path d="m12 12 0 8M9 15l3-3 3 3"/>',
     yildiz: '<path d="m12 2 3 6.5 7 .9-5.2 4.8 1.4 7L12 17.8 5.8 21.2l1.4-7L2 9.4l7-.9Z"/>',
+    // Call screen · Arama ekranı
+    ekranPaylas: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 14V8M9 11l3-3 3 3"/>',
+    sesler: '<path d="M4 9v6h4l5 4V5L8 9ZM16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/>',
+    sesYok: '<path d="M4 9v6h4l5 4V5L8 9ZM17 9l5 6M22 9l-5 6"/>',
+    tamEkran: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    pencere: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>',
     anket: '<path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-3"/>',
   } as const;
   export type IkonAdi = keyof typeof YOLLAR;

@@ -1,0 +1,856 @@
+// Copyright 2026 Element Creations Ltd.
+//
+// SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+// Please see LICENSE in the repository root for full details.
+
+//! Element Call's own wire shapes, for the room-state format: its 2025 sticky
+//! member content, and the key and notification shapes it shares with its
+//! room-state generation.
+//!
+//! We no longer *write* the 2025 sticky content: its outbound dialect went with
+//! the `Sticky2025` membership format. What stays is its inbound normalisation,
+//! which only the room-state format runs (Element Call writes sticky
+//! memberships beside its state events), and the legacy key/notification shapes
+//! [`RoomStateDialect`](super::RoomStateDialect) still speaks. The MSC format
+//! reads none of it.
+//!
+//! Deliberately depends on nothing but `serde_json`: no `matrix-sdk` type, no
+//! `matrix-rtc-core` type. Everything is a plain JSON-in/JSON-out function, so
+//! the whole module is unit-testable without a homeserver.
+//!
+//! # The format, field by field
+//!
+//! | | Element Call today | MSC4143 today |
+//! |---|---|---|
+//! | member | `{user_id, device_id, id}` | `{id, membership}` |
+//! | leave | content is `{msc4354_sticky_key}` alone | full content, `membership: "leave"` + `leave_reason` |
+//! | transports | flat `rtc_transports` array | `transports.{published,can_subscribe}` |
+//! | room-wide slot | `m.call#ROOM` | `m.call#room` |
+//! | extras | `versions`, `m.relation` | gone from the spec |
+//! | key type | `io.element.call.encryption_keys` | `m.rtc.encryption_key` |
+//! | key content | `{keys, member, room_id, session, sent_ts}` | `{room_id, member_id, media_key, format}` |
+//!
+//! # The device id, and why it is load-bearing here
+//!
+//! Element Call runs as a widget, and the widget API gives it no access to
+//! decryption metadata. It therefore cannot learn the device that sent a member
+//! event, which is where MSC4143 (since the 2026 rewrite) says a member's device
+//! comes from. So:
+//!
+//! - Its own member events carry the same self-asserted `member.device_id`.
+//!   Where we cannot do better — a member event that reached us unencrypted —
+//!   [`claimed_device_id`] surfaces it so the core has *some* device to bind the
+//!   member to. That claim is never preferred over an authenticated device; see
+//!   `sdk::snapshot`.
+
+// `std::time::SystemTime::now()` panics on wasm32-unknown-unknown; web-time's
+// is the same API over `Date.now()`.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+use web_time::{SystemTime, UNIX_EPOCH};
+
+use serde_json::{Map, Value, json};
+
+/// The pre-2026 to-device message type carrying media keys.
+pub const LEGACY_KEY_EVENT_TYPE: &str = "io.element.call.encryption_keys";
+
+/// The core's event type for a membership, before the bridge maps it to the
+/// unstable id that goes on the wire.
+const MEMBER_EVENT_TYPE: &str = "m.rtc.member";
+
+/// The event types the core may hand us for a media key, stable and unstable.
+const KEY_EVENT_TYPES: [&str; 2] = ["m.rtc.encryption_key", LEGACY_KEY_EVENT_TYPE];
+
+/// The room-wide `application_slot_id` as the JS SDK spells it. MSC4143 spells
+/// it [`crate::ROOM_APPLICATION_SLOT_ID`], and slot ids compare exactly, so the
+/// two would otherwise be two sessions.
+const LEGACY_ROOM_APPLICATION_SLOT_ID: &str = "ROOM";
+
+/// The core's event type for an MSC4075 notification, before the bridge maps it
+/// to the unstable id that goes on the wire.
+const NOTIFICATION_EVENT_TYPE: &str = "m.rtc.notification";
+
+/// Wall-clock milliseconds since the Unix epoch, for the legacy `sent_ts`.
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Whether a normalised member content can be parsed as MSC4143 content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemberContent {
+    /// The content is MSC4143-shaped (either already, or after normalisation)
+    /// and should be parsed as usual.
+    Usable,
+    /// A pre-2026 leave: the content is nothing but a sticky key.
+    ///
+    /// There is no slot id in it, so it cannot be attributed to a session and
+    /// there is nothing useful to hand the core. Dropping it is the right
+    /// outcome and not a loss: the bridge replaces the whole live sticky set on
+    /// every tick, so an entry that contributes no event is exactly an entry
+    /// whose member has left.
+    BareLeave,
+}
+
+/// Rewrite a pre-2026 `m.rtc.member` content in place so the rest of the stack
+/// only ever sees current MSC4143.
+///
+/// Safe to run on every inbound member event, which is why the bridge does not
+/// gate it on a flag: every rule below fires only when the modern field is
+/// absent *and* its legacy counterpart is present, so spec-shaped content comes
+/// out untouched.
+///
+/// What it does:
+///
+/// - infers `member.membership = "join"` when the member object states no
+///   membership but the content is join-shaped (it names an application);
+/// - lifts a flat `rtc_transports` array into `transports.published`, declaring
+///   the same transport types under `can_subscribe` — an Element Call client
+///   publishing on LiveKit can receive LiveKit;
+/// - recognises the bare-sticky-key leave and reports it as
+///   [`MemberContent::BareLeave`].
+///
+/// `versions` and `m.relation` need no handling: they are simply ignored on
+/// deserialization.
+pub fn normalize_member_content(content: &mut Value) -> MemberContent {
+    let Some(object) = content.as_object_mut() else {
+        // Not an object at all. Let the normal parse fail and report it.
+        return MemberContent::Usable;
+    };
+
+    if !object.contains_key("slot_id") {
+        let has_sticky_key =
+            object.contains_key("msc4354_sticky_key") || object.contains_key("sticky_key");
+        if has_sticky_key {
+            return MemberContent::BareLeave;
+        }
+        // Missing a slot id for some other reason; the normal parse error is a
+        // better diagnostic than anything we could invent here.
+        return MemberContent::Usable;
+    }
+
+    lift_room_slot_id(object);
+    lift_rtc_transports(object);
+    infer_membership(object);
+
+    MemberContent::Usable
+}
+
+/// `{application}#ROOM` → `{application}#room`.
+fn lift_room_slot_id(object: &mut Map<String, Value>) {
+    let current = object
+        .get("slot_id")
+        .and_then(Value::as_str)
+        .and_then(|slot_id| slot_id.strip_suffix(LEGACY_ROOM_APPLICATION_SLOT_ID))
+        .and_then(|application| application.strip_suffix('#'))
+        .map(|application| format!("{application}#{}", crate::ROOM_APPLICATION_SLOT_ID));
+    if let Some(current) = current {
+        object.insert("slot_id".to_owned(), Value::String(current));
+    }
+}
+
+/// `{application}#room` → `{application}#ROOM`, the inverse of
+/// [`lift_room_slot_id`]: how the JS SDK spells the room-wide slot.
+pub(crate) fn legacy_room_slot_id(slot_id: &str) -> std::borrow::Cow<'_, str> {
+    match slot_id
+        .strip_suffix(crate::ROOM_APPLICATION_SLOT_ID)
+        .and_then(|application| application.strip_suffix('#'))
+    {
+        Some(application) => format!("{application}#{LEGACY_ROOM_APPLICATION_SLOT_ID}").into(),
+        None => slot_id.into(),
+    }
+}
+
+/// `rtc_transports: [...]` → `transports: {published: [...], can_subscribe: [...]}`.
+fn lift_rtc_transports(object: &mut Map<String, Value>) {
+    if object.contains_key("transports") {
+        return;
+    }
+    let Some(published) = object
+        .get("rtc_transports")
+        .and_then(Value::as_array)
+        .cloned()
+    else {
+        return;
+    };
+    if published.is_empty() {
+        return;
+    }
+
+    let mut can_subscribe: Vec<Value> = Vec::new();
+    for transport in &published {
+        let Some(transport_type) = transport.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+        let entry = Value::String(transport_type.to_owned());
+        if !can_subscribe.contains(&entry) {
+            can_subscribe.push(entry);
+        }
+    }
+
+    object.insert(
+        "transports".to_owned(),
+        json!({ "published": published, "can_subscribe": can_subscribe }),
+    );
+}
+
+/// Give a legacy member object the `membership` MSC4143 now requires.
+///
+/// Only `join` is ever inferred. A legacy content that does not look like a join
+/// is left without a membership, which the core already reads as left — writing
+/// `"leave"` in would be inventing a statement the sender never made.
+fn infer_membership(object: &mut Map<String, Value>) {
+    let names_application = object
+        .get("application")
+        .and_then(|application| application.get("type"))
+        .and_then(Value::as_str)
+        .is_some_and(|application_type| !application_type.is_empty());
+    if !names_application {
+        return;
+    }
+
+    let Some(member) = object.get_mut("member").and_then(Value::as_object_mut) else {
+        return;
+    };
+    if member.contains_key("membership") {
+        return;
+    }
+    let names_member = member
+        .get("id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| !id.is_empty());
+    if !names_member {
+        return;
+    }
+
+    member.insert("membership".to_owned(), Value::String("join".to_owned()));
+}
+
+/// Whether this content states `member.membership = "leave"`.
+///
+/// Shared with [`super::room_state`]: both legacy generations signal a
+/// departure by replacing the content wholesale, so both need to recognise the
+/// spec leave they are translating *from*.
+pub(crate) fn is_leave(content: &Value) -> bool {
+    content
+        .get("member")
+        .and_then(|member| member.get("membership"))
+        .and_then(Value::as_str)
+        == Some("leave")
+}
+
+/// The device a member event claims to come from (`member.device_id`).
+///
+/// Self-asserted and unauthenticated — MSC4143 removed the field for exactly
+/// that reason. Use it only where there is no authenticated device to be had,
+/// and never in preference to one.
+pub fn claimed_device_id(content: &Value) -> Option<String> {
+    content
+        .get("member")?
+        .get("device_id")?
+        .as_str()
+        .filter(|device_id| !device_id.is_empty())
+        .map(str::to_owned)
+}
+
+/// The device a legacy key message claims to come from, under either spelling.
+///
+/// A fallback for when Olm decryption produced no sending device. Self-asserted,
+/// so it is never preferred over an authenticated one.
+pub fn claimed_key_device_id(content: &Value) -> Option<String> {
+    content
+        .get("device_id")
+        .or_else(|| {
+            content
+                .get("member")
+                .and_then(|member| member.get("claimed_device_id"))
+        })?
+        .as_str()
+        .filter(|device_id| !device_id.is_empty())
+        .map(str::to_owned)
+}
+
+/// A media key lifted out of a legacy `io.element.call.encryption_keys`
+/// to-device message.
+///
+/// Only the fields the core needs. `sent_ts` is deliberately dropped: the core
+/// stamps inbound keys with their receipt time, and a sender-supplied timestamp
+/// is not something we would want to order keys by anyway.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LegacyKeyMessage {
+    /// Room the key is scoped to.
+    pub room_id: String,
+    /// The sender's `member.id`, which is how the core binds a key to a
+    /// membership.
+    pub member_id: String,
+    /// The key material, base64.
+    pub key_b64: String,
+    /// The rolling key index.
+    pub key_index: u8,
+}
+
+/// Parse a legacy media-key to-device message.
+///
+/// Returns `None` when a required field is missing, which for this message
+/// means it cannot be used at all.
+///
+/// `sender` is the to-device event's sender, needed only for the pre-sticky
+/// generation: that one has no `member` object, and binds the key to
+/// `{sender}:{content.device_id}` — the same string
+/// [`room_state::participant_identity`](super::room_state::participant_identity)
+/// builds, and the same one the inbound state translation uses as `member.id`. If
+/// the two ever diverged the key would be filed against a membership that does
+/// not exist, so they share the one function rather than the one format string.
+///
+/// Both `keys` spellings are accepted: an object (2025) or an array of them
+/// (pre-sticky), in which case the **highest** index wins, that being the most
+/// recent key the sender is offering.
+///
+/// Note the key material is 16 bytes here where MSC4143 uses 32. Nothing needs
+/// to convert it: both sides feed the raw bytes to the same LiveKit HKDF, so
+/// they only have to agree, and the core already accepts either length.
+pub fn parse_key_message(sender: &str, content: &Value) -> Option<LegacyKeyMessage> {
+    let keys = match content.get("keys")? {
+        Value::Array(entries) => entries
+            .iter()
+            .filter(|entry| entry.get("key").is_some())
+            .max_by_key(|entry| entry.get("index").and_then(Value::as_u64).unwrap_or(0))?,
+        object => object,
+    };
+
+    let member_id = match content.get("member").and_then(|member| member.get("id")) {
+        Some(Value::String(member_id)) if !member_id.is_empty() => member_id.clone(),
+        _ => {
+            let device_id = content.get("device_id")?.as_str()?;
+            super::room_state::participant_identity(sender, device_id)
+        }
+    };
+
+    Some(LegacyKeyMessage {
+        room_id: content.get("room_id")?.as_str()?.to_owned(),
+        member_id,
+        key_b64: keys.get("key")?.as_str()?.to_owned(),
+        key_index: u8::try_from(keys.get("index")?.as_u64()?).ok()?,
+    })
+}
+
+/// Whether `event_type` is a membership, stable or unstable.
+pub fn is_member_event(event_type: &str) -> bool {
+    event_type == MEMBER_EVENT_TYPE || event_type == "org.matrix.msc4143.rtc.member"
+}
+
+/// Translate an outbound media-key to-device message into the legacy type and
+/// shape.
+///
+/// Returns `None` for any other message type, which the caller then sends
+/// untouched.
+///
+/// Shared verbatim by both legacy generations. They differ only in what
+/// `member_id` the core happens to be carrying, and in the state dialect that id
+/// is already the legacy `membershipID`, so it comes out correct with no special
+/// case.
+///
+/// `keys` is an **object**, for both. An earlier version of this made it an
+/// array for the pre-sticky dialect on the assumption that the two generations
+/// disagreed about it; a captured key message from a real pre-sticky Element Call
+/// settled it — that build sends `keys` as an object with a `member.id` beside
+/// it, exactly like its successor. The key-message format simply did not change
+/// when the membership carrier did.
+///
+/// The remaining fields are the union of both observed shapes — a top-level
+/// `device_id` and `call_id` beside the `member` and `session` objects. Those do
+/// not collide, so a reader of either generation finds what it needs and ignores
+/// the rest.
+pub fn rewrite_key_message(
+    own_device_id: &str,
+    slot_id: &str,
+    message_type: &str,
+    content: &Value,
+) -> Option<(String, Value)> {
+    if !KEY_EVENT_TYPES.contains(&message_type) {
+        return None;
+    }
+
+    let media_key = content.get("media_key")?;
+    let index = media_key.get("index")?;
+    // MSC4143's key is unpadded; Element Call has always been sent it padded.
+    let key = padded_base64(media_key.get("key")?.as_str()?);
+    let (application, call_id) = legacy_session(slot_id);
+
+    let legacy = json!({
+        "keys": { "index": index, "key": key },
+        "member": {
+            "id": content.get("member_id")?,
+            // Self-asserted, and the only device id Element Call can work
+            // with — it cannot read decryption metadata.
+            "claimed_device_id": own_device_id,
+        },
+        // The pre-sticky generation has no `member` object: it binds the key to
+        // `{sender}:{content.device_id}` and looks for the device here.
+        "device_id": own_device_id,
+        "room_id": content.get("room_id")?,
+        "call_id": call_id,
+        "sent_ts": now_ms(),
+        "session": {
+            "application": application,
+            "call_id": call_id,
+            "scope": "m.room",
+        },
+    });
+
+    Some((LEGACY_KEY_EVENT_TYPE.to_owned(), legacy))
+}
+
+/// `b64` with the `=` padding standard base64 ends in.
+fn padded_base64(b64: &str) -> String {
+    let unpadded = b64.trim_end_matches('=');
+    format!("{unpadded}{}", "=".repeat((4 - unpadded.len() % 4) % 4))
+}
+
+/// Flatten an MSC4075 notification into the shape Element Call sends and reads.
+///
+/// Returns `None` for any other event type, which the caller then sends
+/// untouched.
+///
+/// Element Call predates the `application` block: it puts `notification_type`,
+/// `sender_ts`, `lifetime` and `m.call.intent` straight in the content and sends
+/// no `m.text` at all. The event type is unchanged — both generations already
+/// agree on `org.matrix.msc4075.rtc.notification` — so only the content moves.
+///
+/// `device_id` is dropped rather than hoisted: it exists for ring
+/// acknowledgements, which this generation neither sends nor reads, and a
+/// top-level `device_id` means something else entirely in its key messages.
+pub fn flatten_notification_content(event_type: &str, content: &Value) -> Option<Value> {
+    if event_type != NOTIFICATION_EVENT_TYPE {
+        return None;
+    }
+
+    let application = content.get("application")?.as_object()?;
+    let mut flat = Map::new();
+    if let Some(mentions) = content.get("m.mentions") {
+        flat.insert("m.mentions".to_owned(), mentions.clone());
+    }
+    for field in [
+        "notification_type",
+        "sender_ts",
+        "lifetime",
+        "m.call.intent",
+    ] {
+        if let Some(value) = application.get(field) {
+            flat.insert(field.to_owned(), value.clone());
+        }
+    }
+    if let Some(relates_to) = content.get("m.relates_to") {
+        flat.insert("m.relates_to".to_owned(), relates_to.clone());
+    }
+
+    Some(Value::Object(flat))
+}
+
+/// Reconstruct the legacy `{application, call_id}` pair from a slot id.
+///
+/// MSC4143 folded the old `{application, call_id, scope}` triple into a single
+/// slot id of the form `<application>#<call_id>`, where the room-wide
+/// `application_slot_id` ([`crate::ROOM_APPLICATION_SLOT_ID`]) is the
+/// room-scoped session that used to be an empty `call_id`.
+///
+/// A free function, and shared with [`super::room_state`], because that
+/// generation needs the same split in three places — the member content, the
+/// state key and the key message's `session` object — and a second copy of the
+/// sentinel rule is a second chance to get it wrong. Getting it wrong puts a
+/// peer in a session we are not in, and the roster is silently empty.
+pub(crate) fn legacy_session(slot_id: &str) -> (&str, &str) {
+    match slot_id.split_once('#') {
+        Some((application, crate::ROOM_APPLICATION_SLOT_ID)) => (application, ""),
+        Some((application, call_id)) => (application, call_id),
+        // No separator: treat the whole thing as the application, which is
+        // the room-scoped case again.
+        None => (slot_id, ""),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A join exactly as observed from Element Call on the JS SDK.
+    const LEGACY_JOIN: &str = r#"{
+        "application": { "type": "m.call", "m.call.intent": "video" },
+        "slot_id": "m.call#ROOM",
+        "rtc_transports": [
+            {
+                "type": "livekit",
+                "livekit_service_url": "https://mrtc.example.io"
+            }
+        ],
+        "member": {
+            "device_id": "V5cP8FErcB",
+            "user_id": "@alice:example.io",
+            "id": "41065006-4d3e-49ab-8c7a-3c8471ef6bec"
+        },
+        "versions": [],
+        "msc4354_sticky_key": "41065006-4d3e-49ab-8c7a-3c8471ef6bec"
+    }"#;
+
+    /// The matching leave: content is the sticky key and nothing else.
+    const LEGACY_LEAVE: &str =
+        r#"{ "msc4354_sticky_key": "41065006-4d3e-49ab-8c7a-3c8471ef6bec" }"#;
+
+    /// A current-spec join, which must survive normalisation untouched.
+    const SPEC_JOIN: &str = r#"{
+        "slot_id": "m.call#room",
+        "member": { "id": "xyzABCDEF0123", "membership": "join" },
+        "application": { "type": "m.call" },
+        "transports": {
+            "published": [{ "type": "livekit", "livekit_service_url": "https://sfu.example.com" }],
+            "can_subscribe": ["livekit"]
+        },
+        "msc4354_sticky_key": "xyzABCDEF0123"
+    }"#;
+
+    fn normalized(json: &str) -> (MemberContent, Value) {
+        let mut value: Value = serde_json::from_str(json).expect("valid json");
+        let outcome = normalize_member_content(&mut value);
+        (outcome, value)
+    }
+
+    #[test]
+    fn legacy_join_gains_a_membership_and_typed_transports() {
+        let (outcome, value) = normalized(LEGACY_JOIN);
+
+        assert_eq!(outcome, MemberContent::Usable);
+        assert_eq!(value.pointer("/member/membership").unwrap(), "join");
+        assert_eq!(
+            value
+                .pointer("/transports/published/0/livekit_service_url")
+                .unwrap(),
+            "https://mrtc.example.io"
+        );
+        assert_eq!(
+            value.pointer("/transports/can_subscribe/0").unwrap(),
+            "livekit"
+        );
+        // The legacy fields stay where they were; nothing downstream reads them.
+        assert!(value.get("rtc_transports").is_some());
+    }
+
+    /// The whole point of the inbound half being unconditional: it must be a
+    /// no-op on spec-shaped content.
+    #[test]
+    fn spec_shaped_join_is_untouched() {
+        let before: Value = serde_json::from_str(SPEC_JOIN).unwrap();
+        let (outcome, after) = normalized(SPEC_JOIN);
+
+        assert_eq!(outcome, MemberContent::Usable);
+        assert_eq!(before, after);
+    }
+
+    /// A spec leave states `membership: "leave"`, and no amount of legacy
+    /// inference may promote it to a join.
+    #[test]
+    fn spec_leave_is_untouched() {
+        let json = SPEC_JOIN.replace(r#""membership": "join""#, r#""membership": "leave""#);
+        let before: Value = serde_json::from_str(&json).unwrap();
+        let (_, after) = normalized(&json);
+
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn bare_sticky_key_leave_is_reported_for_dropping() {
+        let (outcome, _) = normalized(LEGACY_LEAVE);
+        assert_eq!(outcome, MemberContent::BareLeave);
+
+        // Under the stable spelling too.
+        let (outcome, _) = normalized(r#"{ "sticky_key": "abc" }"#);
+        assert_eq!(outcome, MemberContent::BareLeave);
+    }
+
+    /// Content that is neither a legacy leave nor parseable must not be
+    /// disguised as one — the normal parse error is the better diagnostic.
+    #[test]
+    fn content_missing_everything_is_left_to_fail_normally() {
+        let (outcome, _) = normalized(r#"{ "member": { "id": "abc" } }"#);
+        assert_eq!(outcome, MemberContent::Usable);
+    }
+
+    /// A join is only inferred when the content names an application, which is
+    /// what MSC4143 requires of a join anyway.
+    #[test]
+    fn membership_is_not_inferred_without_an_application() {
+        let json = LEGACY_JOIN.replace(
+            r#""application": { "type": "m.call", "m.call.intent": "video" },"#,
+            "",
+        );
+        let (_, value) = normalized(&json);
+        assert!(value.pointer("/member/membership").is_none());
+    }
+
+    #[test]
+    fn claimed_device_is_read_only_when_stated() {
+        let (_, value) = normalized(LEGACY_JOIN);
+        assert_eq!(claimed_device_id(&value).as_deref(), Some("V5cP8FErcB"));
+
+        let (_, spec) = normalized(SPEC_JOIN);
+        assert_eq!(claimed_device_id(&spec), None);
+    }
+
+    #[test]
+    fn legacy_key_message_parses() {
+        let content: Value = serde_json::from_str(
+            r#"{
+                "keys": { "index": 1, "key": "36/SXoTd/H/DnPU1NNzS1g==" },
+                "member": { "claimed_device_id": "RwkMOenWJa", "id": "526e16aa" },
+                "room_id": "!room:example.io",
+                "sent_ts": 1786096055586,
+                "session": { "application": "m.call", "call_id": "", "scope": "m.room" }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            parse_key_message("@alice:example.io", &content),
+            Some(LegacyKeyMessage {
+                room_id: "!room:example.io".to_owned(),
+                member_id: "526e16aa".to_owned(),
+                key_b64: "36/SXoTd/H/DnPU1NNzS1g==".to_owned(),
+                key_index: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn a_key_message_missing_a_field_is_rejected() {
+        let content = json!({ "keys": { "index": 0 }, "room_id": "!room:example.io" });
+        assert_eq!(parse_key_message("@alice:example.io", &content), None);
+    }
+
+    /// The pre-sticky generation's shape: `keys` is an array and there is no
+    /// `member` object, so the member id has to be built from the sender and the
+    /// device the content states.
+    #[test]
+    fn a_pre_sticky_key_message_binds_to_the_sender_and_device() {
+        let content = json!({
+            "keys": [
+                { "index": 0, "key": "b2xkZXIga2V5IG1hdGVyaWFs" },
+                { "index": 2, "key": "36/SXoTd/H/DnPU1NNzS1g==" },
+                { "index": 1, "key": "bWlkZGxlIGtleSBtYXRlcmlhbA==" },
+            ],
+            "device_id": "V5cP8FErcB",
+            "call_id": "",
+            "room_id": "!room:example.io",
+            "sent_ts": 1786096055586u64,
+        });
+
+        assert_eq!(
+            parse_key_message("@alice:example.io", &content),
+            Some(LegacyKeyMessage {
+                room_id: "!room:example.io".to_owned(),
+                // The same string the inbound state translation uses as
+                // `member.id`; if these diverged the key would be filed against
+                // a membership that does not exist.
+                member_id: "@alice:example.io:V5cP8FErcB".to_owned(),
+                // The highest index wins: that is the most recent key on offer.
+                key_b64: "36/SXoTd/H/DnPU1NNzS1g==".to_owned(),
+                key_index: 2,
+            })
+        );
+    }
+
+    /// An explicit `member.id` always wins over the sender-derived fallback,
+    /// even when the content also states a device.
+    #[test]
+    fn an_explicit_member_id_beats_the_fallback() {
+        let content = json!({
+            "keys": { "index": 0, "key": "36/SXoTd/H/DnPU1NNzS1g==" },
+            "member": { "id": "526e16aa" },
+            "device_id": "V5cP8FErcB",
+            "room_id": "!room:example.io",
+        });
+
+        assert_eq!(
+            parse_key_message("@alice:example.io", &content)
+                .expect("parses")
+                .member_id,
+            "526e16aa"
+        );
+    }
+
+    #[test]
+    fn outbound_key_message_takes_the_legacy_type_and_shape() {
+        let content = json!({
+            "room_id": "!room:example.io",
+            "member_id": "our-member-id",
+            "media_key": { "index": 3, "key": "aaaa" },
+            "format": 0
+        });
+
+        let (message_type, legacy) =
+            rewrite_key_message("BOBDEVICE", "m.call#room", "m.rtc.encryption_key", &content)
+                .expect("a key message must be rewritten");
+
+        assert_eq!(message_type, LEGACY_KEY_EVENT_TYPE);
+        assert_eq!(legacy.pointer("/keys/index").unwrap(), 3);
+        assert_eq!(legacy.pointer("/keys/key").unwrap(), "aaaa");
+        assert_eq!(legacy.pointer("/member/id").unwrap(), "our-member-id");
+        assert_eq!(
+            legacy.pointer("/member/claimed_device_id").unwrap(),
+            "BOBDEVICE"
+        );
+        assert_eq!(legacy.pointer("/room_id").unwrap(), "!room:example.io");
+        assert_eq!(legacy.pointer("/session/application").unwrap(), "m.call");
+        assert_eq!(legacy.pointer("/session/call_id").unwrap(), "");
+        assert_eq!(legacy.pointer("/session/scope").unwrap(), "m.room");
+        assert!(legacy.get("sent_ts").is_some());
+    }
+
+    /// Stripped of `application` and `m.text`, what the core sends must equal
+    /// what a real Element Call sends. The fixture below was captured from a
+    /// live call where Bob starts it and Alice, joining second, sends nothing;
+    /// the interop suite (`interop/`) re-checks the same claim against a real
+    /// Element Call build.
+    #[test]
+    fn a_notification_is_flattened_into_what_element_call_sends() {
+        // As `crate::build_notification_content` writes it: the MSC's
+        // `application` block plus the top-level copies every deployed receiver
+        // actually reads.
+        let spec = json!({
+            "application": {
+                "type": "m.call",
+                "notification_type": "notification",
+                "sender_ts": 1_779_030_731_419u64,
+                "lifetime": 30000,
+                "device_id": "WDQHAPEYDK",
+                "m.call.intent": "video",
+            },
+            "notification_type": "notification",
+            "sender_ts": 1_779_030_731_419u64,
+            "lifetime": 30000,
+            "m.call.intent": "video",
+            "m.text": [{ "body": "Session started by @bob:synapse.othersite.m.localhost" }],
+            "m.mentions": { "user_ids": [], "room": true },
+            "m.relates_to": {
+                "rel_type": "m.reference",
+                "event_id": "$_ErcrEWx3Hj77_wScF-U4e9aS6cVi37RvFUeq12BiaI",
+            },
+        });
+
+        let flat = flatten_notification_content("m.rtc.notification", &spec)
+            .expect("a notification must be flattened");
+
+        assert_eq!(
+            flat,
+            json!({
+                "m.mentions": { "user_ids": [], "room": true },
+                "notification_type": "notification",
+                "sender_ts": 1_779_030_731_419u64,
+                "lifetime": 30000,
+                "m.call.intent": "video",
+                "m.relates_to": {
+                    "event_id": "$_ErcrEWx3Hj77_wScF-U4e9aS6cVi37RvFUeq12BiaI",
+                    "rel_type": "m.reference",
+                },
+            })
+        );
+    }
+
+    /// A call with no stated intent must not grow an `m.call.intent: null`.
+    #[test]
+    fn a_flattened_notification_omits_an_absent_intent() {
+        let spec = json!({
+            "application": {
+                "type": "m.call",
+                "notification_type": "ring",
+                "sender_ts": 1u64,
+                "lifetime": 30000,
+                "device_id": "BOBDEVICE",
+            },
+            "m.mentions": { "user_ids": [], "room": true },
+            "m.relates_to": { "rel_type": "m.reference", "event_id": "$member" },
+        });
+
+        let flat = flatten_notification_content("m.rtc.notification", &spec).unwrap();
+
+        assert!(flat.get("m.call.intent").is_none());
+        assert!(flat.get("application").is_none());
+        assert!(flat.get("device_id").is_none());
+    }
+
+    /// Anything else through the same sender must come out untouched.
+    #[test]
+    fn other_event_types_are_not_flattened() {
+        assert!(flatten_notification_content("m.rtc.member", &json!({})).is_none());
+    }
+
+    /// The dialect decides; only the content moves, never the event type.
+    #[test]
+    fn only_the_legacy_dialects_flatten_a_notification() {
+        let spec = json!({
+            "application": { "type": "m.call", "notification_type": "ring" },
+            "m.mentions": { "user_ids": [], "room": true },
+        });
+
+        assert_eq!(
+            crate::compat::OutboundDialect::None
+                .rewrite_notification("m.rtc.notification", spec.clone()),
+            spec,
+            "a spec-current call sends the spec shape"
+        );
+        assert!(
+            crate::compat::OutboundDialect::State(crate::compat::RoomStateDialect::new(
+                "@bob:example.io",
+                "BOBDEVICE",
+                "!room:example.io",
+                "m.call#room",
+            ))
+            .rewrite_notification("m.rtc.notification", spec)
+            .get("application")
+            .is_none()
+        );
+    }
+
+    /// The wire spelling is rewritten too, and the key is handed to Element
+    /// Call padded, as it has always been, though MSC4143's is unpadded.
+    #[test]
+    fn the_wire_key_type_is_rewritten_too_with_a_padded_key() {
+        let content = json!({
+            "room_id": "!room:example.io",
+            "member_id": "our-member-id",
+            "media_key": { "index": 0, "key": "AAECAwQ" }
+        });
+        let (_, legacy) =
+            rewrite_key_message("BOBDEVICE", "m.call#room", LEGACY_KEY_EVENT_TYPE, &content)
+                .expect("rewritten");
+        assert_eq!(legacy.pointer("/keys/key"), Some(&json!("AAECAwQ=")));
+        assert_eq!(padded_base64("AAECAw=="), "AAECAw==");
+        assert!(
+            rewrite_key_message("BOBDEVICE", "m.call#room", "m.rtc.encryption_key", &content)
+                .is_some()
+        );
+    }
+
+    /// Anything that is not a media key passes through the sender untouched.
+    #[test]
+    fn other_to_device_types_are_not_rewritten() {
+        assert!(
+            rewrite_key_message(
+                "BOBDEVICE",
+                "m.call#room",
+                "m.room_key.withheld",
+                &json!({})
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn a_named_call_id_survives_the_slot_id_split() {
+        assert_eq!(legacy_session("m.call#standup"), ("m.call", "standup"));
+        assert_eq!(legacy_session("m.call#room"), ("m.call", ""));
+        // No separator at all is the room-scoped case again.
+        assert_eq!(legacy_session("m.call"), ("m.call", ""));
+    }
+}

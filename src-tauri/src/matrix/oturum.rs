@@ -24,7 +24,10 @@
 use std::path::{Path, PathBuf};
 
 use matrix_sdk::{
-    authentication::matrix::MatrixSession,
+    authentication::{
+        matrix::MatrixSession,
+        oauth::{ClientId, OAuthSession, UserSession},
+    },
     sliding_sync::VersionBuilder,
     store::RoomLoadSettings,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
@@ -47,6 +50,9 @@ const DEPO_KLASORU: &str = "depo";
 pub const DIZIN_KLASORU: &str = "arama-dizini";
 /// Key under which the secrets blob is stored in the backend. · Gizli bilgi paketinin arka uçtaki anahtarı.
 const GIZLI_ANAHTAR: &str = "oturum";
+fn anahtar(veri: &Path) -> String {
+    super::hesaplar::gizli_anahtar(veri, GIZLI_ANAHTAR)
+}
 /// `Dosya::gizli` value meaning "secrets are inside this file". · "Gizli bilgiler bu dosyanın içinde" anlamındaki değer.
 const GIZLI_DOSYADA: &str = "dosya";
 
@@ -64,6 +70,8 @@ struct Dosya {
     parola: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     oturum: Option<MatrixSession>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    istemci_id: Option<String>,
 }
 
 fn varsayilan_gizli() -> String {
@@ -75,6 +83,8 @@ fn varsayilan_gizli() -> String {
 struct Gizliler {
     parola: String,
     oturum: MatrixSession,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    istemci_id: Option<String>,
 }
 
 /// Everything about the saved session, secrets included (memory only).
@@ -88,6 +98,9 @@ struct Kayit {
     sunucu_adi: String,
     parola: String,
     oturum: MatrixSession,
+    /// Set = signed in through the browser (OAuth, see `cihaz_giris.rs`): tokens are refreshed at the authorization server with this id.
+    /// Dolu = tarayıcıyla girilmiş (OAuth, bkz. `cihaz_giris.rs`): belirteçler yetkilendirme sunucusunda bu kimlikle yenilenir.
+    istemci_id: Option<String>,
 }
 
 impl Kayit {
@@ -125,7 +138,7 @@ impl Kayit {
         if let (Some(parola), Some(oturum)) = (d.parola.clone(), d.oturum.clone()) {
             // Secrets are in the file (old format or fallback mode): try the backend now.
             // Gizli bilgiler dosyada (eski biçim ya da yedek kip): şimdi arka ucu dene.
-            let kayit = Kayit { sunucu_url: d.sunucu_url, sunucu_adi: d.sunucu_adi, parola, oturum };
+            let kayit = Kayit { sunucu_url: d.sunucu_url, sunucu_adi: d.sunucu_adi, parola, oturum, istemci_id: d.istemci_id };
             if d.gizli == GIZLI_DOSYADA {
                 match kayit.kaydet(veri) {
                     Ok(()) => info!("gizli bilgiler dosyadan {} deposuna taşındı", depo.ad()),
@@ -134,10 +147,10 @@ impl Kayit {
             }
             return Ok(Some(kayit));
         }
-        match depo.oku(GIZLI_ANAHTAR)? {
+        match depo.oku(&anahtar(veri))? {
             Some(json) => {
                 let g: Gizliler = serde_json::from_str(&json)?;
-                Ok(Some(Kayit { sunucu_url: d.sunucu_url, sunucu_adi: d.sunucu_adi, parola: g.parola, oturum: g.oturum }))
+                Ok(Some(Kayit { sunucu_url: d.sunucu_url, sunucu_adi: d.sunucu_adi, parola: g.parola, oturum: g.oturum, istemci_id: g.istemci_id }))
             }
             None => {
                 warn!("oturum dosyası var ama {} deposunda gizli bilgi yok: yeniden giriş gerekir", depo.ad());
@@ -150,20 +163,22 @@ impl Kayit {
     /// Gizli bilgileri arka uca, üst bilgiyi dosyaya yazar; hata olursa her şeyi dosyaya yazar (yedek).
     fn kaydet(&self, veri: &Path) -> Sonuc<()> {
         let depo = gizli_depo::varsayilan();
-        let json = serde_json::to_string(&Gizliler { parola: self.parola.clone(), oturum: self.oturum.clone() })?;
+        let json = serde_json::to_string(&Gizliler { parola: self.parola.clone(), oturum: self.oturum.clone(), istemci_id: self.istemci_id.clone() })?;
         let mut d = Dosya {
             sunucu_url: self.sunucu_url.clone(),
             sunucu_adi: self.sunucu_adi.clone(),
             gizli: depo.ad().into(),
             parola: None,
             oturum: None,
+            istemci_id: None,
         };
-        if let Err(e) = depo.yaz(GIZLI_ANAHTAR, &json) {
+        if let Err(e) = depo.yaz(&anahtar(veri), &json) {
             // Never log the secrets themselves, only the reason. · Gizli bilgilerin kendisini değil, yalnızca nedeni günlüğe yaz.
             warn!("{} kullanılamıyor, gizli bilgiler dosyada tutulacak: {e}", depo.ad());
             d.gizli = GIZLI_DOSYADA.into();
             d.parola = Some(self.parola.clone());
             d.oturum = Some(self.oturum.clone());
+            d.istemci_id = self.istemci_id.clone();
         }
         Self::dosya_yaz(veri, &d)
     }
@@ -173,7 +188,7 @@ impl Kayit {
         let _ = std::fs::remove_dir_all(veri.join(DEPO_KLASORU));
         let _ = std::fs::remove_dir_all(veri.join(DIZIN_KLASORU));
         let _ = std::fs::remove_file(veri.join(SLIDING_DOSYASI));
-        if let Err(e) = gizli_depo::varsayilan().sil(GIZLI_ANAHTAR) {
+        if let Err(e) = gizli_depo::varsayilan().sil(&anahtar(veri)) {
             warn!("gizli depodan silinemedi: {e}");
         }
     }
@@ -292,11 +307,60 @@ pub async fn sifreyle_giris(veri: &Path, sunucu: &str, kullanici: &str, sifre: &
     }
 
     let oturum = auth.session().ok_or(Hata::OturumYok)?;
-    Kayit { sunucu_url: client.homeserver().to_string(), sunucu_adi: sunucu, parola, oturum }.kaydet(veri)?;
+    Kayit { sunucu_url: client.homeserver().to_string(), sunucu_adi: sunucu, parola, oturum, istemci_id: None }.kaydet(veri)?;
     sliding_yaz(veri, &client);
     info!("giriş başarılı");
     let ben = ben_olustur(&client, veri);
     Ok((client, ben))
+}
+
+/// Puts a session into a fresh client, through the API it was made with. · Oturumu yeni istemciye, yapıldığı API ile koyar.
+async fn oturumu_ac(client: &Client, oturum: MatrixSession, istemci_id: Option<String>) -> Sonuc<()> {
+    match istemci_id {
+        Some(id) => {
+            let o = OAuthSession { client_id: ClientId::new(id), user: UserSession { meta: oturum.meta, tokens: oturum.tokens } };
+            client.oauth().restore_session(o, RoomLoadSettings::default()).await?;
+        }
+        None => client.matrix_auth().restore_session(oturum, RoomLoadSettings::default()).await?,
+    }
+    Ok(())
+}
+
+/// Discovery only: nothing is written to disk. · Yalnızca keşif: diske bir şey yazılmaz.
+pub async fn kesif_istemcisi(sunucu: &str) -> Sonuc<Client> {
+    Ok(Client::builder().server_name_or_homeserver_url(sunucu).build().await?)
+}
+
+/// Turns tokens approved in the browser into this device's session. · Tarayıcıda onaylanan belirteçleri bu cihazın oturumu yapar.
+pub async fn oauth_giris(veri: &Path, sunucu_adi: &str, sunucu_url: &str, oturum: MatrixSession, istemci_id: String) -> Sonuc<(Client, Ben)> {
+    Kayit::sil(veri);
+    let parola = rastgele_parola();
+    // The server's sliding sync support is asked again (see `istemci_kur`: the remembered answer was just deleted). · Sunucunun sliding sync desteği yeniden sorulur (hatırlanan cevap az önce silindi).
+    let sonuc = async {
+        let client = istemci_kur(veri, &parola, SunucuGirdisi::Url(sunucu_url)).await?;
+        oturumu_ac(&client, oturum.clone(), Some(istemci_id.clone())).await?;
+        Ok::<_, Hata>(client)
+    }
+    .await;
+    let client = match sonuc {
+        Ok(c) => c,
+        Err(e) => {
+            Kayit::sil(veri);
+            return Err(e);
+        }
+    };
+    // Tokens may already have been refreshed while starting. · Belirteçler açılırken yenilenmiş olabilir.
+    let oturum = suanki_oturum(&client).unwrap_or(oturum);
+    Kayit { sunucu_url: sunucu_url.to_owned(), sunucu_adi: sunucu_adi.to_owned(), parola, oturum, istemci_id: Some(istemci_id) }.kaydet(veri)?;
+    sliding_yaz(veri, &client);
+    info!("tarayıcı onaylı giriş başarılı");
+    let ben = ben_olustur(&client, veri);
+    Ok((client, ben))
+}
+
+/// The session as it is now, whichever API made it. · Hangi API ile yapıldıysa yapılsın, oturumun şimdiki hâli.
+fn suanki_oturum(client: &Client) -> Option<MatrixSession> {
+    Some(MatrixSession { meta: client.session_meta()?.to_owned(), tokens: client.session_tokens()? })
 }
 
 /// Restores the saved session on startup. `Ok(None)` = nothing saved (show the login screen).
@@ -304,7 +368,7 @@ pub async fn sifreyle_giris(veri: &Path, sunucu: &str, kullanici: &str, sifre: &
 pub async fn geri_yukle(veri: &Path) -> Sonuc<Option<(Client, Ben)>> {
     let Some(kayit) = Kayit::yukle(veri)? else { return Ok(None) };
     let client = istemci_kur(veri, &kayit.parola, SunucuGirdisi::Url(&kayit.sunucu_url)).await?;
-    client.matrix_auth().restore_session(kayit.oturum, RoomLoadSettings::default()).await?;
+    oturumu_ac(&client, kayit.oturum, kayit.istemci_id).await?;
     // Sessions from before this file existed learn it now (this start still asked the server). · Bu dosyadan önceki oturumlar şimdi öğrenir.
     if !veri.join(SLIDING_DOSYASI).exists() {
         sliding_yaz(veri, &client);
@@ -348,7 +412,7 @@ pub fn token_izle(veri: PathBuf, client: Client) -> JoinHandle<()> {
         while let Ok(degisim) = rx.recv().await {
             match degisim {
                 SessionChange::TokensRefreshed => {
-                    if let (Ok(Some(mut kayit)), Some(yeni)) = (Kayit::yukle(&veri), client.matrix_auth().session()) {
+                    if let (Ok(Some(mut kayit)), Some(yeni)) = (Kayit::yukle(&veri), suanki_oturum(&client)) {
                         kayit.oturum = yeni;
                         if let Err(e) = kayit.kaydet(&veri) {
                             warn!("yenilenen belirteç kaydedilemedi: {e}");

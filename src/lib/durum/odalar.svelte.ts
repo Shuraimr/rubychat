@@ -3,6 +3,7 @@
 import { esitlemeDurumuAl, odalariAl } from "../api/komutlar";
 import { esitlemeDurumu, odalarGuncellendi } from "../api/olaylar";
 import type { EsitlemeDurumu, OdaOzeti } from "../api/tipler";
+import type { BahisKaydi } from "../bicim/bahis";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 export type Suzgec = "tumu" | "okunmamis" | "kisiler" | "gruplar" | "davetler";
@@ -15,6 +16,8 @@ class Odalar {
   suzgec = $state<Suzgec>("tumu");
   /** Unsent composer text per room (memory only, lost on restart) → "Taslak:" in the chat row. · Oda başına gönderilmemiş yazı (yalnızca bellek, yeniden başlatınca gider) → sohbet satırında "Taslak:". */
   taslaklar = $state<Record<string, string>>({});
+  /** Mention spans remembered per room's draft (never leaked across rooms, cleared with draft / logout) · Her oda taslağının hatırlanan bahsetmeleri (odalar arası sızmaz, taslakla / çıkışta silinir) */
+  taslakBahisleri = $state<Record<string, BahisKaydi[]>>({});
 
   #abonelikler: UnlistenFn[] = [];
 
@@ -45,9 +48,28 @@ class Odalar {
     return [...l.filter((o) => o.sabit), ...l.filter((o) => !o.sabit)];
   }
 
-  taslakYaz(odaId: string, metin: string) {
-    if (metin.trim()) this.taslaklar[odaId] = metin;
-    else delete this.taslaklar[odaId];
+  taslakYaz(odaId: string, metin: string, bahisler?: BahisKaydi[]) {
+    if (metin.trim()) {
+      this.taslaklar[odaId] = metin;
+      if (bahisler !== undefined) {
+        if (bahisler.length > 0) this.taslakBahisleri[odaId] = [...bahisler];
+        else delete this.taslakBahisleri[odaId];
+      }
+    } else {
+      delete this.taslaklar[odaId];
+      delete this.taslakBahisleri[odaId];
+    }
+  }
+
+  /** Appends an `@DisplayName ` mention to a room's draft and remembers its user id (used by KullaniciKarti › Bahset). · Oda taslağına `@GörünenAd ` bahsetmesi ekler ve kullanıcı kimliğini hatırlar (KullaniciKarti › Bahset kullanır). */
+  taslakBahisEkle(odaId: string, kullaniciId: string, ad: string) {
+    const eski = this.taslaklar[odaId] ?? "";
+    const eskiBahisler = this.taslakBahisleri[odaId] ?? [];
+    const ayirici = eski && !/\s$/.test(eski) ? " " : "";
+    const bas = eski.length + ayirici.length;
+    const etiket = `@${ad}`;
+    const yeni = `${eski}${ayirici}${etiket} `;
+    this.taslakYaz(odaId, yeni, [...eskiBahisler, { bas, son: bas + etiket.length, etiket, kullaniciId }]);
   }
 
   async baslat() {
@@ -78,6 +100,7 @@ class Odalar {
     this.liste = [];
     this.ilkListeGeldi = false;
     this.taslaklar = {};
+    this.taslakBahisleri = {};
     this.esitleme = { durum: "basliyor", mesaj: null };
   }
 }

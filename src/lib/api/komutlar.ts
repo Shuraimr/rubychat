@@ -9,6 +9,7 @@ import type {
   AlanOgesi,
   AnketIstegi,
   Ben,
+  CihazKodu,
   CikartmaIstegi,
   DizinDurumu,
   GorselPaketi,
@@ -53,6 +54,10 @@ async function cagir<T>(komut: string, args?: Record<string, unknown>): Promise<
 
 export const giris = (istek: GirisIstegi) => cagir<Ben>("giris", { istek });
 export const oturumuGeriYukle = () => cagir<Ben | null>("oturumu_geri_yukle");
+export interface HesapKaydi { id: string; kullaniciId: string; sunucu: string; ad: string | null; avatarMxc: string | null }
+export const hesaplariAl = () => cagir<{ aktif: string; liste: HesapKaydi[] }>("hesaplari_al");
+/** null = an empty place to sign in to another account · null = başka hesaba girmek için boş yer */
+export const hesapDegistir = (id: string | null) => cagir<void>("hesap_degistir", { id });
 export const cikis = () => cagir<void>("cikis");
 export const ben = () => cagir<Ben>("ben");
 export const odalariAl = () => cagir<OdaOzeti[]>("odalari_al");
@@ -74,8 +79,14 @@ export const mesajGonder = (istek: MesajGonderIstegi) => cagir<void>("mesaj_gond
 /** Toggles my reaction; true = added, false = removed · Tepkimi açıp kapatır; true = eklendi, false = kaldırıldı */
 export const tepkiDegistir = (odaId: string, olayId: string, anahtar: string) => cagir<boolean>("tepki_degistir", { odaId, olayId, anahtar });
 export const mesajSil = (odaId: string, olayId: string) => cagir<void>("mesaj_sil", { odaId, olayId });
-export const mesajDuzenle = (odaId: string, olayId: string, metin: string, html: string | null) =>
-  cagir<void>("mesaj_duzenle", { odaId, olayId, metin, html });
+export const mesajDuzenle = (
+  odaId: string,
+  olayId: string,
+  metin: string,
+  html: string | null,
+  bahsedilenler: string[] = [],
+  odaBahset = false,
+) => cagir<void>("mesaj_duzenle", { odaId, olayId, metin, html, bahsedilenler, odaBahset });
 export const yaziyorBildir = (odaId: string, yaziyor: boolean) => cagir<void>("yaziyor_bildir", { odaId, yaziyor });
 export const mesajSabitle = (odaId: string, olayId: string, sabitle: boolean) => cagir<void>("mesaj_sabitle", { odaId, olayId, sabitle });
 export const sabitMesajlar = (odaId: string) => cagir<SabitMesaj[]>("sabit_mesajlar", { odaId });
@@ -161,6 +172,18 @@ export const odaAyril = (odaId: string) => cagir<void>("oda_ayril", { odaId });
 
 // ---- Element Call (calls) · Element Call (aramalar) ----
 /** Builds the widget URL and starts the Matrix side of the call; returns the URL for the iframe · Widget adresini kurar, aramanın Matrix tarafını başlatır; iframe adresini döndürür */
+// Native calls (Linux desktop): see src-tauri/src/matrix/yerel_arama.rs. · Yerel aramalar (Linux masaüstü).
+export const yerelAramaVar = () => cagir<boolean>("yerel_arama_var");
+export const yerelAramaBaslat = (odaId: string, dm: boolean, ara: boolean) => cagir<void>("yerel_arama_baslat", { odaId, dm, ara });
+export const yerelAramaKapat = () => cagir<void>("yerel_arama_kapat");
+export const yerelAramaSustur = (kapali: boolean) => cagir<void>("yerel_arama_sustur", { kapali });
+export const yerelAramaDuzey = (anahtar: string, duzey: number) => cagir<void>("yerel_arama_duzey", { anahtar, duzey });
+export const yerelAramaUygulamalar = () => cagir<string[]>("yerel_arama_uygulamalar");
+export const yerelAramaPaylas = (uygulamalar: string[]) => cagir<void>("yerel_arama_paylas", { uygulamalar });
+export const yerelAramaPaylasilanSesler = (uygulamalar: string[]) => cagir<void>("yerel_arama_paylasilan_sesler", { uygulamalar });
+export const yerelAramaPaylasimiDurdur = () => cagir<void>("yerel_arama_paylasimi_durdur");
+export const yerelAramaKare = (anahtar: string, sonra: number) => cagir<ArrayBuffer>("yerel_arama_kare", { anahtar, sonra });
+
 export const ecAc = (i: EcAcIstegi) => cagir<EcAcilis>("ec_ac", { ...i });
 /** One widget API message from the iframe to the Rust driver · iframe'den Rust sürücüsüne bir widget API mesajı */
 export const ecGonder = (widgetId: string, mesaj: string) => cagir<void>("ec_gonder", { widgetId, mesaj });
@@ -189,3 +212,8 @@ export const hesapKapat = (parola: string, veriyiSil: boolean) => cagir<void>("h
 /** Desktop Linux clipboard · Masaüstü Linux panosu */
 export const panoYaz = (metin: string) => cagir<boolean>("pano_yaz", { metin });
 export const panoResim = () => cagir<ArrayBuffer>("pano_resim");
+
+/** Sign in with the phone · Telefonla giriş */
+export const cihazGirisiBaslat = (sunucu: string) => cagir<CihazKodu>("cihaz_girisi_baslat", { sunucu });
+export const cihazGirisiBekle = () => cagir<Ben>("cihaz_girisi_bekle");
+export const cihazGirisiIptal = () => cagir<void>("cihaz_girisi_iptal");

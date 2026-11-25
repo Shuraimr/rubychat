@@ -1,0 +1,18 @@
+[package]
+name = "matrix-rtc-matrix-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "MatrixBackend over matrix-rust-sdk, ported to the crates.io release 0.19 (no sticky events)."
+
+[dependencies]
+matrix-rtc-core = { path = "../matrix-rtc-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait.workspace = true
+log.workspace = true
+tokio = { workspace = true }
+matrix-sdk = { workspace = true, features = ["experimental-send-custom-to-device"] }
+matrix-sdk-base = { workspace = true, features = ["e2e-encryption"] }
+ruma = { version = "0.17.2", features = ["client-api-c", "unstable-msc4354", "unstable-msc4195"] }

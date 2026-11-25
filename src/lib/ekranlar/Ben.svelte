@@ -10,12 +10,14 @@
   import Anahtar from "../bilesenler/Anahtar.svelte";
   import Avatar from "../bilesenler/Avatar.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
+  import HesapListesi from "../bilesenler/HesapListesi.svelte";
   import Ikon from "../bilesenler/Ikon.svelte";
   import { arama } from "../durum/arama.svelte";
   import { ayarlar } from "../durum/ayarlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { oturum } from "../durum/oturum.svelte";
   import { sifreleme } from "../durum/sifreleme.svelte";
+  import { tercihler } from "../durum/tercihler.svelte";
   import { titret } from "../dokunma";
   import { geriKaydir } from "../geriKaydir";
   import { kayCik, kayGir } from "../gecis";
@@ -25,6 +27,7 @@
   import Guvenlik from "./Guvenlik.svelte";
   import Hakkinda from "./Hakkinda.svelte";
   import Hesap from "./Hesap.svelte";
+  import KlavyeAyarlari from "./KlavyeAyarlari.svelte";
   import ProfilDuzenle from "./ProfilDuzenle.svelte";
   import SohbetAyarlari from "./SohbetAyarlari.svelte";
   import { altKaydirma } from "../durum/kabuk.svelte";
@@ -55,6 +58,8 @@
   const ad = $derived(gorunenAd ?? oturum.ben?.kullaniciId ?? "");
   const g = $derived(sifreleme.durum);
   const raySiz = $derived(gezinme.sekil === "telefon");
+  // Desktop only: phones have no hardware shortcut keys. · Yalnızca masaüstü: telefonda donanım kısayol tuşları yok.
+  const masaustu = window.matchMedia("(any-hover: hover) and (any-pointer: fine)").matches;
   const temaAdi = $derived(ayarlar.tema === "koyu" ? t("gorunum.koyu") : ayarlar.tema === "acik" ? t("gorunum.acik") : t("gorunum.sistem"));
 
   // One line tells the whole security story at a glance (design section 5). · Tek satır güvenlik durumunu bir bakışta söyler (tasarım bölüm 5).
@@ -65,11 +70,8 @@
     return { ton: "tamam", ad: t("durum.dogrulandi") };
   });
 
-  /** With risk (no recovery key) ask first; otherwise log out right away. · Riskliyse (kurtarma anahtarı yok) önce sor; değilse hemen çık. */
-  function cikisIste() {
-    if (sifreleme.cikisRiskli) sifreleme.ac("cikis");
-    else void oturum.cikis();
-  }
+  /** Always asked: logging back in is work. · Her zaman sorulur: yeniden giriş yapmak uğraştırır. */
+  const cikisIste = () => sifreleme.ac("cikis");
 </script>
 
 <div class="ben">
@@ -83,6 +85,8 @@
         <Ikon ad="kalem" boyut={20} />
       </button>
     </div>
+
+    <HesapListesi />
 
     <div class="ay-kart">
       <button class="ay-satir dugme" data-dalga onclick={() => altAc("hesap")}>
@@ -110,6 +114,12 @@
         <span class="ay-simge" style:--r="var(--tas-safir)"><Ikon ad="zil" boyut={20} /></span>
         <span class="ay-metin"><strong>{t("ayar.bildirimler")}</strong><span>{t("ben.bildirimAlt")}</span></span>
       </button>
+      {#if masaustu}
+        <button class="ay-satir dugme" data-dalga onclick={() => altAc("klavye")}>
+          <span class="ay-simge" style:--r="var(--tas-safir)"><Ikon ad="klavye" boyut={20} /></span>
+          <span class="ay-metin"><strong>{t("klavye.kisayollar")}</strong><span>{tercihler.d.ctrlKisayol ? t("klavye.acik") : t("klavye.kapali")}</span></span>
+        </button>
+      {/if}
       <div class="ay-satir">
         <span class="ay-simge" style:--r="var(--tas-safir)"><Ikon ad="mikrofon" boyut={20} /></span>
         <span class="ay-metin"><strong>{t("ben.gurultu")}</strong><span>{t("ben.gurultuAlt")}</span></span>
@@ -133,7 +143,7 @@
   <!-- Sub-pages slide in over this screen; they take no taps until they have arrived. · Alt sayfalar bu ekranın üstüne kayar; yerine oturana kadar dokunuş almaz. -->
   {#if gezinme.benAlt}
     <div class="alt-sayfa" class:yolda in:kayGir out:kayCik onintrostart={() => (yolda = true)} onintroend={() => (yolda = false)} onoutrostart={() => (yolda = true)} use:geriKaydir={{ etkin: () => raySiz && gezinme.ustKatmanMi("benAlt"), geri: () => gezinme.benAltKapat(), altta: () => ana }}>
-      {#if gezinme.benAlt === "gorunum"}<Gorunum />{:else if gezinme.benAlt === "sohbet"}<SohbetAyarlari />{:else if gezinme.benAlt === "bildirimler"}<BildirimAyarlari />{:else if gezinme.benAlt === "hakkinda"}<Hakkinda />{:else if gezinme.benAlt === "profil"}<ProfilDuzenle />{:else if gezinme.benAlt === "hesap"}<Hesap />{:else}<Guvenlik />{/if}
+      {#if gezinme.benAlt === "gorunum"}<Gorunum />{:else if gezinme.benAlt === "sohbet"}<SohbetAyarlari />{:else if gezinme.benAlt === "bildirimler"}<BildirimAyarlari />{:else if gezinme.benAlt === "klavye"}<KlavyeAyarlari />{:else if gezinme.benAlt === "hakkinda"}<Hakkinda />{:else if gezinme.benAlt === "profil"}<ProfilDuzenle />{:else if gezinme.benAlt === "hesap"}<Hesap />{:else}<Guvenlik />{/if}
     </div>
   {/if}
 </div>

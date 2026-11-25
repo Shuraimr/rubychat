@@ -20,6 +20,7 @@ import {
   type HazirResim,
   type ResimKalitesi,
 } from "../medya/isleme";
+import { t } from "../i18n";
 import { m } from "../medya/metin";
 import { posterAl, VIDEO_BITRATE, type VideoKalitesi } from "../medya/video";
 import { bildirim } from "./bildirim.svelte";
@@ -245,7 +246,10 @@ class MedyaDurumu {
       }
       b.asama = "hata";
       const mesaj = (e as Hata)?.mesaj;
-      bildirim.goster(m("gonderilemedi"), 5000, { tur: "hata" });
+      const h = e as Hata;
+      // The server would never take it: nothing to keep waiting for. · Sunucu bunu hiç almayacak: bekletecek bir şey yok.
+      if (h?.tur === "dosya_buyuk") this.#kaldir(b.yerelId);
+      bildirim.goster(h?.tur === "dosya_buyuk" ? t("hata.dosyaBuyukSinir", { mb: h.mesaj }) : m("gonderilemedi"), 5000, { tur: "hata" });
       console.warn("medya gönderilemedi", mesaj ?? e);
     } finally {
       // Decoded pixels and the poster video are not needed any more. · Çözülmüş pikseller ve poster videosu artık gerekmez.

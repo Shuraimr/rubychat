@@ -53,8 +53,31 @@ fn android_tls_baslat() -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
+/// RUBYCHAT_PROFIL=deneme runs a second, separate account next to the normal one (own data folder, keyring entry and bus name): for trying
+/// things without risking the real session. Empty normally. Desktop only.
+/// RUBYCHAT_PROFIL=deneme, normalin yanında ayrı bir hesap çalıştırır (kendi veri klasörü, anahtarlık kaydı ve veri yolu adı): gerçek oturumu
+/// riske atmadan denemek için. Normalde boş. Yalnızca masaüstü.
+pub fn profil_eki() -> String {
+    match std::env::var("RUBYCHAT_PROFIL") {
+        Ok(p) if !p.is_empty() && p.len() <= 20 && p.bytes().all(|b| b.is_ascii_lowercase()) => format!(".{p}"),
+        _ => String::new(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // libwebrtc prints its statistics with the locale's decimal separator: "0,5" (Turkish) aborts the process. GTK reads the locale from the
+    // environment, so this comes before it and before any thread. LC_ALL would override LC_NUMERIC.
+    // libwebrtc istatistiklerini yerel ayarın ondalık ayracıyla yazar: "0,5" (Türkçe) süreci düşürür. GTK yerel ayarı ortamdan okur; bu yüzden
+    // ondan ve her iş parçacığından önce gelir. LC_ALL, LC_NUMERIC'i ezerdi.
+    #[cfg(all(feature = "yerel-arama", target_os = "linux"))]
+    {
+        if let Ok(v) = std::env::var("LC_ALL") {
+            std::env::set_var("LANG", v);
+            std::env::remove_var("LC_ALL");
+        }
+        std::env::set_var("LC_NUMERIC", "C");
+    }
     gunlukleri_baslat();
     #[cfg(target_os = "linux")]
     if !masaustu_linux::ilk_kopya_mi() {
@@ -92,6 +115,8 @@ pub fn run() {
             komutlar::giris,
             komutlar::oturumu_geri_yukle,
             komutlar::cikis,
+            komutlar::hesaplari_al,
+            komutlar::hesap_degistir,
             komutlar::ben,
             komutlar::odalari_al,
             komutlar::esitleme_durumu,
@@ -130,6 +155,9 @@ pub fn run() {
             komutlar::bildirim_ayarlarini_ac,
             komutlar::bildirim_bekleyen_oda,
             komutlar::uygulama_arka_planda,
+            komutlar::cihaz_girisi_baslat,
+            komutlar::cihaz_girisi_bekle,
+            komutlar::cihaz_girisi_iptal,
             komutlar::pano_yaz,
             komutlar::pano_resim,
             matrix::uyeler::uyeleri_listele,
@@ -165,6 +193,16 @@ pub fn run() {
             matrix::alanlar::alanlari_al,
             matrix::alanlar::alan_icerigi,
             matrix::alanlar::alana_katil,
+            matrix::yerel_arama::yerel_arama_var,
+            matrix::yerel_arama::yerel_arama_baslat,
+            matrix::yerel_arama::yerel_arama_kapat,
+            matrix::yerel_arama::yerel_arama_sustur,
+            matrix::yerel_arama::yerel_arama_duzey,
+            matrix::yerel_arama::yerel_arama_uygulamalar,
+            matrix::yerel_arama::yerel_arama_paylas,
+            matrix::yerel_arama::yerel_arama_paylasilan_sesler,
+            matrix::yerel_arama::yerel_arama_paylasimi_durdur,
+            matrix::yerel_arama::yerel_arama_kare,
             matrix::ec::ec_ac,
             matrix::ec::ec_gonder,
             matrix::ec::ec_kapat,

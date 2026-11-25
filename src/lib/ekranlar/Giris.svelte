@@ -9,12 +9,20 @@
   teknik ayrıntı "Ayrıntı" altında kapalı durur (seçilebilir + kopyalanabilir).
 -->
 <script lang="ts">
+  import { hesaplariAl } from "../api/komutlar";
   import { panoyaYaz } from "../pano";
   import { bildirim } from "../durum/bildirim.svelte";
   import { oturum } from "../durum/oturum.svelte";
   import { t } from "../i18n";
   import Ikon from "../bilesenler/Ikon.svelte";
+  import TelefonlaGiris from "./TelefonlaGiris.svelte";
   import Maskot from "../bilesenler/Maskot.svelte";
+
+  // Came here to add an account: there is a way back. · Buraya hesap eklemeye gelindi: dönüş yolu var.
+  let donulecek = $state<string | null>(null);
+  void hesaplariAl()
+    .then((h) => (donulecek = h.liste.at(0)?.id ?? null))
+    .catch(() => {});
 
   let sunucu = $state("matrix.org");
   let sunucuAcik = $state(false);
@@ -23,6 +31,9 @@
   let goster = $state(false);
   let yerelHata = $state<string | null>(null);
   let ayrintiAcik = $state(false);
+  let telefonla = $state(false);
+  // A full id typed above names its own server. · Yukarı yazılan tam kimlik kendi sunucusunu söyler.
+  const girisSunucusu = $derived(/^@[^:]+:(.+)$/.exec(kullanici.trim())?.[1] ?? sunucu.trim());
 
   // Wrong credentials stay on the form (inline); everything else is a full-screen "something broke" state.
   // Yanlış kimlik bilgisi formda (satır içi) kalır; geri kalan her şey tam ekran "bir şey bozuldu" durumudur.
@@ -59,7 +70,9 @@
 </script>
 
 <main class="sayfa">
-  {#if tamHata}
+  {#if telefonla}
+    <TelefonlaGiris sunucu={girisSunucusu} onkapat={() => (telefonla = false)} />
+  {:else if tamHata}
     <section class="kart merkez">
       <Maskot poz="hata" boyut={168} />
       <h1>{hataBaslik}</h1>
@@ -108,8 +121,8 @@
       <button class="buton birincil buyuk" type="submit" disabled={oturum.mesgul}>
         {#if oturum.mesgul}<span class="yuklenme"></span>{t("giris.yapiliyor")}{:else}{t("giris.dugme")}{/if}
       </button>
-      <button class="buton tonlu-yuzey buyuk" type="button" disabled>{t("giris.ssoDugme")}</button>
-      <p class="not">{t("giris.ssoYakinda")}</p>
+      <button class="buton tonlu-yuzey buyuk" type="button" disabled={oturum.mesgul || !sunucu.trim()} onclick={() => (telefonla = true)}><Ikon ad="telefonCihaz" boyut={20} />{t("telefonla.dugme")}</button>
+      {#if donulecek !== null}<button class="buton cizgili buyuk" type="button" disabled={oturum.mesgul} onclick={() => void oturum.hesapDegistir(donulecek).catch(() => bildirim.goster(t("hata.diger"), 4000, { tur: "hata" }))}>{t("hesaplar.geriDon")}</button>{/if}
       <p class="kayit">{t("giris.kayitSatir")}</p>
     </form>
   {/if}
@@ -138,7 +151,6 @@
   .sunucu-satir button { min-height: 44px; padding: 0 4px; color: var(--yazi); font-weight: 600; }
   .buyuk { height: 56px; border-radius: 28px; font-size: 1rem; }
   .tonlu-yuzey { background: var(--yuzey-2); color: var(--yazi); }
-  .not { font-size: .8125rem; color: var(--yazi-2); text-align: center; margin-top: -6px; }
   .kayit { text-align: center; color: var(--vurgu); font-weight: 600; font-size: .9375rem; padding: 8px 0; }
   .ayrinti-kutu { width: 100%; text-align: left; padding: 8px 12px; border-radius: 16px; background: color-mix(in srgb, var(--hata) 12%, var(--zemin)); }
   .ayrinti-baslik { min-height: 44px; display: inline-flex; align-items: center; gap: 4px; color: var(--hata); font-weight: 600; font-size: .875rem; }

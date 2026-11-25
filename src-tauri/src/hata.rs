@@ -25,6 +25,9 @@ pub enum Hata {
     Matrix(String),
     #[error("şifreleme hatası: {0}")]
     Sifreleme(String),
+    /// Over the server's upload limit (in MB) · Sunucunun yükleme sınırının (MB) üstünde
+    #[error("{0}")]
+    DosyaBuyuk(u64),
     #[error("{0}")]
     Diger(String),
 }
@@ -43,6 +46,7 @@ impl Hata {
             Hata::Depolama(_) => "depolama",
             Hata::Matrix(_) => "matrix",
             Hata::Sifreleme(_) => "sifreleme",
+            Hata::DosyaBuyuk(_) => "dosya_buyuk",
             Hata::Diger(_) => "diger",
         }
     }

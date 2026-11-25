@@ -8,39 +8,120 @@ use tracing::warn;
 
 use crate::{
     bildirim,
-    durum::{AktifOturum, AppState},
+    durum::{AktifOturum, AppState, ParkliOturum},
     hata::{Hata, Sonuc},
-    matrix::{arama, dizin, esitleme, medya, odalar, oturum, sifreleme, zaman},
+    matrix::{arama, cihaz_giris, dizin, esitleme, hesaplar::Hesaplar, medya, odalar, oturum, sifreleme, zaman},
     tipler::{
         AramaGonderIstegi, Ben, DizinDurumu, DogrulamaDurumu, MesajAramaSonucu, GirisIstegi, MedyaGonderIstegi, MedyaYetenekleri, MesajGonderIstegi, OdaBilgisi, OdaOzeti, SifrelemeDurumu,
         TurnSunucu, VideoSikistirIstegi, VideoSonucu,
     },
 };
 
-fn veri_dizini(app: &AppHandle) -> Sonuc<PathBuf> {
-    Ok(app.path().app_data_dir()?)
+/// Data folder of the app (all accounts) · Uygulamanın veri klasörü (bütün hesaplar)
+fn kok_dizin(app: &AppHandle) -> Sonuc<PathBuf> {
+    let d = app.path().app_data_dir()?;
+    let ek = crate::profil_eki();
+    Ok(if ek.is_empty() { d } else { d.join(format!("profil{ek}")) })
 }
 
-/// Stores the client, starts syncing and the token watcher. Called after login and after restore.
-/// İstemciyi saklar, eşitlemeyi ve belirteç izleyiciyi başlatır. Girişten ve geri yüklemeden sonra çağrılır.
-async fn oturumu_baslat(app: &AppHandle, durum: &AppState, client: matrix_sdk::Client) -> Sonuc<()> {
-    let veri = veri_dizini(app)?;
-    arama::kaydet(app.clone(), &client);
-    crate::matrix::ec::kaydet(app.clone(), &client);
-    bildirim::kaydet(app.clone(), &client);
-    let (servis, mut gorevler) = esitleme::baslat(app.clone(), client.clone()).await?;
-    gorevler.push(oturum::token_izle(veri, client.clone()));
-    gorevler.extend(sifreleme::baslat(app.clone(), client.clone()));
-    // The search index is optional: a failure must not stop the login. · Arama dizini isteğe bağlıdır: hata girişi durdurmamalı.
-    match dizin::baslat(&client, &veri_dizini(app)?).await {
-        Ok((d, g)) => {
-            gorevler.extend(g);
-            *durum.dizin.lock().unwrap_or_else(|e| e.into_inner()) = Some(d);
-        }
-        Err(e) => warn!("mesaj arama dizini başlatılamadı: {e}"),
+/// Data folder of the account in use · Kullanımdaki hesabın veri klasörü
+fn veri_dizini(app: &AppHandle) -> Sonuc<PathBuf> {
+    let kok = kok_dizin(app)?;
+    Ok(Hesaplar::oku(&kok).klasor(&kok))
+}
+
+/// Puts the account in use on the list. A failure must not stop the login. · Kullanımdaki hesabı listeye koyar. Hata girişi durdurmamalı.
+fn hesabi_kaydet(app: &AppHandle, ben: &Ben) {
+    let sonuc = kok_dizin(app).and_then(|kok| {
+        let mut h = Hesaplar::oku(&kok);
+        h.kaydet(ben);
+        h.yaz(&kok)
+    });
+    if let Err(e) = sonuc {
+        warn!("hesap listesi yazılamadı: {e}");
     }
-    *durum.oturum.write().await = Some(AktifOturum { client, esitleme: servis, gorevler });
+}
+
+/// Stores the client, starts syncing and the token watcher. Called after login, after restore and (with `parkli`) on return to an account.
+/// İstemciyi saklar, eşitlemeyi ve belirteç izleyiciyi başlatır. Girişten, geri yüklemeden ve (`parkli` ile) hesaba dönüşte çağrılır.
+async fn oturumu_baslat(app: &AppHandle, durum: &AppState, client: matrix_sdk::Client, parkli: &mut Option<ParkliOturum>) -> Sonuc<()> {
+    let veri = veri_dizini(app)?;
+    let donus = parkli.is_some();
+    // Event handlers live as long as the client: a returning one still has them. · Olay işleyicileri istemci kadar yaşar: dönen istemcide hâlâ var.
+    if !donus {
+        arama::kaydet(app.clone(), &client);
+        crate::matrix::ec::kaydet(app.clone(), &client);
+        bildirim::kaydet(app.clone(), &client);
+    }
+    let (servis, mut gorevler) = esitleme::baslat(app.clone(), client.clone()).await?;
+    gorevler.extend(sifreleme::baslat(app.clone(), client.clone(), !donus));
+    // Taken only now: had syncing failed, the parked account would stay whole. · Ancak şimdi alınır: eşitleme başlamasaydı park edilmiş hesap bütün kalırdı.
+    let (dizin, kalici) = match parkli.take() {
+        Some(p) => (p.dizin, p.kalici),
+        None => {
+            let mut kalici = vec![oturum::token_izle(veri.clone(), client.clone()), crate::matrix::kuyruk::izle(client.clone())];
+            // The search index is optional: a failure must not stop the login. · Arama dizini isteğe bağlıdır: hata girişi durdurmamalı.
+            let d = match dizin::baslat(&client, &veri).await {
+                Ok((d, g)) => {
+                    kalici.extend(g);
+                    Some(d)
+                }
+                Err(e) => {
+                    warn!("mesaj arama dizini başlatılamadı: {e}");
+                    None
+                }
+            };
+            (d, kalici)
+        }
+    };
+    *durum.dizin.lock().unwrap_or_else(|e| e.into_inner()) = dizin;
+    *durum.oturum.write().await = Some(AktifOturum { client, esitleme: servis, gorevler, kalici });
     Ok(())
+}
+
+/// Closes everything tied to the account in use and hands out what is left of it. · Kullanımdaki hesaba bağlı her şeyi kapatır, ondan kalanı verir.
+async fn oturumu_birak(durum: &AppState) -> Option<ParkliOturum> {
+    zaman::hepsini_kapat(durum).await;
+    // A running Element Call widget must not outlive the session. · Süren Element Call widget'ı oturumdan uzun yaşamamalı.
+    crate::matrix::ec::hepsini_kapat();
+    crate::matrix::yerel_arama::yerel_arama_kapat().await;
+    *durum.alan_servisi.lock().await = None;
+    *durum.turn.lock().await = None;
+    sifreleme::temizle(durum).await;
+    let o = durum.oturum.write().await.take()?;
+    esitleme::durdur(o.esitleme, o.gorevler).await;
+    let dizin = durum.dizin.lock().unwrap_or_else(|e| e.into_inner()).take();
+    Some(ParkliOturum { client: o.client, dizin, kalici: o.kalici })
+}
+
+#[tauri::command]
+pub fn hesaplari_al(app: AppHandle) -> Sonuc<Hesaplar> {
+    Ok(Hesaplar::oku(&kok_dizin(&app)?))
+}
+
+/// Turns to another account (`id`), or to an empty place to sign in to a new one (`None`). The page reloads afterwards and restores it.
+/// Başka bir hesaba (`id`) ya da yeni hesaba girmek için boş bir yere (`None`) döner. Sayfa ardından yenilenir ve onu geri yükler.
+#[tauri::command]
+pub async fn hesap_degistir(app: AppHandle, durum: State<'_, AppState>, id: Option<String>) -> Sonuc<()> {
+    let _kilit = durum.kilit.lock().await;
+    let kok = kok_dizin(&app)?;
+    let mut h = Hesaplar::oku(&kok);
+    let eski = h.aktif.clone();
+    match id {
+        Some(id) if id == eski => return Ok(()),
+        Some(id) => {
+            if !h.liste.iter().any(|x| x.id == id) {
+                return Err(Hata::OturumYok);
+            }
+            h.aktif = id;
+        }
+        None => h.yeni_yer(),
+    }
+    cihaz_giris::iptal();
+    if let Some(p) = oturumu_birak(&durum).await {
+        durum.parklar.lock().await.insert(eski, p);
+    }
+    h.yaz(&kok)
 }
 
 #[tauri::command]
@@ -48,8 +129,36 @@ pub async fn giris(app: AppHandle, durum: State<'_, AppState>, istek: GirisIsteg
     let _kilit = durum.kilit.lock().await;
     let veri = veri_dizini(&app)?;
     let (client, ben) = oturum::sifreyle_giris(&veri, &istek.sunucu, &istek.kullanici, &istek.sifre).await?;
-    oturumu_baslat(&app, &durum, client).await?;
+    oturumu_baslat(&app, &durum, client, &mut None).await?;
+    hesabi_kaydet(&app, &ben);
     Ok(ben)
+}
+
+/// Sign in with the phone (see matrix/cihaz_giris.rs). · Telefonla giriş (bkz. matrix/cihaz_giris.rs).
+#[tauri::command]
+pub async fn cihaz_girisi_baslat(sunucu: String) -> Sonuc<cihaz_giris::CihazKodu> {
+    cihaz_giris::baslat(&sunucu).await
+}
+
+/// Returns when the user approved in the browser. · Kullanıcı tarayıcıda onaylayınca döner.
+#[tauri::command]
+pub async fn cihaz_girisi_bekle(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<Ben> {
+    let onay = cihaz_giris::bekle().await?;
+    let _kilit = durum.kilit.lock().await;
+    // A password login may have won meanwhile: its data must not be wiped. · Bu arada şifreyle girilmiş olabilir: onun verisi silinmemeli.
+    if durum.oturum.read().await.is_some() {
+        return Err(Hata::Diger("iptal".into()));
+    }
+    let veri = veri_dizini(&app)?;
+    let (client, ben) = cihaz_giris::bitir(&veri, onay).await?;
+    oturumu_baslat(&app, &durum, client, &mut None).await?;
+    hesabi_kaydet(&app, &ben);
+    Ok(ben)
+}
+
+#[tauri::command]
+pub fn cihaz_girisi_iptal() {
+    cihaz_giris::iptal();
 }
 
 #[tauri::command]
@@ -63,9 +172,22 @@ pub async fn oturumu_geri_yukle(app: AppHandle, durum: State<'_, AppState>) -> S
         return Ok(Some(oturum::ben_olustur(&client, &veri)));
     }
     let veri = veri_dizini(&app)?;
+    let aktif = Hesaplar::oku(&kok_dizin(&app)?).aktif;
+    let parkli = durum.parklar.lock().await.remove(&aktif);
+    if let Some(p) = parkli {
+        let client = p.client.clone();
+        let ben = oturum::ben_olustur(&client, &veri);
+        let mut parkli = Some(p);
+        let sonuc = oturumu_baslat(&app, &durum, client, &mut parkli).await;
+        if let Some(p) = parkli {
+            durum.parklar.lock().await.insert(aktif, p);
+        }
+        return sonuc.map(|()| Some(ben));
+    }
     match oturum::geri_yukle(&veri).await? {
         Some((client, ben)) => {
-            oturumu_baslat(&app, &durum, client).await?;
+            oturumu_baslat(&app, &durum, client, &mut None).await?;
+            hesabi_kaydet(&app, &ben);
             Ok(Some(ben))
         }
         None => Ok(None),
@@ -75,24 +197,23 @@ pub async fn oturumu_geri_yukle(app: AppHandle, durum: State<'_, AppState>) -> S
 #[tauri::command]
 pub async fn cikis(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<()> {
     let _kilit = durum.kilit.lock().await;
+    let kok = kok_dizin(&app)?;
     let veri = veri_dizini(&app)?;
-    zaman::hepsini_kapat(&durum).await;
-    // A running Element Call widget must not outlive the session. · Süren Element Call widget'ı oturumdan uzun yaşamamalı.
-    crate::matrix::ec::hepsini_kapat();
-    *durum.alan_servisi.lock().await = None;
-    sifreleme::temizle(&durum).await;
-    if let Some(o) = durum.oturum.write().await.take() {
-        esitleme::durdur(o.esitleme, o.gorevler).await;
+    if let Some(p) = oturumu_birak(&durum).await {
+        for g in p.kalici {
+            g.abort();
+        }
         // The writer must release the index files before `oturum::cikis` deletes the folder. · Yazıcı, `oturum::cikis` klasörü silmeden önce dizin dosyalarını bırakmalı.
-        let d = durum.dizin.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if let Some(d) = d {
+        if let Some(d) = p.dizin {
             d.durdur().await;
         }
-        oturum::cikis(&veri, &o.client).await;
+        oturum::cikis(&veri, &p.client).await;
     } else {
         warn!("çıkış istendi ama açık oturum yok");
     }
-    Ok(())
+    let mut h = Hesaplar::oku(&kok);
+    h.aktifi_sil();
+    h.yaz(&kok)
 }
 
 #[tauri::command]
@@ -112,6 +233,7 @@ pub async fn ben(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<Ben> {
         None => hesap.get_cached_avatar_url().await.ok().flatten(),
     };
     ben.avatar_mxc = avatar.map(|a| a.to_string());
+    hesabi_kaydet(&app, &ben);
     Ok(ben)
 }
 

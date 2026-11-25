@@ -114,10 +114,18 @@ pub async fn yayinla(app: &AppHandle, client: &Client) {
 
 /// Starts everything encryption needs while logged in. The returned tasks are aborted on logout.
 /// Giriş açıkken şifrelemenin ihtiyacı olan her şeyi başlatır. Dönen görevler çıkışta durdurulur.
-pub fn baslat(app: AppHandle, client: Client) -> Vec<JoinHandle<()>> {
+pub fn baslat(app: AppHandle, client: Client, isleyici: bool) -> Vec<JoinHandle<()>> {
     // Another device asks to verify with us. The handler lives as long as the client.
     // Başka bir cihaz bizimle doğrulama istiyor. İşleyici istemci kadar yaşar.
-    let a = app.clone();
+    // `isleyici` = false: a client coming back still has it. · `isleyici` = false: dönen istemcide zaten var.
+    if isleyici {
+        dogrulama_isleyicisi(app.clone(), &client);
+    }
+
+    vec![izleyici(app.clone(), client.clone()), capraz_imza_hazirla(app, client)]
+}
+
+fn dogrulama_isleyicisi(a: AppHandle, client: &Client) {
     client.add_event_handler(move |ev: ToDeviceKeyVerificationRequestEvent, client: Client| {
         let app = a.clone();
         async move {
@@ -151,8 +159,6 @@ pub fn baslat(app: AppHandle, client: Client) -> Vec<JoinHandle<()>> {
             izlemeyi_baslat(&app, istek).await;
         }
     });
-
-    vec![izleyici(app.clone(), client.clone()), capraz_imza_hazirla(app, client)]
 }
 
 /// Emits the state again whenever recovery / backup / verification state changes (plus a slow heartbeat for the rest,

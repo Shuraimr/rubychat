@@ -6,10 +6,12 @@ import { tick } from "svelte";
 import { olayaGit } from "../api/komutlar";
 import { bildirim } from "../durum/bildirim.svelte";
 import { t } from "../i18n";
+import { konumKaydet } from "../klavyeKisayol.svelte";
 import { kaydirVeVurgula, satiriBul } from "./vurgula";
 
 /** Returns whether the message was found · Mesajın bulunup bulunmadığını döndürür */
-export async function mesajaGit(odaId: string, olayId: string): Promise<boolean> {
+export async function mesajaGit(odaId: string, olayId: string, kaydet = true): Promise<boolean> {
+  if (kaydet) konumKaydet(odaId, olayId);
   let bulundu = !!satiriBul(olayId);
   if (!bulundu) {
     try {

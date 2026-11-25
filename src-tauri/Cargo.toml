@@ -15,6 +15,15 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# Calls inside the app instead of Element Call in an iframe. Needs a C++ toolchain, so off by default (see flatpak/derle.sh).
+# iframe'deki Element Call yerine uygulama içi aramalar. C++ araçları ister, bu yüzden varsayılan kapalı (bkz. flatpak/derle.sh).
+yerel-arama = ["dep:matrix-rtc-call-sdk", "dep:matrix-rtc-call", "dep:matrix-rtc-core", "dep:matrix-rtc-transport", "dep:libwebrtc", "dep:rustls", "dep:libc", "dep:matrix-sdk-base"]
+
+[patch.crates-io]
+# Stereo sound, which livekit 0.9.7 lacks; see ../motor/yama/README.md. · livekit 0.9.7'de olmayan stereo ses.
+livekit = { path = "../motor/yama/livekit" }
+
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
@@ -65,6 +74,19 @@ webkit2gtk = "2.0.2"
 # Aynı gerekçe, kilit dosyasındaki sürüm: GTK panosu (src/masaustu_linux.rs). Yeni bir şey inmez.
 gtk = "0.18"
 keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
+# Native calls (feature `yerel-arama`, only in the Flatpak build): MatrixRTC engine + LiveKit/libwebrtc. The crates live in ../motor (AGPL).
+# Yerel aramalar (`yerel-arama` özelliği, yalnız Flatpak derlemesinde): MatrixRTC motoru + LiveKit/libwebrtc. Crate'ler ../motor'da (AGPL).
+matrix-rtc-call-sdk = { path = "../motor/crates/matrix-rtc-call-sdk", features = ["matrix-sdk"], optional = true }
+matrix-rtc-call = { path = "../motor/crates/matrix-rtc-call", optional = true }
+matrix-rtc-core = { path = "../motor/crates/matrix-rtc-core", optional = true }
+matrix-rtc-transport = { path = "../motor/crates/matrix-rtc-transport", optional = true }
+libwebrtc = { version = "=0.3.54", optional = true }
+# Already in the tree: the engine pulls in rustls with two crypto back ends, so one must be chosen at start.
+# Zaten ağaçta: motor rustls'i iki şifreleme arka ucuyla getirir, başlangıçta biri seçilmeli.
+libc = { version = "0.2", optional = true }
+# Already in the tree (matrix-sdk's own base): `CollectStrategy` for the encrypted names. · Zaten ağaçta (matrix-sdk'nın tabanı).
+matrix-sdk-base = { version = "0.19", default-features = false, optional = true }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"], optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["apple-native"] }
 [target.'cfg(target_os = "windows")'.dependencies]

@@ -63,9 +63,11 @@
   const dockGorunur = $derived(gezinme.sekil === "telefon" && !gezinme.acikOdaId && !gezinme.benAlt && !kabuk.aramaOdakta);
 
   onMount(() => {
+    // Register keyboard shortcuts before gezinme so Esc drops message selection before closing a room on narrow viewports.
+    // Klavye kısayollarını gezinme'den önce kaydet; dar ekranda Esc odayı kapatmadan önce mesaj seçimini bıraksın.
+    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat(), klavyeBaslat()];
     gezinme.baslat();
     oturum.baslat();
-    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat(), klavyeBaslat()];
     return () => birak.forEach((f) => f());
   });
 

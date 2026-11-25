@@ -12,6 +12,7 @@
   import { bildirim } from "../durum/bildirim.svelte";
   import { zaman } from "../durum/zaman.svelte";
   import { t } from "../i18n";
+  import { konumKaydet } from "../klavyeKisayol.svelte";
   import { atlama } from "./durum.svelte";
   import { kaydirVeVurgula, satiriBul } from "./vurgula";
 
@@ -29,6 +30,7 @@
   });
 
   async function atla(olayId: string) {
+    konumKaydet(odaId, olayId);
     let bulundu = !!satiriBul(olayId);
     if (!bulundu) {
       try {

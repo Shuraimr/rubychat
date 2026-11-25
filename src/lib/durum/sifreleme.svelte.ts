@@ -64,6 +64,9 @@ class Sifreleme {
     return hataMetni(e);
   }
 
+  /** Phone sign-in carries no keys: go straight to the emoji verification. · Telefonla giriş anahtar taşımaz: doğrudan emoji doğrulamasına geç. */
+  girisSonrasiDogrula = false;
+
   async baslat(cihazId: string) {
     this.durdur();
     this.#cihazId = cihazId;
@@ -109,6 +112,9 @@ class Sifreleme {
     if (!this.noktaVar || kurulumGosterildiMi(this.#cihazId)) return;
     kurulumGosterildiYaz(this.#cihazId);
     this.katman = "kurulum";
+    const dogrula = this.girisSonrasiDogrula && !d.cihazDogrulandi && d.caprazImza === "hazir";
+    this.girisSonrasiDogrula = false;
+    if (dogrula) void this.dogrulamaBaslat("kurulum");
   }
 
   /** `donus`: the sheet to come back to when the sub-flow ends (the hub, or nothing). · `donus`: alt akış bitince dönülecek sayfa (merkez ya da hiçbiri). */

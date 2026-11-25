@@ -5,14 +5,14 @@
 // onun Matrix isteklerini yanıtlar ve bu depo ikisi arasında JSON mesajlarını taşır. Ayrıca hangi odalarda arama sürdüğünü izler
 // ("Katıl" şeridi) ve ekran küçültülünce aramayı canlı tutar (iframe takılı kalır).
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { ecAc, ecAktifAramalar, ecGonder, ecKapat, ecSunucuDestekliyor } from "../api/komutlar";
-import { ecAramaDurumu, ecBitti, ecGelen } from "../api/olaylar";
+import { ecAc, ecAktifAramalar, ecGonder, ecKapat, ecSunucuDestekliyor, yerelAramaBaslat, yerelAramaKapat, yerelAramaVar } from "../api/komutlar";
+import { ecAramaDurumu, ecBitti, ecGelen, yerelAramaDurumu } from "../api/olaylar";
 import { t, type Anahtar } from "../i18n";
 import { ayarlar } from "../durum/ayarlar.svelte";
 import { bildirim } from "../durum/bildirim.svelte";
 import { gezinme } from "../durum/gezinme.svelte";
 import { aramaSesiBaslat, aramaSesiBitir, androidMi, sesCihaziSec, sesCihazlari, sesVarsayilan } from "./ses";
-import type { EcAramaDurumu, EcTuru } from "./tipler";
+import type { EcAramaDurumu, EcTuru, YerelDurum } from "./tipler";
 
 export type EcAsama = "bos" | "yukleniyor" | "acik" | "hata";
 
@@ -51,6 +51,9 @@ class EcArama {
   yedekte = $state(false);
   /** Seconds since the call screen loaded · Arama ekranı yüklendiğinden beri geçen saniye */
   sure = $state(0);
+  /** This call runs inside the app (native engine), not in the iframe · Bu arama uygulama içinde (yerel motor), iframe'de değil */
+  yerel = $state(false);
+  yerelDurum = $state<YerelDurum | null>(null);
   /** Rooms with a running MatrixRTC call · MatrixRTC araması süren odalar */
   aktifler = $state<Record<string, EcAramaDurumu>>({});
   /** Rooms whose incoming-call card was dismissed (until the call ends) · Gelen arama kartı kapatılan odalar (arama bitene kadar) */
@@ -83,6 +86,7 @@ class EcArama {
         if (b.widgetId === this.widgetId) this.#bitir();
       }),
       ecAramaDurumu((d) => this.#durumGuncelle(d)),
+      yerelAramaDurumu((d) => this.#yerelGeldi(d)),
     ]);
     this.#abonelikler = a;
     window.addEventListener("message", this.#iframedenGelen);
@@ -146,7 +150,8 @@ class EcArama {
     if (!this.etkin || this.#kapaniyor) return;
     this.#kapaniyor = true;
     try {
-      if (this.asama === "acik") await this.#ayrilIste();
+      if (this.yerel) await yerelAramaKapat().catch(() => {});
+      else if (this.asama === "acik") await this.#ayrilIste();
     } finally {
       this.#bitir();
     }
@@ -194,6 +199,13 @@ class EcArama {
     this.#kapaniyor = false;
     this.asama = "yukleniyor";
     try {
+      if (await yerelAramaVar().catch(() => false)) {
+        if (this.asama !== "yukleniyor") return true;
+        this.yerel = true;
+        this.ekranAc();
+        await yerelAramaBaslat(oda.id, oda.dm, tur === "baslat");
+        return true;
+      }
       const a = await ecAc({
         odaId: oda.id,
         tur,
@@ -219,6 +231,21 @@ class EcArama {
       this.#temizle();
       this.asama = "bos";
       return false;
+    }
+  }
+
+  /** A snapshot of the native call. · Yerel aramanın anlık görüntüsü. */
+  #yerelGeldi(d: YerelDurum) {
+    if (!this.yerel || d.odaId !== this.odaId) return;
+    if (d.asama === "bitti") {
+      const n = d.neden;
+      if (n && n !== "biz") bildirim.goster(t(`yerel.bitti.${n}`), 5000, n === "ayrildilar" ? {} : { tur: "hata" });
+      return this.#bitir();
+    }
+    this.yerelDurum = d;
+    if (d.asama === "acik" && this.asama === "yukleniyor") {
+      this.asama = "acik";
+      this.#sayac = setInterval(() => this.sure++, 1000);
     }
   }
 
@@ -376,6 +403,8 @@ class EcArama {
     this.kucult();
     this.url = null;
     this.widgetId = null;
+    this.yerel = false;
+    this.yerelDurum = null;
     this.#iframe = null;
     this.#kapaniyor = false;
     aramaSesiBitir();

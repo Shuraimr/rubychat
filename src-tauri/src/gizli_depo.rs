@@ -52,7 +52,7 @@ mod masaustu {
     pub struct Anahtarlik;
 
     fn giris(anahtar: &str) -> Sonuc<keyring::Entry> {
-        keyring::Entry::new(SERVIS, anahtar).map_err(|e| Hata::Depolama(format!("anahtarlık: {e}")))
+        keyring::Entry::new(&format!("{SERVIS}{}", crate::profil_eki()), anahtar).map_err(|e| Hata::Depolama(format!("anahtarlık: {e}")))
     }
 
     impl GizliDepo for Anahtarlik {

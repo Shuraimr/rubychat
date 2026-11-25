@@ -13,6 +13,13 @@ export function hataBildir(e: unknown) {
 
 const odaId = () => zaman.bilgi?.id ?? null;
 
+/** A real, delivered event (not deleted / undecryptable / system line): reactions, replies, pins and forwards need an event id. · Gerçek, ulaşmış olay (silinmiş / çözülemeyen / sistem satırı değil): tepki, yanıt, sabitleme ve iletme olay kimliği ister. */
+export const gercekOlay = (o: ZamanOgesi) =>
+  !!o.olayId && o.durum === "gonderildi" && !["silindi", "sifre_cozulemedi", "arama"].includes(o.tur);
+
+/** Message kinds that can be forwarded · İletilebilen mesaj türleri */
+export const iletilebilir = (o: ZamanOgesi) => ["metin", "resim", "video", "dosya"].includes(o.tur);
+
 /** Adds my reaction or removes it when I already reacted with that key · Tepkimi ekler; aynı anahtarla zaten verdiysem kaldırır */
 export async function tepkiVer(oge: ZamanOgesi, anahtar: string) {
   const o = odaId();

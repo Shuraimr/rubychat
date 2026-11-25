@@ -244,14 +244,20 @@
     {/snippet}
   </AltSayfa>
 {:else if sifreleme.katman === "cikis"}
-  <AltSayfa baslik={t("cikis.baslik")} onkapat={() => sifreleme.kapat()}>
-    <div class="durum iptal"><Ikon ad="uyari" boyut={22} /><strong>{d?.kurtarma === "eksik" ? t("cikis.uyariEksik") : t("cikis.uyari")}</strong></div>
+  <AltSayfa baslik={sifreleme.cikisRiskli ? t("cikis.baslik") : t("cikis.onayBaslik")} onkapat={() => sifreleme.kapat()}>
+    {#if sifreleme.cikisRiskli}<div class="durum iptal"><Ikon ad="uyari" boyut={22} /><strong>{d?.kurtarma === "eksik" ? t("cikis.uyariEksik") : t("cikis.uyari")}</strong></div>{/if}
+    <p class="aciklama">{t("cikis.onayAlt")}</p>
     {#snippet altlik()}
-      <button
-        class="buton birincil"
-        onclick={() => (d?.kurtarma === "eksik" ? sifreleme.ac("kurtarma-gir") : sifreleme.ac("kurtarma-olustur"))}
-      >{d?.kurtarma === "eksik" ? t("cikis.onceAnahtarGir") : t("cikis.onceAnahtar")}</button>
-      <button class="buton cizgili kirmizi" onclick={cikisYap}>{t("cikis.yineDeCik")}</button>
+      {#if sifreleme.cikisRiskli}
+        <button
+          class="buton birincil"
+          onclick={() => (d?.kurtarma === "eksik" ? sifreleme.ac("kurtarma-gir") : sifreleme.ac("kurtarma-olustur"))}
+        >{d?.kurtarma === "eksik" ? t("cikis.onceAnahtarGir") : t("cikis.onceAnahtar")}</button>
+        <button class="buton cizgili kirmizi" onclick={cikisYap}>{t("cikis.yineDeCik")}</button>
+      {:else}
+        <button class="buton cizgili" onclick={() => sifreleme.kapat()}>{t("eylem.iptal")}</button>
+        <button class="buton tehlike" onclick={cikisYap}>{t("cikis.cik")}</button>
+      {/if}
     {/snippet}
   </AltSayfa>
 {/if}

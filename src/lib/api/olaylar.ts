@@ -13,7 +13,7 @@ import type {
   ZamanGuncelleme,
   ZamanHazir,
 } from "./tipler";
-import type { EcAramaDurumu, EcBitti, EcGelen } from "../arama-ec/tipler";
+import type { EcAramaDurumu, YerelDurum, EcBitti, EcGelen } from "../arama-ec/tipler";
 
 export const odalarGuncellendi = (isle: (odalar: OdaOzeti[]) => void): Promise<UnlistenFn> =>
   listen<OdaOzeti[]>("odalar-guncellendi", (e) => isle(e.payload));
@@ -46,6 +46,9 @@ export const uygulamaIciBildirim = (isle: (b: UygulamaIciBildirim) => void): Pro
 /** Who is typing in a room changed · Bir odada kimlerin yazdığı değişti */
 export const yaziyorGuncellendi = (isle: (g: YaziyorGuncelleme) => void): Promise<UnlistenFn> =>
   listen<YaziyorGuncelleme>("yaziyor-guncellendi", (e) => isle(e.payload));
+
+// ---- Native calls · Yerel aramalar ----
+export const yerelAramaDurumu = (isle: (d: YerelDurum) => void): Promise<UnlistenFn> => listen<YerelDurum>("yerel-arama", (e) => isle(e.payload));
 
 // ---- Element Call ----
 export const ecGelen = (isle: (g: EcGelen) => void): Promise<UnlistenFn> => listen<EcGelen>("ec-gelen", (e) => isle(e.payload));

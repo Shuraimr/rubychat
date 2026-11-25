@@ -1,0 +1,1306 @@
+// Copyright 2026 Element Creations Ltd.
+//
+// SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+// Please see LICENSE in the repository root for full details.
+
+//! The one contract a host implements for the stack: `MatrixBackend`.
+//!
+//! The send half carries the core's events to a Matrix client; the read half
+//! lets the library subscribe to a room's sticky events, state, members and
+//! encryption, and to to-device messages. Inbound DTOs (`EventIn`,
+//! `ToDeviceMessageIn`) carry content as raw JSON with the client's decryption
+//! information: the host parses nothing, and the library turns them into the
+//! core's typed inputs.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::error::CommandError;
+use crate::maybe_send::MaybeSend;
+
+/// One device a to-device message is addressed to.
+///
+/// Always one specific device rather than a `*` wildcard: media keys go to the
+/// device that published the membership.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToDeviceRecipient {
+    pub user_id: String,
+    pub device_id: String,
+}
+
+impl ToDeviceRecipient {
+    pub fn new(user_id: impl Into<String>, device_id: impl Into<String>) -> Self {
+        Self {
+            user_id: user_id.into(),
+            device_id: device_id.into(),
+        }
+    }
+}
+
+/// What became of one recipient of a to-device send.
+///
+/// The distinction matters beyond reporting: a recipient recorded as served is
+/// taken to hold the key and is never re-sent to, so a failure mistaken for a
+/// success costs that member the rest of the call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToDeviceDelivery {
+    pub recipient: ToDeviceRecipient,
+    /// `None` when the message was accepted for this recipient; otherwise why
+    /// it was not.
+    pub error: Option<String>,
+}
+
+impl ToDeviceDelivery {
+    /// The message was accepted for this recipient.
+    pub fn sent(recipient: ToDeviceRecipient) -> Self {
+        Self {
+            recipient,
+            error: None,
+        }
+    }
+
+    /// The message could not be delivered to this recipient.
+    pub fn failed(recipient: ToDeviceRecipient, error: impl Into<String>) -> Self {
+        Self {
+            recipient,
+            error: Some(error.into()),
+        }
+    }
+
+    pub fn is_sent(&self) -> bool {
+        self.error.is_none()
+    }
+}
+
+/// A failure reported by the host's Matrix client, with the Matrix error code,
+/// HTTP status and rate-limit delay when it had them. The library classifies
+/// ([`Self::is_permanent`]); the host only marks what its client knows is final
+/// and has no Matrix code for ([`Self::permanent`]).
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
+pub struct BackendError {
+    pub errcode: Option<String>,
+    pub status: Option<u16>,
+    /// The server's `retry_after_ms`, from a rate-limit answer.
+    pub retry_after_ms: Option<u64>,
+    /// Set by the host for a condition its client knows cannot succeed, such
+    /// as a room the user is not in.
+    pub permanent: bool,
+    pub message: String,
+}
+
+impl BackendError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self::with_matrix_error(None, None, message)
+    }
+
+    pub fn with_matrix_error(
+        errcode: Option<String>,
+        status: Option<u16>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            errcode,
+            status,
+            retry_after_ms: None,
+            permanent: false,
+            message: message.into(),
+        }
+    }
+
+    /// Carries the server's rate-limit delay.
+    pub fn with_retry_after_ms(mut self, retry_after_ms: Option<u64>) -> Self {
+        self.retry_after_ms = retry_after_ms;
+        self
+    }
+
+    /// Marks the failure final: the host's client knows it cannot succeed.
+    pub fn permanent(mut self) -> Self {
+        self.permanent = true;
+        self
+    }
+
+    /// Whether the homeserver does not have the endpoint at all: an
+    /// `M_UNRECOGNIZED`, or a 404 with no error code, as servers answer an
+    /// unknown path (spec 038 R44).
+    pub fn is_unrecognized_endpoint(&self) -> bool {
+        match self.errcode.as_deref() {
+            Some(errcode) => errcode == "M_UNRECOGNIZED",
+            None => self.status == Some(404),
+        }
+    }
+
+    /// Whether retrying cannot help (R3): the host marked it final, or it
+    /// carries a Matrix error code that denotes refusal. A rate limit, an
+    /// `M_UNKNOWN`, a code on a 5xx and no code at all are transient; the
+    /// status alone never decides.
+    pub fn is_permanent(&self) -> bool {
+        if self.permanent {
+            return true;
+        }
+        let Some(errcode) = self.errcode.as_deref() else {
+            return false;
+        };
+        let server_error = self.status.is_some_and(|status| status >= 500);
+        !matches!(errcode, "M_LIMIT_EXCEEDED" | "M_UNKNOWN") && !server_error
+    }
+
+    /// Whether the server rate-limited the send (R7).
+    pub fn is_rate_limited(&self) -> bool {
+        self.errcode.as_deref() == Some("M_LIMIT_EXCEEDED")
+    }
+
+    /// The default answer of a read-half method a backend did not override.
+    pub fn not_implemented(method: &str) -> Self {
+        Self::new(format!("the backend does not implement {method}"))
+    }
+}
+
+/// A Matrix OpenID token, as returned by
+/// `POST /_matrix/client/v3/user/{userId}/openid/request_token`.
+///
+/// `Serialize` because a transport's authorisation service receives the whole
+/// object verbatim; the library never inspects the fields.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OpenIdToken {
+    pub access_token: String,
+    pub token_type: String,
+    pub matrix_server_name: String,
+    pub expires_in: u64,
+}
+
+/// The body of an MSC4195 LiveKit token request to the homeserver:
+/// `POST /_matrix/client/v1/rtc/livekit/get_token`, unstable
+/// `/_matrix/client/unstable/io.element.msc4195/rtc/livekit/get_token`.
+///
+/// The homeserver answers `{"jwt": ...}`; the token's participant identity is
+/// `base64(sha256(canonical_json([sender, member_id])))`. A DTO rather than a
+/// client SDK type, so the core does not depend on any host's Matrix types.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveKitTokenRequest {
+    /// The homeserver operating the SFU; the requesting server's own when
+    /// omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_name: Option<String>,
+    /// The SFU's WebSocket URL.
+    pub url: String,
+    pub room_id: String,
+    pub slot_id: String,
+    /// The `member.id` of our own `m.rtc.member` event.
+    pub member_id: String,
+}
+
+/// What the client reports about how an event or to-device message arrived.
+///
+/// Only what a client can honestly say: whether it decrypted the event, which
+/// device it attributed it to, and whether it confirms the sender. The library derives [`EventOrigin`](crate::EventOrigin) and
+/// [`KeyOrigin`](crate::KeyOrigin) from it; a host never builds those.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum EventEncryption {
+    /// The event arrived in the clear.
+    Cleartext,
+    /// The event arrived encrypted and was decrypted by the client.
+    Encrypted {
+        /// The sending device, as decryption attributed it.
+        sender_device_id: Option<String>,
+        /// Whether the client confirms the sender under its own trust settings,
+        /// such as a cross-signed device (MSC4153); `None` when it did not say.
+        sender_confirmed: Option<bool>,
+    },
+}
+
+impl EventEncryption {
+    pub fn encrypted(sender_device_id: Option<String>, sender_confirmed: Option<bool>) -> Self {
+        Self::Encrypted {
+            sender_device_id,
+            sender_confirmed,
+        }
+    }
+
+    pub fn sender_device_id(&self) -> Option<&str> {
+        match self {
+            Self::Encrypted {
+                sender_device_id, ..
+            } => sender_device_id.as_deref(),
+            Self::Cleartext => None,
+        }
+    }
+
+    pub fn was_encrypted(&self) -> bool {
+        matches!(self, Self::Encrypted { .. })
+    }
+}
+
+/// A room event as the client handed it over: content as raw JSON.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EventIn {
+    pub event_id: String,
+    pub sender: String,
+    pub event_type: String,
+    /// Set for state events.
+    #[serde(default)]
+    pub state_key: Option<String>,
+    #[serde(default)]
+    pub origin_server_ts: u64,
+    /// The whole decrypted `content` object.
+    pub content: Value,
+    pub encryption: EventEncryption,
+}
+
+/// A to-device message as the client handed it over: content as raw JSON.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ToDeviceMessageIn {
+    pub sender: String,
+    pub event_type: String,
+    pub content: Value,
+    pub encryption: EventEncryption,
+}
+
+/// What the library wants delivered for one room, beyond the three subjects
+/// every subscription carries: sticky events, joined members and whether the
+/// room is encrypted.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomSubjects {
+    /// State event types, stable and unstable spellings both listed; each is
+    /// delivered under its own type, and the library picks between them.
+    pub state_event_types: Vec<String>,
+    /// Message-like event types to forward as they arrive, redactions included.
+    pub timeline_event_types: Vec<String>,
+}
+
+/// Where a host delivers a room's subjects. Every method returns at once; the
+/// library does its work elsewhere.
+///
+/// For sticky events, state events and joined members each call carries the
+/// room's **complete current set** for that subject, and the first call is the
+/// current set at subscription time. An empty set means none.
+pub trait RoomSink: MaybeSend {
+    fn on_sticky_events(&self, events: Vec<EventIn>);
+    fn on_state_events(&self, event_type: String, events: Vec<EventIn>);
+    fn on_joined_members(&self, user_ids: Vec<String>);
+    fn on_encryption(&self, encrypted: bool);
+    fn on_timeline_events(&self, events: Vec<EventIn>);
+    fn on_redaction(&self, event_id: String);
+}
+
+/// Where a host delivers to-device messages of the subscribed types.
+pub trait ToDeviceSink: MaybeSend {
+    fn on_to_device_message(&self, message: ToDeviceMessageIn);
+}
+
+/// A subscription the library ends by calling `cancel`. Cancelling twice is a
+/// no-op.
+pub trait Subscription: MaybeSend {
+    fn cancel(&self);
+}
+
+/// Everything the library needs from a Matrix client, implemented by the host.
+///
+/// The send half carries the core's events out; the read half subscribes to
+/// what a room says and to to-device messages. Read-half methods have defaults
+/// that fail, for backends that only send (test doubles); a backend attached
+/// to a room must override every one of them.
+///
+/// The futures are `Send` everywhere except `wasm32`, where they cannot be: a
+/// JS-backed future (`JsFuture` around a `Promise`) is not `Send`, and the
+/// browser is single-threaded anyway. Every implementation of this trait needs
+/// the same pair of `cfg_attr`s, or it will not satisfy the trait on one of the
+/// two targets. Native being `Send` is what lets a uniffi async export return
+/// one of these futures. The implementing type is held to the same split by
+/// [`MaybeSend`].
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait MatrixBackend: MaybeSend {
+    /// The account the client is logged in as.
+    fn own_user_id(&self) -> String;
+
+    /// The device the client is logged in as.
+    fn own_device_id(&self) -> String;
+
+    // ---- Send half ----
+
+    /// Send a sticky event to a Matrix room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID where the event should be sent
+    /// * `event_type` - The event type (e.g., "m.rtc.member")
+    /// * `content` - The event content as a JSON value
+    /// * `duration_ms` - How long the server should keep this entry in the
+    ///   sticky map. Implementations MUST pass this through rather than
+    ///   choosing their own: the caller re-sends the event before this elapses,
+    ///   so a different lifetime here silently breaks that refresh.
+    ///
+    /// # Returns
+    ///
+    /// The event id the homeserver assigned. Every Matrix send responds with
+    /// one, so an implementation that cannot produce it is broken rather than
+    /// merely terse — hence no `Option`.
+    async fn send_sticky_event(
+        &self,
+        room_id: String,
+        event_type: String,
+        content: Value,
+        duration_ms: u64,
+    ) -> Result<String, CommandError>;
+
+    /// Send a delayed state event to a Matrix room (MSC4140): the room-state
+    /// format's dead man's switch, which overwrites the membership under its
+    /// state key when it fires.
+    ///
+    /// Returns the MSC4140 **delay id** on success — the handle used to restart
+    /// or cancel the scheduled send. It is not an event id: the event has none
+    /// until it actually fires.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID where the event should be sent
+    /// * `event_type` - The event type
+    /// * `state_key` - The state key
+    /// * `content` - The event content as a JSON value
+    /// * `delay_ms` - Delay in milliseconds before the event is sent
+    async fn send_delayed_state_event(
+        &self,
+        room_id: String,
+        event_type: String,
+        state_key: String,
+        content: Value,
+        delay_ms: u64,
+    ) -> Result<String, CommandError>;
+
+    /// Send a delayed sticky event to a Matrix room (MSC4140 and MSC4354): the
+    /// sticky formats' dead man's switch. It has to be sticky to replace the
+    /// sticky membership it ends; a plain delayed event would fire and change
+    /// nothing.
+    ///
+    /// A host whose SDK cannot send one answers
+    /// [`CommandError::DelayedEventsNotSupported`]: the core then joins without
+    /// a dead man's switch, with a shorter membership lifetime instead. It MUST
+    /// NOT fall back to a plain delayed event.
+    ///
+    /// Returns the MSC4140 delay id, as [`Self::send_delayed_state_event`].
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID where the event should be sent
+    /// * `event_type` - The event type (e.g., "m.rtc.member")
+    /// * `content` - The event content as a JSON value
+    /// * `sticky_duration_ms` - How long the event stays in the sticky map
+    ///   once it fires, as [`Self::send_sticky_event`]'s `duration_ms`
+    /// * `delay_ms` - Delay in milliseconds before the event is sent
+    async fn send_delayed_sticky_event(
+        &self,
+        room_id: String,
+        event_type: String,
+        content: Value,
+        sticky_duration_ms: u64,
+        delay_ms: u64,
+    ) -> Result<String, CommandError>;
+
+    /// Restart a previously scheduled delayed event's timer (MSC4140's
+    /// `restart` action — "heartbeat ping").
+    ///
+    /// Resets the scheduled send time to now plus the *original* delay, leaving
+    /// the delay id and everything else about the event untouched. This is the
+    /// keep-alive primitive: one request, and no moment at which no delayed
+    /// leave is armed.
+    ///
+    /// Do NOT emulate this with cancel-then-reschedule. That leaves a window
+    /// with nothing armed, burns the server's `max_scheduled` quota, and a
+    /// failed cancel leaks a delay that will fire and mark us as departed while
+    /// we are still in the call.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID where the delayed event was scheduled
+    /// * `delay_id` - The MSC4140 delay id returned by a delayed send.
+    async fn restart_delayed_event(
+        &self,
+        room_id: String,
+        delay_id: String,
+    ) -> Result<(), CommandError>;
+
+    /// Cancel a previously scheduled delayed event.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID where the delayed event was scheduled
+    /// * `delay_id` - The MSC4140 delay id returned by a delayed send.
+    async fn cancel_delayed_event(
+        &self,
+        room_id: String,
+        delay_id: String,
+    ) -> Result<(), CommandError>;
+
+    /// Send one to-device message to a set of devices, reporting the outcome
+    /// per recipient.
+    ///
+    /// Used for encryption key distribution (MSC4143). The same `content` goes
+    /// to every recipient; each is one specific device, never a `*` fan-out —
+    /// media keys go to the device that published the membership, and widening
+    /// would hand the key to devices outside the call (and, for our own user, to
+    /// this very device, which Olm cannot encrypt to).
+    ///
+    /// # Why per recipient
+    ///
+    /// One unreachable device must not silence the others, and the caller has to
+    /// know *which* ones were served: a recipient reported as delivered is
+    /// recorded as holding the key and never retried, so reporting a failure as
+    /// success costs that member the call.
+    ///
+    /// An `Err` return means the batch could not be attempted at all; the caller
+    /// treats every recipient as unserved.
+    ///
+    /// MSC4143 specifies that encryption keys MUST be sent via encrypted
+    /// to-device messages. Keys sent in cleartext SHOULD be discarded by
+    /// recipients.
+    async fn send_to_device_message(
+        &self,
+        recipients: Vec<ToDeviceRecipient>,
+        message_type: String,
+        content: Value,
+    ) -> Result<Vec<ToDeviceDelivery>, CommandError>;
+
+    /// Send a state event to a Matrix room.
+    ///
+    /// Used for `m.rtc.slot`, the only MatrixRTC event that lives in room state.
+    /// Sending it usually requires a power level the average member does not
+    /// have, so implementations should surface an authorization failure as an
+    /// error rather than swallowing it.
+    ///
+    /// # Returns
+    ///
+    /// The event id the homeserver assigned, on the same terms as
+    /// [`send_sticky_event`](Self::send_sticky_event). No caller of a *slot*
+    /// send reads it; it is here because the pre-MSC4354 Element Call dialect
+    /// routes the membership through this method, and there the id is what a
+    /// notification relates to.
+    async fn send_state_event(
+        &self,
+        room_id: String,
+        event_type: String,
+        state_key: String,
+        content: Value,
+    ) -> Result<String, CommandError>;
+
+    /// Send a plain room event: message-like, neither sticky nor state.
+    ///
+    /// Only applications send these. In an encrypted room the event must go out
+    /// encrypted like any other message; a client SDK's ordinary send does that
+    /// on its own. `event_type` is sent verbatim.
+    ///
+    /// # Returns
+    ///
+    /// The event id the homeserver assigned, on the same terms as
+    /// [`send_sticky_event`](Self::send_sticky_event).
+    async fn send_room_event(
+        &self,
+        room_id: String,
+        event_type: String,
+        content: Value,
+    ) -> Result<String, CommandError>;
+
+    /// Redact one of our own room events. Only applications redact.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room the event was sent to
+    /// * `event_id` - The event to redact, as returned by
+    ///   [`send_room_event`](Self::send_room_event)
+    /// * `reason` - Optional human-readable reason, put in the redaction's
+    ///   content
+    async fn redact_event(
+        &self,
+        room_id: String,
+        event_id: String,
+        reason: Option<String>,
+    ) -> Result<(), CommandError>;
+
+    // ---- Read half ----
+
+    /// Deliver `subjects` for `room_id` to `sink`, the current sets first, then
+    /// every change, until the returned subscription is cancelled.
+    async fn subscribe_room(
+        &self,
+        room_id: String,
+        subjects: RoomSubjects,
+        sink: Arc<dyn RoomSink>,
+    ) -> Result<Arc<dyn Subscription>, BackendError> {
+        let _ = (room_id, subjects, sink);
+        Err(BackendError::not_implemented("subscribe_room"))
+    }
+
+    /// Deliver every decrypted to-device message of `event_types` to `sink`
+    /// until the returned subscription is cancelled.
+    async fn subscribe_to_device(
+        &self,
+        event_types: Vec<String>,
+        sink: Arc<dyn ToDeviceSink>,
+    ) -> Result<Arc<dyn Subscription>, BackendError> {
+        let _ = (event_types, sink);
+        Err(BackendError::not_implemented("subscribe_to_device"))
+    }
+
+    /// `GET /rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}`,
+    /// decrypted.
+    async fn relations(
+        &self,
+        room_id: String,
+        event_id: String,
+        rel_type: String,
+        event_type: String,
+    ) -> Result<Vec<EventIn>, BackendError> {
+        let _ = (room_id, event_id, rel_type, event_type);
+        Err(BackendError::not_implemented("relations"))
+    }
+
+    /// A fresh OpenID token for the account.
+    async fn openid_token(&self) -> Result<OpenIdToken, BackendError> {
+        Err(BackendError::not_implemented("openid_token"))
+    }
+
+    /// A LiveKit JWT from the homeserver (MSC4195), for the SFU and membership
+    /// `request` names. A homeserver without the endpoint answers 404 /
+    /// `M_UNRECOGNIZED`; the host passes that through as is.
+    async fn livekit_token(&self, request: &LiveKitTokenRequest) -> Result<String, BackendError> {
+        let _ = request;
+        Err(BackendError::not_implemented("livekit_token"))
+    }
+
+    /// The homeserver's `rtc_transports` array, raw, from
+    /// `GET /_matrix/client/v1/rtc/transports`; an empty array when the
+    /// endpoint is missing.
+    async fn rtc_transports(&self) -> Result<Value, BackendError> {
+        Err(BackendError::not_implemented("rtc_transports"))
+    }
+}
+
+/// A backend that accepts every send and reads nothing, for unit tests that
+/// don't look at what was sent.
+#[cfg(test)]
+pub struct NoopBackend;
+
+#[cfg(test)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl MatrixBackend for NoopBackend {
+    fn own_user_id(&self) -> String {
+        "@noop:example.org".to_owned()
+    }
+
+    fn own_device_id(&self) -> String {
+        "NOOPDEVICE".to_owned()
+    }
+
+    async fn send_sticky_event(
+        &self,
+        _room_id: String,
+        _event_type: String,
+        _content: Value,
+        _duration_ms: u64,
+    ) -> Result<String, CommandError> {
+        Ok("$mock-sticky-event".to_string())
+    }
+
+    async fn send_delayed_state_event(
+        &self,
+        _room_id: String,
+        _event_type: String,
+        _state_key: String,
+        _content: Value,
+        _delay_ms: u64,
+    ) -> Result<String, CommandError> {
+        Ok("mock-event-id".to_string())
+    }
+
+    async fn send_delayed_sticky_event(
+        &self,
+        _room_id: String,
+        _event_type: String,
+        _content: Value,
+        _sticky_duration_ms: u64,
+        _delay_ms: u64,
+    ) -> Result<String, CommandError> {
+        Ok("mock-event-id".to_string())
+    }
+
+    async fn restart_delayed_event(
+        &self,
+        _room_id: String,
+        _delay_id: String,
+    ) -> Result<(), CommandError> {
+        Ok(())
+    }
+
+    async fn cancel_delayed_event(
+        &self,
+        _room_id: String,
+        _delay_id: String,
+    ) -> Result<(), CommandError> {
+        Ok(())
+    }
+
+    async fn send_to_device_message(
+        &self,
+        recipients: Vec<ToDeviceRecipient>,
+        _message_type: String,
+        _content: Value,
+    ) -> Result<Vec<ToDeviceDelivery>, CommandError> {
+        Ok(recipients.into_iter().map(ToDeviceDelivery::sent).collect())
+    }
+
+    async fn send_state_event(
+        &self,
+        _room_id: String,
+        _event_type: String,
+        _state_key: String,
+        _content: Value,
+    ) -> Result<String, CommandError> {
+        Ok("$mock-state-event".to_string())
+    }
+
+    async fn send_room_event(
+        &self,
+        _room_id: String,
+        _event_type: String,
+        _content: Value,
+    ) -> Result<String, CommandError> {
+        Ok("$mock-room-event".to_string())
+    }
+
+    async fn redact_event(
+        &self,
+        _room_id: String,
+        _event_id: String,
+        _reason: Option<String>,
+    ) -> Result<(), CommandError> {
+        Ok(())
+    }
+}
+
+/// One room subscription a [`MockBackend`] handed out.
+#[cfg(any(test, feature = "testing"))]
+pub struct MockRoomSubscription {
+    pub subjects: RoomSubjects,
+    pub sink: Arc<dyn RoomSink>,
+    pub cancelled: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl Subscription for MockRoomSubscription {
+    fn cancel(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// The to-device subscription a [`MockBackend`] handed out.
+#[cfg(any(test, feature = "testing"))]
+pub struct MockToDeviceSubscription {
+    pub event_types: Vec<String>,
+    pub sink: Arc<dyn ToDeviceSink>,
+    pub cancelled: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl Subscription for MockToDeviceSubscription {
+    fn cancel(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// `(room_id, event_type, state_key, content, delay_ms)`.
+#[cfg(any(test, feature = "testing"))]
+pub type RecordedDelayedEvent = (String, String, Option<String>, Value, u64);
+
+/// A [`MockBackend`] method whose outcome a test can script.
+#[cfg(any(test, feature = "testing"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MockMethod {
+    StickyEvent,
+    DelayedEvent,
+    RestartDelayedEvent,
+    CancelDelayedEvent,
+    ToDevice,
+    StateEvent,
+    RoomEvent,
+    Redaction,
+    RtcTransports,
+}
+
+/// What one scripted call to a [`MockBackend`] method does.
+#[cfg(any(test, feature = "testing"))]
+#[derive(Clone, Debug)]
+pub enum MockOutcome {
+    /// Answers as the unscripted mock does: recorded, then success.
+    Ok,
+    /// Fails with this error and records nothing.
+    Fail(BackendError),
+    /// Never answers, as a send the host holds open for ever.
+    Hang,
+    /// Waits this long on the executor's timer, then does the inner outcome.
+    After(std::time::Duration, Box<MockOutcome>),
+}
+
+/// One call a [`MockBackend`] received, whatever its outcome.
+#[cfg(any(test, feature = "testing"))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MockCall {
+    pub method: MockMethod,
+    /// Since the mock was created, on the executor's clock (paused test time
+    /// moves it).
+    pub at: std::time::Duration,
+}
+
+/// A backend that records every send and keeps the sinks it was given, so a
+/// test can check what went out and play sets in. Exported under the `testing`
+/// feature.
+///
+/// Each send method answers from its scripted outcome queue first
+/// ([`Self::script`]) and succeeds once the queue is empty; every call is
+/// logged with its time ([`Self::calls`]), failed or not.
+#[cfg(any(test, feature = "testing"))]
+pub struct MockBackend {
+    pub user_id: String,
+    pub device_id: String,
+    pub sticky_events: std::sync::Mutex<Vec<(String, String, Value, u64)>>,
+    pub delayed_events: std::sync::Mutex<Vec<RecordedDelayedEvent>>,
+    pub restarted_events: std::sync::Mutex<Vec<(String, String)>>,
+    pub cancelled_events: std::sync::Mutex<Vec<(String, String)>>,
+    pub to_device_messages: std::sync::Mutex<Vec<(String, String, String, Value)>>,
+    pub state_events: std::sync::Mutex<Vec<(String, String, String, Value)>>,
+    /// `(room_id, event_type, content)` of every plain room event sent.
+    pub room_events: std::sync::Mutex<Vec<(String, String, Value)>>,
+    /// `(room_id, event_id, reason)` of every redaction requested.
+    pub redactions: std::sync::Mutex<Vec<(String, String, Option<String>)>>,
+    /// Room subscriptions, by room id, in subscription order.
+    pub room_subscriptions: std::sync::Mutex<Vec<(String, Arc<MockRoomSubscription>)>>,
+    pub to_device_subscriptions: std::sync::Mutex<Vec<Arc<MockToDeviceSubscription>>>,
+    /// `(room_id, event_id, rel_type, event_type)` of every relations fetch.
+    pub relations_requests: std::sync::Mutex<Vec<(String, String, String, String)>>,
+    /// What `relations` answers, by target event id; unknown ids answer empty.
+    pub relations_answers: std::sync::Mutex<std::collections::HashMap<String, Vec<EventIn>>>,
+    /// What `rtc_transports` answers.
+    pub transports: std::sync::Mutex<Result<Value, BackendError>>,
+    /// How many times `rtc_transports` was asked.
+    pub transports_requests: std::sync::atomic::AtomicUsize,
+    /// Every `livekit_token` request, in order.
+    pub livekit_token_requests: std::sync::Mutex<Vec<LiveKitTokenRequest>>,
+    /// What `livekit_token` answers.
+    pub livekit_token_answer: std::sync::Mutex<Result<String, BackendError>>,
+    /// When set, `subscribe_room` fails with it.
+    pub room_subscription_error: std::sync::Mutex<Option<BackendError>>,
+    /// When set, sticky sends fail with this message and are not recorded.
+    pub sticky_event_error: std::sync::Mutex<Option<String>>,
+    /// Outcomes still to play, per method, in order.
+    pub scripted: std::sync::Mutex<
+        std::collections::HashMap<MockMethod, std::collections::VecDeque<MockOutcome>>,
+    >,
+    /// Every call received, in order.
+    pub call_log: std::sync::Mutex<Vec<MockCall>>,
+    /// The origin of [`MockCall::at`].
+    pub created_at: crate::executor::Instant,
+    /// `(user_id, device_id)` recipients a to-device send answers as not
+    /// delivered; the rest of the batch is delivered.
+    pub undeliverable: std::sync::Mutex<std::collections::HashSet<(String, String)>>,
+    /// While set, every send answers this, before any scripted outcome: an
+    /// outage of the homeserver ([`Self::set_outage`]).
+    pub outage: std::sync::Mutex<Option<MockOutcome>>,
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl Default for MockBackend {
+    fn default() -> Self {
+        Self {
+            user_id: "@mock:example.org".to_owned(),
+            device_id: "MOCKDEVICE".to_owned(),
+            sticky_events: Default::default(),
+            delayed_events: Default::default(),
+            restarted_events: Default::default(),
+            cancelled_events: Default::default(),
+            to_device_messages: Default::default(),
+            state_events: Default::default(),
+            room_events: Default::default(),
+            redactions: Default::default(),
+            room_subscriptions: Default::default(),
+            to_device_subscriptions: Default::default(),
+            relations_requests: Default::default(),
+            relations_answers: Default::default(),
+            transports: std::sync::Mutex::new(Ok(Value::Array(Vec::new()))),
+            transports_requests: Default::default(),
+            livekit_token_requests: Default::default(),
+            livekit_token_answer: std::sync::Mutex::new(Ok("mock-jwt".to_owned())),
+            room_subscription_error: Default::default(),
+            sticky_event_error: Default::default(),
+            scripted: Default::default(),
+            call_log: Default::default(),
+            created_at: crate::executor::Instant::now(),
+            undeliverable: Default::default(),
+            outage: Default::default(),
+        }
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl MockBackend {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_identity(user_id: impl Into<String>, device_id: impl Into<String>) -> Self {
+        Self {
+            user_id: user_id.into(),
+            device_id: device_id.into(),
+            ..Self::default()
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn last_sticky_event(&self) -> Option<(String, String, Value, u64)> {
+        self.sticky_events.lock().unwrap().last().cloned()
+    }
+
+    #[allow(dead_code)]
+    pub fn last_delayed_event(&self) -> Option<RecordedDelayedEvent> {
+        self.delayed_events.lock().unwrap().last().cloned()
+    }
+
+    #[allow(dead_code)]
+    pub fn last_to_device_message(&self) -> Option<(String, String, String, Value)> {
+        self.to_device_messages.lock().unwrap().last().cloned()
+    }
+
+    #[allow(dead_code)]
+    pub fn to_device_messages_for(&self, user_id: &str, device_id: &str) -> Vec<(String, Value)> {
+        self.to_device_messages
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(u, d, _, _)| u == user_id && d == device_id)
+            .map(|(_, _, t, c)| (t.clone(), c.clone()))
+            .collect()
+    }
+
+    /// Queues `outcomes` for the next calls to `method`, after any already
+    /// queued.
+    pub fn script(&self, method: MockMethod, outcomes: impl IntoIterator<Item = MockOutcome>) {
+        self.scripted
+            .lock()
+            .unwrap()
+            .entry(method)
+            .or_default()
+            .extend(outcomes);
+    }
+
+    /// Every send answers `outcome` from now until `None` ends the outage;
+    /// the scripted queues are left for after it. `rtc_transports` included.
+    pub fn set_outage(&self, outcome: Option<MockOutcome>) {
+        *self.outage.lock().unwrap() = outcome;
+    }
+
+    /// Every call received so far, in order.
+    pub fn calls(&self) -> Vec<MockCall> {
+        self.call_log.lock().unwrap().clone()
+    }
+
+    /// When each call to `method` was received.
+    pub fn calls_to(&self, method: MockMethod) -> Vec<std::time::Duration> {
+        self.calls()
+            .into_iter()
+            .filter(|call| call.method == method)
+            .map(|call| call.at)
+            .collect()
+    }
+
+    /// Both delayed sends, one method to script: [`MockMethod::DelayedEvent`].
+    async fn record_delayed(
+        &self,
+        room_id: String,
+        event_type: String,
+        state_key: Option<String>,
+        content: Value,
+        delay_ms: u64,
+    ) -> Result<String, CommandError> {
+        self.attempt(MockMethod::DelayedEvent).await?;
+        self.delayed_events.lock().unwrap().push((
+            room_id.clone(),
+            event_type.clone(),
+            state_key,
+            content,
+            delay_ms,
+        ));
+        Ok(format!("delayed-{}-{}", room_id, event_type))
+    }
+
+    /// Logs a call to `method` and plays its next scripted outcome: `Ok(())`
+    /// to go on as unscripted, the error to fail with, or never for a hang.
+    async fn attempt(&self, method: MockMethod) -> Result<(), BackendError> {
+        self.call_log.lock().unwrap().push(MockCall {
+            method,
+            at: self.created_at.elapsed(),
+        });
+        let outage = self.outage.lock().unwrap().clone();
+        let mut outcome = outage.unwrap_or_else(|| {
+            self.scripted
+                .lock()
+                .unwrap()
+                .get_mut(&method)
+                .and_then(|queue| queue.pop_front())
+                .unwrap_or(MockOutcome::Ok)
+        });
+        loop {
+            match outcome {
+                MockOutcome::Ok => return Ok(()),
+                MockOutcome::Fail(error) => return Err(error),
+                MockOutcome::Hang => std::future::pending::<()>().await,
+                MockOutcome::After(delay, then) => {
+                    crate::executor::sleep(delay).await;
+                    outcome = *then;
+                }
+            }
+        }
+    }
+
+    /// The live room subscription for `room_id`, if any.
+    pub fn room_subscription(&self, room_id: &str) -> Option<Arc<MockRoomSubscription>> {
+        self.room_subscriptions
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|(room, sub)| {
+                room == room_id && !sub.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+            })
+            .map(|(_, sub)| sub.clone())
+    }
+
+    /// The live to-device subscription, if any.
+    pub fn to_device_subscription(&self) -> Option<Arc<MockToDeviceSubscription>> {
+        self.to_device_subscriptions
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|sub| !sub.cancelled.load(std::sync::atomic::Ordering::SeqCst))
+            .cloned()
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl MatrixBackend for MockBackend {
+    fn own_user_id(&self) -> String {
+        self.user_id.clone()
+    }
+
+    fn own_device_id(&self) -> String {
+        self.device_id.clone()
+    }
+
+    async fn send_sticky_event(
+        &self,
+        room_id: String,
+        event_type: String,
+        content: Value,
+        duration_ms: u64,
+    ) -> Result<String, CommandError> {
+        self.attempt(MockMethod::StickyEvent).await?;
+        if let Some(message) = self.sticky_event_error.lock().unwrap().clone() {
+            return Err(CommandError::from_message(message));
+        }
+        let mut guard = self.sticky_events.lock().unwrap();
+        guard.push((room_id, event_type, content, duration_ms));
+        // Numbered by send order, so a test can name the event a relation is
+        // expected to point at.
+        Ok(format!("$sticky-{}", guard.len()))
+    }
+
+    async fn send_delayed_state_event(
+        &self,
+        room_id: String,
+        event_type: String,
+        state_key: String,
+        content: Value,
+        delay_ms: u64,
+    ) -> Result<String, CommandError> {
+        self.record_delayed(room_id, event_type, Some(state_key), content, delay_ms)
+            .await
+    }
+
+    /// Recorded with no state key; the sticky duration is not kept.
+    async fn send_delayed_sticky_event(
+        &self,
+        room_id: String,
+        event_type: String,
+        content: Value,
+        _sticky_duration_ms: u64,
+        delay_ms: u64,
+    ) -> Result<String, CommandError> {
+        self.record_delayed(room_id, event_type, None, content, delay_ms)
+            .await
+    }
+
+    async fn restart_delayed_event(
+        &self,
+        room_id: String,
+        delay_id: String,
+    ) -> Result<(), CommandError> {
+        self.attempt(MockMethod::RestartDelayedEvent).await?;
+        self.restarted_events
+            .lock()
+            .unwrap()
+            .push((room_id, delay_id));
+        Ok(())
+    }
+
+    async fn cancel_delayed_event(
+        &self,
+        room_id: String,
+        delay_id: String,
+    ) -> Result<(), CommandError> {
+        self.attempt(MockMethod::CancelDelayedEvent).await?;
+        self.cancelled_events
+            .lock()
+            .unwrap()
+            .push((room_id, delay_id));
+        Ok(())
+    }
+
+    async fn send_to_device_message(
+        &self,
+        recipients: Vec<ToDeviceRecipient>,
+        message_type: String,
+        content: Value,
+    ) -> Result<Vec<ToDeviceDelivery>, CommandError> {
+        self.attempt(MockMethod::ToDevice).await?;
+        let undeliverable = self.undeliverable.lock().unwrap().clone();
+        let mut guard = self.to_device_messages.lock().unwrap();
+        let mut deliveries = Vec::with_capacity(recipients.len());
+        for recipient in recipients {
+            if undeliverable.contains(&(recipient.user_id.clone(), recipient.device_id.clone())) {
+                deliveries.push(ToDeviceDelivery::failed(recipient, "undeliverable"));
+                continue;
+            }
+            guard.push((
+                recipient.user_id.clone(),
+                recipient.device_id.clone(),
+                message_type.clone(),
+                content.clone(),
+            ));
+            deliveries.push(ToDeviceDelivery::sent(recipient));
+        }
+        Ok(deliveries)
+    }
+
+    async fn send_state_event(
+        &self,
+        room_id: String,
+        event_type: String,
+        state_key: String,
+        content: Value,
+    ) -> Result<String, CommandError> {
+        self.attempt(MockMethod::StateEvent).await?;
+        let mut guard = self.state_events.lock().unwrap();
+        guard.push((room_id, event_type, state_key, content));
+        Ok(format!("$state-{}", guard.len()))
+    }
+
+    async fn send_room_event(
+        &self,
+        room_id: String,
+        event_type: String,
+        content: Value,
+    ) -> Result<String, CommandError> {
+        self.attempt(MockMethod::RoomEvent).await?;
+        let mut guard = self.room_events.lock().unwrap();
+        guard.push((room_id, event_type, content));
+        // Numbered by send order, so a test can name the event a redaction is
+        // expected to target.
+        Ok(format!("$room-{}", guard.len()))
+    }
+
+    async fn redact_event(
+        &self,
+        room_id: String,
+        event_id: String,
+        reason: Option<String>,
+    ) -> Result<(), CommandError> {
+        self.attempt(MockMethod::Redaction).await?;
+        self.redactions
+            .lock()
+            .unwrap()
+            .push((room_id, event_id, reason));
+        Ok(())
+    }
+
+    async fn subscribe_room(
+        &self,
+        room_id: String,
+        subjects: RoomSubjects,
+        sink: Arc<dyn RoomSink>,
+    ) -> Result<Arc<dyn Subscription>, BackendError> {
+        if let Some(error) = self.room_subscription_error.lock().unwrap().clone() {
+            return Err(error);
+        }
+        let subscription = Arc::new(MockRoomSubscription {
+            subjects,
+            sink,
+            cancelled: Default::default(),
+        });
+        self.room_subscriptions
+            .lock()
+            .unwrap()
+            .push((room_id, subscription.clone()));
+        Ok(subscription)
+    }
+
+    async fn subscribe_to_device(
+        &self,
+        event_types: Vec<String>,
+        sink: Arc<dyn ToDeviceSink>,
+    ) -> Result<Arc<dyn Subscription>, BackendError> {
+        let subscription = Arc::new(MockToDeviceSubscription {
+            event_types,
+            sink,
+            cancelled: Default::default(),
+        });
+        self.to_device_subscriptions
+            .lock()
+            .unwrap()
+            .push(subscription.clone());
+        Ok(subscription)
+    }
+
+    async fn relations(
+        &self,
+        room_id: String,
+        event_id: String,
+        rel_type: String,
+        event_type: String,
+    ) -> Result<Vec<EventIn>, BackendError> {
+        self.relations_requests.lock().unwrap().push((
+            room_id,
+            event_id.clone(),
+            rel_type,
+            event_type,
+        ));
+        Ok(self
+            .relations_answers
+            .lock()
+            .unwrap()
+            .get(&event_id)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn openid_token(&self) -> Result<OpenIdToken, BackendError> {
+        Ok(OpenIdToken {
+            access_token: "mock-openid-token".to_owned(),
+            token_type: "Bearer".to_owned(),
+            matrix_server_name: "example.org".to_owned(),
+            expires_in: 3600,
+        })
+    }
+
+    async fn livekit_token(&self, request: &LiveKitTokenRequest) -> Result<String, BackendError> {
+        self.livekit_token_requests
+            .lock()
+            .unwrap()
+            .push(request.clone());
+        self.livekit_token_answer.lock().unwrap().clone()
+    }
+
+    async fn rtc_transports(&self) -> Result<Value, BackendError> {
+        self.transports_requests
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.attempt(MockMethod::RtcTransports).await?;
+        self.transports.lock().unwrap().clone()
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod mock_tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::executor;
+
+    fn offline() -> MockOutcome {
+        MockOutcome::Fail(BackendError::new("offline"))
+    }
+
+    async fn send(mock: &MockBackend) -> Result<String, CommandError> {
+        mock.send_sticky_event("!r".into(), "m.rtc.member".into(), Value::Null, 1000)
+            .await
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scripted_outcomes_play_in_order_then_the_mock_succeeds() {
+        let mock = MockBackend::new();
+        mock.script(MockMethod::StickyEvent, [offline(), MockOutcome::Ok]);
+
+        assert!(send(&mock).await.is_err());
+        executor::sleep(Duration::from_secs(1)).await;
+        assert_eq!(send(&mock).await.unwrap(), "$sticky-1");
+        assert_eq!(send(&mock).await.unwrap(), "$sticky-2");
+
+        assert_eq!(
+            mock.calls_to(MockMethod::StickyEvent),
+            [
+                Duration::ZERO,
+                Duration::from_secs(1),
+                Duration::from_secs(1)
+            ],
+        );
+        assert_eq!(
+            mock.sticky_events.lock().unwrap().len(),
+            2,
+            "a failed send is logged as a call, not recorded as sent",
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_call_never_answers_and_a_late_one_answers_after_its_delay() {
+        let mock = MockBackend::new();
+        mock.script(
+            MockMethod::StickyEvent,
+            [
+                MockOutcome::Hang,
+                MockOutcome::After(Duration::from_secs(40), Box::new(MockOutcome::Ok)),
+            ],
+        );
+
+        let hung = executor::timeout(Duration::from_secs(600), send(&mock)).await;
+        assert!(hung.is_err());
+
+        let start = executor::Instant::now();
+        assert!(send(&mock).await.is_ok());
+        assert_eq!(start.elapsed(), Duration::from_secs(40));
+    }
+
+    #[tokio::test]
+    async fn scripts_are_per_method() {
+        let mock = MockBackend::new();
+        mock.script(MockMethod::RoomEvent, [offline()]);
+
+        assert!(send(&mock).await.is_ok());
+        assert!(
+            mock.send_room_event("!r".into(), "m.reaction".into(), Value::Null)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            mock.calls()
+                .iter()
+                .map(|call| call.method)
+                .collect::<Vec<_>>(),
+            [MockMethod::StickyEvent, MockMethod::RoomEvent],
+        );
+    }
+}

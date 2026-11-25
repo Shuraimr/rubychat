@@ -9,6 +9,40 @@ export interface EcAcilis {
   widgetId: string;
 }
 
+/** A sound the listener can turn up or down alone (native calls). Mirrors src-tauri/src/matrix/yerel_arama/motor.rs. · Dinleyenin tek başına kısıp açabildiği ses (yerel aramalar). */
+export interface YerelSes {
+  anahtar: string;
+  tur: "mikrofon" | "ekran" | "uygulama";
+  ad: string | null;
+  duzey: number;
+}
+
+export interface YerelKatilimci {
+  uye: string;
+  kullaniciId: string;
+  ad: string;
+  avatarMxc: string | null;
+  ben: boolean;
+  susturulmus: boolean;
+  konusuyor: boolean;
+  /** Keys of the pictures, null = none · Görüntülerin anahtarları, null = yok */
+  ekran: string | null;
+  kamera: string | null;
+  sesler: YerelSes[];
+  sorun: "baglaniyor" | "cozulemiyor" | "dogrulanmamis" | null;
+}
+
+export interface YerelDurum {
+  odaId: string;
+  asama: "baglaniyor" | "caliyor" | "acik" | "koptu" | "bitti";
+  neden: "biz" | "reddedildi" | "cevapsiz" | "ayrildilar" | "ag" | "hata" | null;
+  katilimcilar: YerelKatilimci[];
+  mikrofonKapali: boolean;
+  paylasim: "yok" | "seciliyor" | "acik";
+  paylasilan: string[];
+  paylasimHatasi: boolean;
+}
+
 /** One JSON message of the widget API, Rust → webview · Widget API'sinin bir JSON mesajı, Rust → webview */
 export interface EcGelen {
   widgetId: string;

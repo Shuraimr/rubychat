@@ -7,11 +7,12 @@
 //! TÜM listeyi arayüze yollarız. Odalar buna yetecek kadar küçük; yavaşlarsa farkları göndermeye geçilir.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     sync::Arc,
+    time::{Duration, Instant},
 };
 
-use eyeball_im::Vector;
+use eyeball_im::{Vector, VectorDiff};
 use futures_util::StreamExt;
 use matrix_sdk::{
     room::edit::EditedContent,
@@ -28,9 +29,9 @@ use matrix_sdk::{
                 },
             },
             room::message::{MessageFormat, MessageType, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
-            AnyMessageLikeEventContent, StateEventType,
+            AnyMessageLikeEventContent, Mentions, StateEventType,
         },
-        EventId, OwnedUserId, RoomId, UInt, UserId,
+        EventId, OwnedEventId, OwnedUserId, RoomId, UInt, UserId,
     },
     Client, Room,
 };
@@ -339,6 +340,9 @@ fn esle(app: &AppHandle, oge: &TimelineItem, b: &Baglam) -> Option<ZamanOgesi> {
     };
     let durum = match o.send_state() {
         Some(EventSendState::NotSentYet { .. }) => GonderimDurumu::Gonderiliyor,
+        // A passing failure is retried by itself (see kuyruk.rs): only a lasting one needs the user. · Geçici hata kendiliğinden yeniden
+        // denenir (bkz. kuyruk.rs): yalnızca kalıcı olan kullanıcıyı ister.
+        Some(EventSendState::SendingFailed { is_recoverable: true, .. }) => GonderimDurumu::Bekliyor,
         Some(EventSendState::SendingFailed { .. }) => GonderimDurumu::Hata,
         Some(EventSendState::Sent { .. }) | None => GonderimDurumu::Gonderildi,
     };
@@ -433,6 +437,11 @@ fn eksik_yanitlari_iste(zaman: &Arc<matrix_sdk_ui::Timeline>, ogeler: &Vector<Ar
     }
 }
 
+/// Whether the timeline currently contains the given event id. · Zaman çizelgesi verilen olay kimliğini şu an içeriyor mu.
+fn olay_var_mi(ogeler: &Vector<Arc<TimelineItem>>, aranan: &EventId) -> bool {
+    ogeler.iter().any(|o| o.as_event().and_then(|e| e.event_id()) == Some(aranan))
+}
+
 /// Opens (or re-uses) the room's timeline and starts forwarding updates.
 /// Odanın zaman çizelgesini açar (ya da var olanı kullanır) ve güncellemeleri iletmeye başlar.
 pub async fn ac(app: AppHandle, durum: &AppState, client: &Client, oda_id: &str) -> Sonuc<OdaBilgisi> {
@@ -444,6 +453,17 @@ pub async fn ac(app: AppHandle, durum: &AppState, client: &Client, oda_id: &str)
     // Arayüz alanları "Alanlar" görünümüne yönlendirir; bu, öteki her yol (bildirim, bağlantı, arama) için güvenlik ağıdır.
     if room.is_space() {
         return Err(Hata::OdaTuru);
+    }
+    // Subscribe the open room in sliding sync so it gets a deeper timeline than the room-list's limit of 1.
+    // Spawned so opening never waits on or fails from it; the lock is dropped before spawning.
+    // Açık odayı sliding sync'te abone et ki oda listesinin 1 olan zaman çizelgesi sınırından kurtulsun.
+    // Oda açılışını geciktirmemesi ve bozmaması için ayrı görevde çalışır; kilit başlatmadan önce bırakılır.
+    let esitleme = durum.oturum.read().await.as_ref().and_then(|o| o.esitleme.clone());
+    if let Some(servis) = esitleme {
+        let id_abone = id.clone();
+        tokio::spawn(async move {
+            servis.room_list_service().set_room_subscriptions(&[&*id_abone]).await;
+        });
     }
     let bilgi = bilgi_kur(&room).await;
 
@@ -466,7 +486,8 @@ pub async fn ac(app: AppHandle, durum: &AppState, client: &Client, oda_id: &str)
     // BAŞKALARININ yazıyor bildirimleri bu kanaldan gelir; koruma, görev çalıştığı sürece olay işleyicisini canlı tutar.
     let (yazan_koruma, mut yazan_rx) = room.subscribe_to_typing_notifications();
 
-    let (app2, oda_id2, zaman2, room2) = (app.clone(), oda_id.to_owned(), zaman.clone(), room.clone());
+    let kilit = Arc::new(tokio::sync::Mutex::new(()));
+    let (app2, oda_id2, zaman2, room2, kilit2) = (app.clone(), oda_id.to_owned(), zaman.clone(), room.clone(), kilit.clone());
     let gorev = tokio::spawn(async move {
         let _yazan_koruma = yazan_koruma;
         let mut yazan_kapali = false;
@@ -491,8 +512,76 @@ pub async fn ac(app: AppHandle, durum: &AppState, client: &Client, oda_id: &str)
             tokio::select! {
                 farklar = akis.next() => {
                     let Some(farklar) = farklar else { break };
+                    let sifirlandi = farklar.iter().any(|f| matches!(f, VectorDiff::Clear | VectorDiff::Reset { .. }));
+                    let (eski_idler, en_eski) = if sifirlandi {
+                        let mut idler: HashSet<OwnedEventId> = HashSet::new();
+                        let mut ilk: Option<OwnedEventId> = None;
+                        for o in liste.iter() {
+                            if let Some(eid) = o.as_event().and_then(|e| e.event_id()) {
+                                let eid = eid.to_owned();
+                                if ilk.is_none() {
+                                    ilk = Some(eid.clone());
+                                }
+                                idler.insert(eid);
+                            }
+                        }
+                        (idler, ilk)
+                    } else {
+                        (HashSet::new(), None)
+                    };
                     for f in farklar {
                         f.apply(&mut liste);
+                    }
+                    // When sliding sync drops a loaded timeline back to a tiny tail (Clear/Reset), refill up to the
+                    // previous oldest event before publishing so the UI keeps its old list until restored.
+                    // Sliding sync yüklü çizelgeyi küçük bir kuyruğa düşürünce (Clear/Reset), yayınlamadan önce
+                    // önceki en eski olaya dek yeniden doldur ki arayüz geri yüklenene dek eski listeyi korusun.
+                    if let Some(eski_id) = en_eski.filter(|_| eski_idler.len() > 20) {
+                        if !olay_var_mi(&liste, &eski_id) {
+                            let _kilit = kilit2.lock().await;
+                            let bas = Instant::now();
+                            let mut basa_ulasildi = false;
+                            let mut akis_bitti = false;
+                            for _ in 0..20 {
+                                if olay_var_mi(&liste, &eski_id) || bas.elapsed() >= Duration::from_secs(10) {
+                                    break;
+                                }
+                                match zaman2.paginate_backwards(50).await {
+                                    Ok(basa) => {
+                                        while let Ok(sonraki) = tokio::time::timeout(Duration::from_millis(150), akis.next()).await {
+                                            match sonraki {
+                                                Some(yeni_farklar) => {
+                                                    for f in yeni_farklar {
+                                                        f.apply(&mut liste);
+                                                    }
+                                                }
+                                                None => {
+                                                    akis_bitti = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if akis_bitti {
+                                            break;
+                                        }
+                                        if basa {
+                                            basa_ulasildi = true;
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("sıfırlama sonrası yeniden doldurma başarısız: {e}");
+                                        break;
+                                    }
+                                }
+                            }
+                            if akis_bitti {
+                                break;
+                            }
+                            yayinla(&app2, &room2, &liste, basa_ulasildi).await;
+                            eksik_yanitlari_iste(&zaman2, &liste, &mut istenen_yanitlar);
+                            continue;
+                        }
                     }
                 }
                 // A call outcome arrived: re-map so the call line updates. · Arama sonucu geldi: satır güncellensin diye yeniden eşle.
@@ -518,7 +607,7 @@ pub async fn ac(app: AppHandle, durum: &AppState, client: &Client, oda_id: &str)
             eksik_yanitlari_iste(&zaman2, &liste, &mut istenen_yanitlar);
         }
     });
-    if let Some(o) = durum.zamanlar.lock().await.insert(id, AcikZaman { zaman, gorev }) {
+    if let Some(o) = durum.zamanlar.lock().await.insert(id, AcikZaman { zaman, gorev, kilit }) {
         // The same room was opened twice at once: the newer one wins. · Aynı oda aynı anda iki kez açıldı: yenisi kalır.
         o.gorev.abort();
     }
@@ -543,9 +632,21 @@ pub async fn hepsini_kapat(durum: &AppState) {
     }
 }
 
-async fn zaman_bul(durum: &AppState, oda_id: &str) -> Sonuc<Arc<matrix_sdk_ui::Timeline>> {
+/// Clones the open room's timeline and refill lock, releasing the map lock before any await on the refill lock.
+/// Açık odanın çizelgesini ve doldurma kilidini kopyalar; doldurma kilidini beklemeden önce harita kilidini bırakır.
+async fn zaman_ve_kilit_bul(durum: &AppState, oda_id: &str) -> Sonuc<(Arc<matrix_sdk_ui::Timeline>, Arc<tokio::sync::Mutex<()>>)> {
     let id = RoomId::parse(oda_id)?;
-    durum.zamanlar.lock().await.get(&id).map(|a| a.zaman.clone()).ok_or(Hata::OdaBulunamadi)
+    durum
+        .zamanlar
+        .lock()
+        .await
+        .get(&id)
+        .map(|a| (a.zaman.clone(), a.kilit.clone()))
+        .ok_or(Hata::OdaBulunamadi)
+}
+
+async fn zaman_bul(durum: &AppState, oda_id: &str) -> Sonuc<Arc<matrix_sdk_ui::Timeline>> {
+    zaman_ve_kilit_bul(durum, oda_id).await.map(|(z, _)| z)
 }
 
 /// Loads older messages. Results arrive through the normal diff stream; we also push an explicit update so the UI
@@ -553,7 +654,8 @@ async fn zaman_bul(durum: &AppState, oda_id: &str) -> Sonuc<Arc<matrix_sdk_ui::T
 /// Eski mesajları yükler. Sonuç normal fark akışıyla gelir; ayrıca açıkça güncelleme göndeririz ki yeni öğe
 /// gelmese bile (geçmişin başı) arayüz "yükleniyor" göstergesini kapatabilsin.
 pub async fn geri_sayfala(app: AppHandle, durum: &AppState, oda_id: &str) -> Sonuc<()> {
-    let zaman = zaman_bul(durum, oda_id).await?;
+    let (zaman, kilit) = zaman_ve_kilit_bul(durum, oda_id).await?;
+    let _kilit = kilit.lock().await;
     let basa = zaman.paginate_backwards(30).await?;
     let (ogeler, _) = zaman.subscribe().await;
     yayinla(&app, zaman.room(), &ogeler, basa).await;
@@ -574,22 +676,23 @@ const OLAYA_GIT_SAYFA_BOYU: u16 = 50;
 /// Odaklı zaman çizelgesi (`TimelineFocus::Event`) yerine seçildi: arayüz, fark görevi ve buradaki her komut oda başına TEK
 /// canlı çizelge varsayar; ikinci geçici çizelge hepsine dokunmayı gerektirirdi.
 pub async fn olaya_git(app: AppHandle, durum: &AppState, oda_id: &str, olay_id: &str) -> Sonuc<bool> {
-    let zaman = zaman_bul(durum, oda_id).await?;
+    let (zaman, kilit) = zaman_ve_kilit_bul(durum, oda_id).await?;
+    let _kilit = kilit.lock().await;
     let var_mi = |ogeler: &Vector<Arc<TimelineItem>>| ogeler.iter().any(|o| o.as_event().and_then(|e| e.event_id()).is_some_and(|e| e.as_str() == olay_id));
     for _ in 0..OLAYA_GIT_SAYFA {
-        let ogeler = zaman.items().await;
+        let (ogeler, _) = zaman.subscribe().await;
         if var_mi(&ogeler) {
             yayinla(&app, zaman.room(), &ogeler, false).await;
             return Ok(true);
         }
         let basa = zaman.paginate_backwards(OLAYA_GIT_SAYFA_BOYU).await?;
         if basa {
-            let ogeler = zaman.items().await;
+            let (ogeler, _) = zaman.subscribe().await;
             yayinla(&app, zaman.room(), &ogeler, true).await;
             return Ok(var_mi(&ogeler));
         }
     }
-    let ogeler = zaman.items().await;
+    let (ogeler, _) = zaman.subscribe().await;
     yayinla(&app, zaman.room(), &ogeler, false).await;
     Ok(var_mi(&ogeler))
 }
@@ -611,37 +714,294 @@ fn metin_icerigi_iliskisiz(metin: &str, html: Option<&str>) -> RoomMessageEventC
     }
 }
 
-/// Sends a text message (plain or HTML), optionally as a reply. The SDK encrypts automatically in encrypted rooms and shows
-/// a local echo in the timeline. `send_reply` builds the `m.in_reply_to` relation and mentions the replied-to person.
-/// Metin mesajı gönderir (düz ya da HTML), isteğe bağlı yanıt olarak. Şifreli odalarda SDK kendiliğinden şifreler ve çizelgede
-/// yerel yankı gösterir. `send_reply`, `m.in_reply_to` ilişkisini kurar ve yanıtlanan kişiyi anar.
+/// Escapes text for safe inclusion in HTML bodies (matches `markdown.ts` `kacir`).
+/// Metni HTML gövdesinde güvenle kullanmak için kaçırır (`markdown.ts` `kacir` ile uyumlu).
+fn html_kacir(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Builds a `https://matrix.to/#/...` permalink for a Matrix user id, percent-encoding any byte that could break
+/// URL/attribute boundaries while keeping `@` and `:` readable for all Matrix clients.
+/// Bir Matrix kullanıcı kimliği için `https://matrix.to/#/...` kalıcı bağlantısı kurar; `@` ve `:` okunaklı kalırken
+/// URL/öznitelik sınırını bozabilecek her baytı yüzde-kodlar.
+fn matrix_to_url(id: &UserId) -> String {
+    let mut out = String::from("https://matrix.to/#/");
+    for b in id.as_str().bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~' | b'@' | b':') {
+            out.push(b as char);
+        } else {
+            use std::fmt::Write;
+            let _ = write!(out, "%{b:02X}");
+        }
+    }
+    out
+}
+
+/// Returns `(start, end)` byte ranges of visible text segments in `html` outside HTML tags and outside
+/// `<a>`, `<code>` and `<pre>` elements, so mention pills never corrupt markup or code blocks.
+/// `html` içinde etiketlerin ve `<a>`, `<code>`, `<pre>` öğelerinin dışındaki görünür metin dilimlerinin
+/// `(bas, son)` bayt aralıklarını döndürür; bahsetme hapları işaretlemeyi ya da kod bloklarını bozmaz.
+fn gorunur_metin_araliklari(html: &str) -> Vec<(usize, usize)> {
+    let bytes = html.as_bytes();
+    let mut araliklar = Vec::new();
+    let mut i = 0usize;
+    let mut metin_bas = 0usize;
+    let mut a_derin = 0usize;
+    let mut kod_derin = 0usize;
+
+    while i < bytes.len() {
+        if bytes[i] == b'<' {
+            if a_derin == 0 && kod_derin == 0 && i > metin_bas {
+                araliklar.push((metin_bas, i));
+            }
+            let mut j = i + 1;
+            let mut tirnak: Option<u8> = None;
+            while j < bytes.len() {
+                let b = bytes[j];
+                if let Some(q) = tirnak {
+                    if b == q {
+                        tirnak = None;
+                    }
+                } else if b == b'"' || b == b'\'' {
+                    tirnak = Some(b);
+                } else if b == b'>' {
+                    break;
+                }
+                j += 1;
+            }
+            let tag_son = if j < bytes.len() { j + 1 } else { bytes.len() };
+            let ic = html[i + 1..j.min(bytes.len())].trim();
+            let kapanis = ic.starts_with('/');
+            let oz_kapanis = !kapanis && ic.ends_with('/');
+            let ad_dilim = if kapanis { ic[1..].trim_start() } else { ic };
+            let ad_son = ad_dilim.find(|c: char| c.is_whitespace() || c == '/').unwrap_or(ad_dilim.len());
+            let ad = &ad_dilim[..ad_son];
+            if !oz_kapanis {
+                if ad.eq_ignore_ascii_case("a") {
+                    if kapanis {
+                        a_derin = a_derin.saturating_sub(1);
+                    } else {
+                        a_derin += 1;
+                    }
+                } else if ad.eq_ignore_ascii_case("code") || ad.eq_ignore_ascii_case("pre") {
+                    if kapanis {
+                        kod_derin = kod_derin.saturating_sub(1);
+                    } else {
+                        kod_derin += 1;
+                    }
+                }
+            }
+            i = tag_son;
+            metin_bas = i;
+        } else {
+            i += 1;
+        }
+    }
+    if a_derin == 0 && kod_derin == 0 && bytes.len() > metin_bas {
+        araliklar.push((metin_bas, bytes.len()));
+    }
+    araliklar
+}
+
+/// Checks word-like boundaries around `dilim[bas..son]` so `@Ali` never matches inside `foo@Ali` or `@Alibaba`,
+/// while still allowing punctuation and Turkish apostrophe suffixes (`@Ali,`, `@Ali'ye`).
+/// `dilim[bas..son]` çevresindeki sınırları denetler: `@Ali`, `foo@Ali` ya da `@Alibaba` içinde eşleşmez;
+/// noktalama ve Türkçe kesme ekleri (`@Ali,`, `@Ali'ye`) geçerlidir.
+fn sinir_uygun(dilim: &str, bas: usize, son: usize) -> bool {
+    let once_tamam = match dilim[..bas].chars().next_back() {
+        Some(c) => !c.is_alphanumeric() && c != '_',
+        None => true,
+    };
+    let sonra_tamam = match dilim[son..].chars().next() {
+        Some(c) => !c.is_alphanumeric(),
+        None => true,
+    };
+    once_tamam && sonra_tamam
+}
+
+/// Replaces each mentioned user's visible `@Name` (or mxid) in `html` with a `<a href="https://matrix.to/#/@id">...</a>`
+/// pill, in order of appearance, skipping markup tags and code/link elements. Returns `(new_html, any_replaced)`.
+/// `html` içinde bahsedilen her kullanıcının görünen `@Ad` (ya da mxid) metnini görünme sırasıyla
+/// `<a href="https://matrix.to/#/@id">...</a>` hapına çevirir; etiketleri ve kod/bağlantı öğelerini atlar.
+fn bahis_haplari_ekle(html: &str, hedefler: &[(OwnedUserId, String)]) -> (String, bool) {
+    let araliklar = gorunur_metin_araliklari(html);
+    let mut degisiklikler: Vec<(usize, usize, String)> = Vec::new();
+    let mut imlec = 0usize;
+
+    for (uid, ad) in hedefler {
+        let adaylar = [html_kacir(&format!("@{ad}")), html_kacir(uid.as_str()), html_kacir(&format!("@{}", uid.localpart()))];
+        let mut en_iyi: Option<(usize, usize)> = None;
+        for &(a_bas, a_son) in &araliklar {
+            if a_son <= imlec {
+                continue;
+            }
+            let basla = a_bas.max(imlec);
+            let dilim = &html[basla..a_son];
+            for aday in &adaylar {
+                if aday.is_empty() {
+                    continue;
+                }
+                let mut ara = 0usize;
+                while let Some(pos) = dilim[ara..].find(aday.as_str()) {
+                    let g_bas = ara + pos;
+                    let g_son = g_bas + aday.len();
+                    if sinir_uygun(dilim, g_bas, g_son) {
+                        let abs_bas = basla + g_bas;
+                        let abs_son = basla + g_son;
+                        let daha_iyi = match en_iyi {
+                            None => true,
+                            Some((e_bas, e_son)) => abs_bas < e_bas || (abs_bas == e_bas && abs_son > e_son),
+                        };
+                        if daha_iyi {
+                            en_iyi = Some((abs_bas, abs_son));
+                        }
+                        break;
+                    }
+                    ara = g_bas + 1;
+                    while ara < dilim.len() && !dilim.is_char_boundary(ara) {
+                        ara += 1;
+                    }
+                }
+            }
+            if en_iyi.is_some() {
+                break;
+            }
+        }
+        if let Some((abs_bas, abs_son)) = en_iyi {
+            let hap = format!("<a href=\"{}\">{}</a>", matrix_to_url(uid), &html[abs_bas..abs_son]);
+            degisiklikler.push((abs_bas, abs_son, hap));
+            imlec = abs_son;
+        }
+    }
+
+    if degisiklikler.is_empty() {
+        return (html.to_owned(), false);
+    }
+    let mut cikti = String::with_capacity(html.len() + degisiklikler.len() * 48);
+    let mut pos = 0usize;
+    for (bas, son, hap) in degisiklikler {
+        cikti.push_str(&html[pos..bas]);
+        cikti.push_str(&hap);
+        pos = son;
+    }
+    cikti.push_str(&html[pos..]);
+    (cikti, true)
+}
+
+/// Validates mentioned user ids and room-notification permission, builds `m.mentions`, and inserts `matrix.to` pills into `formatted_body`.
+/// Bahsedilen kullanıcı kimliklerini ve oda bildirim yetkisini doğrular, `m.mentions` kurar ve `formatted_body` içine `matrix.to` haplarını ekler.
+async fn bahis_hazirla(
+    room: &Room,
+    metin: &str,
+    html: Option<&str>,
+    bahsedilenler: &[String],
+    oda_bahset: bool,
+) -> Sonuc<(Option<String>, Option<Mentions>)> {
+    let mut sirali: Vec<OwnedUserId> = Vec::with_capacity(bahsedilenler.len());
+    let mut kume: BTreeSet<OwnedUserId> = BTreeSet::new();
+    for ham in bahsedilenler {
+        let id = UserId::parse(ham.trim())?;
+        kume.insert(id.clone());
+        sirali.push(id);
+    }
+    let oda_izinli = if oda_bahset {
+        room.power_levels()
+            .await
+            .map(|pl| pl.user_can_trigger_room_notification(room.own_user_id()))
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    let html_temiz = html.filter(|h| !h.trim().is_empty());
+    let sonuc_html = if !sirali.is_empty() {
+        let mut hedefler = Vec::with_capacity(sirali.len());
+        for uid in &sirali {
+            let kisi = kisi_bilgisi(room, uid).await;
+            hedefler.push((uid.clone(), kisi.ad));
+        }
+        let temel = match html_temiz {
+            Some(h) => h.to_owned(),
+            None => html_kacir(metin).replace('\n', "<br>"),
+        };
+        let (hapli, degisti) = bahis_haplari_ekle(&temel, &hedefler);
+        if degisti || html_temiz.is_some() { Some(hapli) } else { None }
+    } else {
+        html_temiz.map(str::to_owned)
+    };
+
+    let mentions = if !kume.is_empty() || oda_izinli {
+        let mut m = Mentions::with_user_ids(kume);
+        m.room = oda_izinli;
+        Some(m)
+    } else {
+        None
+    };
+    Ok((sonuc_html, mentions))
+}
+
+/// Sends a text message (plain or HTML), optionally as a reply and/or with `m.mentions`. The SDK encrypts automatically
+/// in encrypted rooms and shows a local echo in the timeline. `send_reply` builds `m.in_reply_to` and keeps the replied-to person in `m.mentions`.
+/// Metin mesajı gönderir (düz ya da HTML), isteğe bağlı yanıt ve/veya `m.mentions` ile. Şifreli odalarda SDK kendiliğinden
+/// şifreler ve çizelgede yerel yankı gösterir. `send_reply`, `m.in_reply_to` kurar ve yanıtlanan kişiyi `m.mentions` içinde korur.
 pub async fn mesaj_gonder(durum: &AppState, istek: MesajGonderIstegi) -> Sonuc<()> {
     let metin = istek.metin.trim();
     if metin.is_empty() {
         return Ok(());
     }
     let zaman = zaman_bul(durum, &istek.oda_id).await?;
+    let (html, mentions) = bahis_hazirla(zaman.room(), metin, istek.html.as_deref(), &istek.bahsedilenler, istek.oda_bahset).await?;
     match istek.yanit_olay_id.as_deref().filter(|y| !y.is_empty()) {
         Some(yanit) => {
             let hedef = EventId::parse(yanit)?;
-            zaman.send_reply(metin_icerigi_iliskisiz(metin, istek.html.as_deref()), hedef).await?;
+            let mut icerik = metin_icerigi_iliskisiz(metin, html.as_deref());
+            icerik.mentions = mentions;
+            zaman.send_reply(icerik, hedef).await?;
         }
         None => {
-            zaman.send(AnyMessageLikeEventContent::RoomMessage(metin_icerigi(metin, istek.html.as_deref()))).await?;
+            let mut icerik = metin_icerigi(metin, html.as_deref());
+            if let Some(m) = mentions {
+                icerik = icerik.add_mentions(m);
+            }
+            zaman.send(AnyMessageLikeEventContent::RoomMessage(icerik)).await?;
         }
     }
     Ok(())
 }
 
-/// Edits one of my text messages (`m.replace`). · Kendi metin mesajlarımdan birini düzenler (`m.replace`).
-pub async fn mesaj_duzenle(durum: &AppState, oda_id: &str, olay_id: &str, metin: &str, html: Option<&str>) -> Sonuc<()> {
+/// Edits one of my text messages (`m.replace`) with updated `m.mentions` (the SDK diffs mentions against the original event).
+/// Kendi metin mesajlarımdan birini güncellenmiş `m.mentions` ile düzenler (`m.replace`; SDK bahsetmeleri asıl olayla karşılaştırır).
+pub async fn mesaj_duzenle(
+    durum: &AppState,
+    oda_id: &str,
+    olay_id: &str,
+    metin: &str,
+    html: Option<&str>,
+    bahsedilenler: &[String],
+    oda_bahset: bool,
+) -> Sonuc<()> {
     let metin = metin.trim();
     if metin.is_empty() {
         return Err(Hata::Diger("boş mesaj".into()));
     }
     let zaman = zaman_bul(durum, oda_id).await?;
     let id = TimelineEventItemId::EventId(EventId::parse(olay_id)?);
-    zaman.edit(&id, EditedContent::RoomMessage(metin_icerigi_iliskisiz(metin, html))).await?;
+    let (sonuc_html, mentions) = bahis_hazirla(zaman.room(), metin, html, bahsedilenler, oda_bahset).await?;
+    let mut icerik = metin_icerigi_iliskisiz(metin, sonuc_html.as_deref());
+    // Always set `mentions` on edits (empty `Mentions::new()` when none remain) so removed mentions are cleared in `m.new_content`.
+    // Düzenlemede `mentions` hep atanır (hiç kalmadıysa boş `Mentions::new()`): kaldırılan bahsetmeler `m.new_content`te temizlenir.
+    icerik.mentions = Some(mentions.unwrap_or_else(Mentions::new));
+    zaman.edit(&id, EditedContent::RoomMessage(icerik)).await?;
     Ok(())
 }
 
@@ -662,8 +1022,9 @@ pub async fn tepki_degistir(durum: &AppState, oda_id: &str, olay_id: &str, anaht
 /// Re-sends the current item list (after a state change the timeline does not report itself, e.g. pins).
 /// Geçerli öğe listesini yeniden yollar (çizelgenin kendiliğinden bildirmediği durum değişikliklerinden sonra, ör. sabitler).
 pub async fn yeniden_yayinla(app: AppHandle, durum: &AppState, oda_id: &str) -> Sonuc<()> {
-    let zaman = zaman_bul(durum, oda_id).await?;
-    let ogeler = zaman.items().await;
+    let (zaman, kilit) = zaman_ve_kilit_bul(durum, oda_id).await?;
+    let _kilit = kilit.lock().await;
+    let (ogeler, _) = zaman.subscribe().await;
     yayinla(&app, zaman.room(), &ogeler, false).await;
     Ok(())
 }
@@ -736,14 +1097,16 @@ pub async fn okundu_isaretle(durum: &AppState, oda_id: &str) -> Sonuc<()> {
 pub async fn yeniden_dene(client: &Client, durum: &AppState, oda_id: &str, oge_id: &str) -> Sonuc<()> {
     let id = RoomId::parse(oda_id)?;
     let room = client.get_room(&id).ok_or(Hata::OdaBulunamadi)?;
-    room.send_queue().set_enabled(true);
     let zaman = zaman_bul(durum, oda_id).await?;
-    for oge in zaman.items().await.iter() {
-        if oge.unique_id().0 == oge_id {
-            if let Some(sh) = oge.as_event().and_then(|e| e.local_echo_send_handle()) {
-                let _ = sh.unwedge().await;
-            }
-        }
+    let tutamac = zaman
+        .items()
+        .await
+        .iter()
+        .find(|o| o.unique_id().0 == oge_id)
+        .and_then(|o| o.as_event().and_then(|e| e.local_echo_send_handle()));
+    if let Some(t) = tutamac {
+        t.unwedge().await.map_err(|e| Hata::Diger(e.to_string()))?;
     }
+    room.send_queue().set_enabled(true);
     Ok(())
 }

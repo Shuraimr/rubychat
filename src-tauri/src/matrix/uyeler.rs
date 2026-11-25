@@ -66,6 +66,7 @@ pub async fn uyeleri_listele(durum: State<'_, AppState>, oda_id: String) -> Sonu
         let id = m.user_id().to_string();
         let ad = m
             .display_name()
+            .filter(|s| !s.is_empty())
             .map(|s| s.to_owned())
             .unwrap_or_else(|| id.trim_start_matches('@').split(':').next().unwrap_or("").to_owned());
         sonuc.push(Uye {
@@ -98,6 +99,7 @@ pub async fn benim_yetkilerim(durum: State<'_, AppState>, oda_id: String) -> Son
         yasaklayabilir: pl.user_can_ban(ben),
         davet_edebilir: pl.user_can_invite(ben),
         guc_degistirebilir: pl.user_can_send_state(ben, StateEventType::RoomPowerLevels),
+        odayi_bildirebilir: pl.user_can_trigger_room_notification(ben),
     })
 }
 

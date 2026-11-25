@@ -18,6 +18,15 @@ function profilOku(): Profil | null {
   }
 }
 
+/** What this device remembers of the account in use (not of the rooms, whose ids are unique anyway) · Cihazın kullanımdaki hesaptan hatırladıkları (odalar değil; kimlikleri zaten benzersiz) */
+function hesapIziSil() {
+  try {
+    for (const a of [PROFIL_ANAHTARI, "rubychat.ziyaret"]) localStorage.removeItem(a);
+  } catch {
+    /* ignore · yok say */
+  }
+}
+
 class Oturum {
   ben = $state<Ben | null>(null);
   profil = $state<Profil | null>(profilOku());
@@ -80,6 +89,12 @@ class Oturum {
     }
   }
 
+  /** Signed in by the phone flow · Telefon akışıyla girildi */
+  girildi(ben: Ben) {
+    this.hata = null;
+    this.ben = ben;
+  }
+
   async cikis() {
     this.mesgul = true;
     try {
@@ -91,12 +106,26 @@ class Oturum {
       this.ben = null;
       this.profil = null;
       this.#profilIstendi = false;
-      try {
-        localStorage.removeItem(PROFIL_ANAHTARI);
-      } catch {
-        /* ignore · yok say */
-      }
+      hesapIziSil();
       this.mesgul = false;
+      // Another account remains: the backend has turned to it. · Başka hesap var: arka uç ona döndü.
+      const kalan = await komutlar.hesaplariAl().catch(() => null);
+      if (kalan?.liste.length) location.reload();
+    }
+  }
+
+  /** Turns to another account (null = sign in to a new one). The page starts over, so nothing of the old account can stay on screen.
+   *  Başka hesaba döner (null = yenisine gir). Sayfa baştan başlar; eski hesaptan ekranda bir şey kalamaz. */
+  async hesapDegistir(id: string | null) {
+    if (this.mesgul) return;
+    this.mesgul = true;
+    try {
+      await komutlar.hesapDegistir(id);
+      hesapIziSil();
+      location.reload();
+    } catch (e) {
+      this.mesgul = false;
+      throw e;
     }
   }
 }

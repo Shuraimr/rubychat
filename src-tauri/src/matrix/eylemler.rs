@@ -39,8 +39,17 @@ pub async fn mesaj_sil(durum: State<'_, AppState>, oda_id: String, olay_id: Stri
 }
 
 #[tauri::command]
-pub async fn mesaj_duzenle(durum: State<'_, AppState>, oda_id: String, olay_id: String, metin: String, html: Option<String>) -> Sonuc<()> {
-    zaman::mesaj_duzenle(&durum, &oda_id, &olay_id, &metin, html.as_deref()).await
+pub async fn mesaj_duzenle(
+    durum: State<'_, AppState>,
+    oda_id: String,
+    olay_id: String,
+    metin: String,
+    html: Option<String>,
+    bahsedilenler: Option<Vec<String>>,
+    oda_bahset: Option<bool>,
+) -> Sonuc<()> {
+    let bahisler = bahsedilenler.unwrap_or_default();
+    zaman::mesaj_duzenle(&durum, &oda_id, &olay_id, &metin, html.as_deref(), &bahisler, oda_bahset.unwrap_or(false)).await
 }
 
 /// Typing notice: the SDK throttles repeated `true` calls itself (one request per ~4 s), so the UI may call it on every keystroke.

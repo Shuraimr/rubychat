@@ -292,6 +292,8 @@ pub async fn gonder(app: &AppHandle, durum: &AppState, client: &Client, istek: M
     let zaman = zaman_al(durum, client, &istek.oda_id).await?;
     let yol = dosya_yolu(app, &istek.kimlik)?;
     let baytlar = std::fs::read(&yol)?;
+    // Refuse here: once queued, a file the server rejects would hold up the whole room. · Burada geri çevir: kuyruğa girince, sunucunun reddettiği dosya bütün odayı bekletirdi.
+    crate::matrix::kuyruk::boyut_denetle(client, baytlar.len()).await?;
     let boyut = UInt::new(baytlar.len() as u64);
     let mime: mime::Mime = istek.mime.parse().unwrap_or(mime::APPLICATION_OCTET_STREAM);
     let (g, y) = (istek.genislik.map(UInt::from), istek.yukseklik.map(UInt::from));
@@ -336,14 +338,7 @@ pub async fn gonder(app: &AppHandle, durum: &AppState, client: &Client, istek: M
 /// Aborts an upload that is still running (the local echo disappears). · Süren bir yüklemeyi iptal eder (yerel yankı kaybolur).
 pub async fn gonderimi_iptal(durum: &AppState, client: &Client, oda_id: &str, oge_id: &str) -> Sonuc<()> {
     let zaman = zaman_al(durum, client, oda_id).await?;
-    for oge in zaman.items().await.iter() {
-        if oge.unique_id().0 == oge_id {
-            if let Some(sh) = oge.as_event().and_then(|e| e.local_echo_send_handle()) {
-                let _ = sh.abort().await;
-            }
-        }
-    }
-    Ok(())
+    crate::matrix::kuyruk::vazgec(client, &zaman, oda_id, oge_id).await
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

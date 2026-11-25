@@ -144,6 +144,8 @@ pub struct AramaSatiri {
 pub enum GonderimDurumu {
     Gonderiliyor,
     Gonderildi,
+    /// No connection: will be retried by itself · Bağlantı yok: kendiliğinden yeniden denenecek
+    Bekliyor,
     Hata,
 }
 
@@ -337,8 +339,8 @@ pub struct SabitMesaj {
     pub metin: Option<String>,
 }
 
-/// UI → Rust: send a text message, optionally as a reply and/or with an HTML body.
-/// Arayüzden Rust'a: metin mesajı gönder; isteğe bağlı olarak yanıt ve/veya HTML gövdeli.
+/// UI → Rust: send a text message, optionally as a reply, with an HTML body and/or mentions (`m.mentions`).
+/// Arayüzden Rust'a: metin mesajı gönder; isteğe bağlı olarak yanıt, HTML gövde ve/veya bahsetme (`m.mentions`) ile.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MesajGonderIstegi {
@@ -346,6 +348,12 @@ pub struct MesajGonderIstegi {
     pub metin: String,
     pub html: Option<String>,
     pub yanit_olay_id: Option<String>,
+    /// Mentioned Matrix user ids in order of appearance · Mesajdaki görünme sırasıyla bahsedilen Matrix kullanıcı kimlikleri
+    #[serde(default)]
+    pub bahsedilenler: Vec<String>,
+    /// Notify the whole room (`@room`) · Tüm odayı bildir (`@room`)
+    #[serde(default)]
+    pub oda_bahset: bool,
 }
 
 /// UI → Rust: create a poll · Arayüzden Rust'a: anket oluştur
@@ -765,6 +773,8 @@ pub struct BenimYetkilerim {
     pub yasaklayabilir: bool,
     pub davet_edebilir: bool,
     pub guc_degistirebilir: bool,
+    /// May notify the whole room (`@room`) · Tüm odayı bildirebilir (`@room`)
+    pub odayi_bildirebilir: bool,
 }
 
 /// One of my login sessions (device) for Ben › Güvenlik ve anahtarlar. `son_gorulme` = ms since epoch.

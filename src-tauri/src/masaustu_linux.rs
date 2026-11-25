@@ -12,7 +12,11 @@ use webkit2gtk::{
     glib::{self, ToVariant, Variant, VariantDict},
 };
 
-const AD: &str = "dev.rubyyard.rubychat";
+const KIMLIK: &str = "dev.rubyyard.rubychat";
+/// Bus name; a second profile is a copy of its own. · Veri yolu adı; ikinci profil kendi başına bir kopyadır.
+fn ad() -> String {
+    format!("{KIMLIK}{}", crate::profil_eki())
+}
 const YOL: &str = "/dev/rubyyard/rubychat";
 const PORTAL: &str = "org.freedesktop.portal.Desktop";
 const PORTAL_YOL: &str = "/org/freedesktop/portal/desktop";
@@ -26,10 +30,10 @@ fn veriyolu() -> Result<DBusConnection, glib::Error> {
 /// Önce çağır. `false` = başka kopya çalışıyor ve kendini göstermesi istendi: çık.
 pub fn ilk_kopya_mi() -> bool {
     // The Wayland app id; it must match the .desktop file, or the window has no icon. · Wayland uygulama kimliği; .desktop dosyasıyla aynı olmalı, yoksa pencerenin simgesi olmaz.
-    glib::set_prgname(Some(AD));
+    glib::set_prgname(Some(KIMLIK));
     let Ok(yol) = veriyolu() else { return true };
     // 4 = do not wait in the queue; the answer 3 = somebody else owns the name. · 4 = sırada bekleme; 3 yanıtı = ad başkasında.
-    let istek = (AD, 4u32).to_variant();
+    let istek = (ad(), 4u32).to_variant();
     let yanit = yol.call_sync(
         Some("org.freedesktop.DBus"),
         "/org/freedesktop/DBus",
@@ -43,7 +47,7 @@ pub fn ilk_kopya_mi() -> bool {
     );
     let sahip_baska = matches!(yanit, Ok(v) if v.child_value(0).get::<u32>() == Some(3));
     if sahip_baska {
-        let _ = yol.emit_signal(None, YOL, AD, "Goster", None);
+        let _ = yol.emit_signal(None, YOL, &ad(), "Goster", None);
         let _ = yol.flush_sync(Cancellable::NONE);
         return false;
     }
@@ -65,7 +69,7 @@ fn pencereyi_goster(app: &AppHandle) {
 pub fn dinle(app: &AppHandle) {
     let Ok(yol) = veriyolu() else { return };
     let a = app.clone();
-    yol.signal_subscribe(None, Some(AD), Some("Goster"), Some(YOL), None, DBusSignalFlags::NONE, move |_, _, _, _, _, _| pencereyi_goster(&a));
+    yol.signal_subscribe(None, Some(&ad()), Some("Goster"), Some(YOL), None, DBusSignalFlags::NONE, move |_, _, _, _, _, _| pencereyi_goster(&a));
     let a = app.clone();
     yol.signal_subscribe(
         Some(PORTAL),

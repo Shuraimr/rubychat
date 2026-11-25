@@ -2,10 +2,13 @@
 //! Matrix ile konuşan her şey. Her dosya tek bir konu; `komutlar.rs` yalnızca bunları çağırır.
 pub mod alanlar;
 pub mod arama;
+pub mod cihaz_giris;
 pub mod dizin;
 pub mod ec;
 pub mod esitleme;
 pub mod eylemler;
+pub mod hesaplar;
+pub mod kuyruk;
 pub mod medya;
 pub mod istekler;
 pub mod odalar;
@@ -15,4 +18,5 @@ pub mod paketler;
 pub mod profil;
 pub mod sifreleme;
 pub mod uyeler;
+pub mod yerel_arama;
 pub mod zaman;

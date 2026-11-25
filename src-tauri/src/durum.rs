@@ -17,13 +17,25 @@ pub struct AktifOturum {
     /// Background tasks (classic sync loop, room-list emitter, token saver). Aborted on logout.
     /// Arka plan görevleri (klasik sync döngüsü, oda listesi yayıncısı, token kaydedici). Çıkışta durdurulur.
     pub gorevler: Vec<JoinHandle<()>>,
+    /// Tasks that go on while another account is in use (token saver, send queue, search index); only logout stops them.
+    /// Başka hesap kullanımdayken de süren görevler (belirteç kaydedici, gönderim kuyruğu, arama dizini); yalnızca çıkış durdurur.
+    pub kalici: Vec<JoinHandle<()>>,
 }
 
-/// One open room: its timeline and the task forwarding diffs to the UI.
-/// Açık bir oda: zaman çizelgesi ve değişiklikleri arayüze ileten görev.
+/// A signed-in account that is not in use now. Its client is kept: a second one on the same store would corrupt its encryption state.
+/// Girişli ama şu an kullanılmayan hesap. İstemcisi tutulur: aynı depoda ikinci bir istemci şifreleme durumunu bozardı.
+pub struct ParkliOturum {
+    pub client: Client,
+    pub dizin: Option<Arc<crate::matrix::dizin::Dizin>>,
+    pub kalici: Vec<JoinHandle<()>>,
+}
+
+/// One open room: its timeline, the diff-forwarding task and a lock held while refilling after a reset.
+/// Açık bir oda: zaman çizelgesi, değişiklikleri ileten görev ve sıfırlama sonrası doldurma sırasında tutulan kilit.
 pub struct AcikZaman {
     pub zaman: Arc<Timeline>,
     pub gorev: JoinHandle<()>,
+    pub kilit: Arc<Mutex<()>>,
 }
 
 /// What we have seen of one call's life, used to label the timeline line ("3 dk", "Cevapsız"...).
@@ -113,6 +125,8 @@ pub struct AppState {
     pub arama_degisti: Arc<tokio::sync::Notify>,
     pub turn: Mutex<Option<TurnOnbellek>>,
     pub oturum: RwLock<Option<AktifOturum>>,
+    /// By account id (see matrix/hesaplar.rs) · Hesap kimliğiyle (bkz. matrix/hesaplar.rs)
+    pub parklar: Mutex<HashMap<String, ParkliOturum>>,
     /// Full-text message index of the logged-in account (None before login or if it failed to open).
     /// Girişli hesabın tam metin mesaj dizini (giriş öncesi ya da açılamadıysa None).
     pub dizin: std::sync::Mutex<Option<Arc<crate::matrix::dizin::Dizin>>>,

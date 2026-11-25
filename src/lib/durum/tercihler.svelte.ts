@@ -25,16 +25,18 @@ export interface TercihDeger {
   /** KLIPY API key for the GIF tab: stored on this device only, never committed · GIF sekmesi için KLIPY API anahtarı: yalnızca bu cihazda, asla commit'lenmez */
   klipyAnahtar: string;
   kompakt: Kompakt;
-  /** Rail and list hidden with Ctrl+E (wide window) · Ray ve liste Ctrl+E ile gizli (geniş pencere) */
+  /** Rail and list hidden with Ctrl+B (wide window) · Ray ve liste Ctrl+B ile gizli (geniş pencere) */
   listeGizli: boolean;
-  /** vim-style keys (lib/klavyeKisayol.ts) · vim tarzı tuşlar */
-  vim: boolean;
+  /** Modeless Ctrl keyboard shortcuts (lib/klavyeKisayol.svelte.ts) · Kipsiz Ctrl klavye kısayolları */
+  ctrlKisayol: boolean;
+  /** One-line shortcut hint strip above the composer when a message is selected · Mesaj seçiliyken yazma alanının üstünde tek satırlık kısayol ipucu */
+  kisayolIpucu: boolean;
 }
 
 const VARSAYILAN: TercihDeger = {
   titresim: true, saat24: true, enterGonder: true, baglantiOnizleme: "hepsi", sifreliOnizle: false, resimKalitesi: "standart",
   bildirimAcik: true, bildirimOnizleme: true, bildirimTitresim: true, arkaPlan: true,
-  klipyAnahtar: "", kompakt: "otomatik", listeGizli: false, vim: false,
+  klipyAnahtar: "", kompakt: "otomatik", listeGizli: false, ctrlKisayol: false, kisayolIpucu: true,
 };
 const ANAHTAR = "rubychat.tercihler";
 
@@ -42,7 +44,7 @@ function oku(): TercihDeger {
   const g = { ...VARSAYILAN };
   try {
     const h = JSON.parse(localStorage.getItem(ANAHTAR) ?? "{}") as Record<string, unknown>;
-    for (const k of ["titresim", "saat24", "enterGonder", "sifreliOnizle", "bildirimAcik", "bildirimOnizleme", "bildirimTitresim", "arkaPlan", "listeGizli", "vim"] as const) {
+    for (const k of ["titresim", "saat24", "enterGonder", "sifreliOnizle", "bildirimAcik", "bildirimOnizleme", "bildirimTitresim", "arkaPlan", "listeGizli", "ctrlKisayol", "kisayolIpucu"] as const) {
       if (typeof h[k] === "boolean") g[k] = h[k] as boolean;
     }
     if (["hepsi", "yt-gh", "kapali"].includes(h.baglantiOnizleme as string)) g.baglantiOnizleme = h.baglantiOnizleme as OnizlemeKipi;

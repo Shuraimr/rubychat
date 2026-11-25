@@ -52,7 +52,9 @@
     gonderenGoster = false,
     yeni = false,
     vurgulu = false,
+    secili = false,
     yenidenDene,
+    vazgec,
     menuAc,
     eslesme = false,
     vurguSorgu = "",
@@ -72,7 +74,11 @@
     yeni?: boolean;
     /** Its context menu is open: it stays above the dimmed scrim · Bağlam menüsü açık: kararan perdenin üstünde kalır */
     vurgulu?: boolean;
+    /** Selected by keyboard shortcuts (data-imlec) · Klavye kısayollarıyla seçili (data-imlec) */
+    secili?: boolean;
     yenidenDene: (ogeId: string) => void;
+    /** Drop a message that could not be sent · Gönderilemeyen mesajdan vazgeç */
+    vazgec: (oge: ZamanOgesi) => void;
     menuAc: (x: number, y: number, oge: ZamanOgesi) => void;
     /** The current in-chat search match: outlined · Sohbet içi aramanın şu anki eşleşmesi: çerçeveli */
     eslesme?: boolean;
@@ -162,8 +168,9 @@
     class:kendi={oge.kendi}
     class:yeni
     class:vurgulu
-    class:uzak={uzak && !vurgulu}
+    class:uzak={uzak && !vurgulu && !secili}
     data-olay-id={oge.olayId ?? undefined}
+    data-imlec={secili ? "" : undefined}
     use:kaydirYanit={{ ac: () => yanitla(oge), etkin: yanitlanabilir }}
     use:ciftDokun={{ ac: kalpBirak, etkin: yanitlanabilir }}
   >
@@ -238,7 +245,10 @@
           {/if}
 
           {#if oge.durum === "hata" && oge.kendi}
+            <div class="basarisiz">
             <button class="tekrar" onclick={() => yenidenDene(oge.id)}><Maskot poz="hata" boyut={28} /><span class="kirmizi">{t("oda.gonderilemedi")}</span><span class="nokta-ayrac">·</span><span class="eylem">{t("eylem.yenidenDene")}</span></button>
+            <button class="tekrar sil" onclick={() => vazgec(oge)}><Ikon ad="cop" boyut={16} />{t("sil.sil")}</button>
+            </div>
           {/if}
         </div>
       {/if}
@@ -351,6 +361,8 @@
     font-size: .75rem; font-weight: 600; clear: both;
     transition: background var(--sure-hizli) var(--egri-cikis);
   }
+  .basarisiz { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 12px; clear: both; }
+  .tekrar.sil { margin-left: 0; color: var(--hata); }
   .tekrar:active { background: var(--yuzey-3); }
   .kirmizi { color: var(--hata); }
   .nokta-ayrac { opacity: .6; }
