@@ -7,6 +7,7 @@
   Oda içinde tam ekran katman (Android geri tuşu kapatır).
 -->
 <script lang="ts">
+  import { panoyaYaz } from "../pano";
   import { untrack } from "svelte";
   import { onDestroy, onMount } from "svelte";
   import { odaAyril } from "../api/komutlar";
@@ -56,7 +57,7 @@
   const kapida = $derived(istekler.veri.odalar.find((o) => o.oda.id === odaId)?.kisiler.length ?? 0);
   async function adresKopyala() {
     try {
-      await navigator.clipboard.writeText(odaId);
+      await panoyaYaz(odaId);
       bildirim.goster(t("bildirim.kopyalandi"), 3000, { tur: "tamam" });
     } catch {
       bildirim.goster(t("bildirim.kopyalanamadi"), 4000, { tur: "hata" });

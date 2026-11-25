@@ -9,6 +9,7 @@
   teknik ayrıntı "Ayrıntı" altında kapalı durur (seçilebilir + kopyalanabilir).
 -->
 <script lang="ts">
+  import { panoyaYaz } from "../pano";
   import { bildirim } from "../durum/bildirim.svelte";
   import { oturum } from "../durum/oturum.svelte";
   import { t } from "../i18n";
@@ -49,7 +50,7 @@
 
   async function ayrintiKopyala() {
     try {
-      await navigator.clipboard.writeText(oturum.hata?.mesaj ?? "");
+      await panoyaYaz(oturum.hata?.mesaj ?? "");
       bildirim.goster(t("giris.kopyalandi"), 3000, { tur: "tamam" });
     } catch {
       bildirim.goster(t("bildirim.kopyalanamadi"), 4000, { tur: "hata" });
@@ -117,6 +118,8 @@
 <style>
   .sayfa { height: 100%; overflow-y: auto; display: flex; justify-content: center; align-items: flex-start; padding: 16px 24px 32px; padding-top: max(16px, env(safe-area-inset-top)); }
   .kart { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 14px; }
+  /* Wide window: centred; auto margins never cut the top off in a short one. · Geniş pencere: ortalı; kısa pencerede üst kesilmez. */
+  @media (min-width: 700px) { .kart { margin-block: auto; } }
   .kart.merkez { align-items: center; text-align: center; padding-top: 48px; }
   .maskot-yer { display: flex; justify-content: center; padding: 8px 0 4px; }
   h1 { font-size: 1.5rem; line-height: 1.25; font-weight: 600; }

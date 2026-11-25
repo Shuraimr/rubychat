@@ -3,6 +3,7 @@
   Ben › Güvenlik (tasarım bölüm 12d): cihaz doğrulama, kurtarma anahtarı, anahtar yedeği ve gizli bilgilerin yeri; tek durum kartı olarak.
 -->
 <script lang="ts">
+  import { panoyaYaz } from "../pano";
   import { onMount } from "svelte";
   import { cihazCikis, cihazYenidenAdlandir, kurtarmaSifirla, oturumlarListele, yedekAyarla } from "../api/komutlar";
   import type { OturumCihazi } from "../api/tipler";
@@ -43,7 +44,7 @@
   }
   async function kopyala(m: string) {
     try {
-      await navigator.clipboard.writeText(m);
+      await panoyaYaz(m);
       bildirim.goster(t("bildirim.kopyalandi"), 2500, { tur: "tamam" });
     } catch {
       bildirim.goster(t("bildirim.kopyalanamadi"), 4000, { tur: "hata" });

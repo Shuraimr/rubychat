@@ -158,3 +158,7 @@ code, kbd, pre, .mono { font-family: var(--mono-tipi); }
 .acilir-satir:active { background: var(--yuzey-2); }
 .acilir-satir > svg { flex: none; color: var(--yazi-2); }
 .acilir-satir > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* vim keys: the message the cursor is on · vim tuşları: imlecin üstünde olduğu mesaj */
+.zaman .satir[data-imlec]::after { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 3px; border-radius: 2px; background: var(--vurgu); pointer-events: none; }
+.zaman .satir[data-imlec] { background: color-mix(in srgb, var(--vurgu) 12%, transparent); border-radius: 12px; }

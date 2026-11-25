@@ -61,6 +61,9 @@ matrix-sdk-ui = { version = "0.19", default-features = false, features = ["rustl
 # wry/tauri'nin zaten çektiği sürümle aynı WebKitGTK bağları (MIT). WebRTC / medya yakalamayı açmak ve mikrofon izin isteklerini
 # yanıtlamak için trait'ler gerekir (src/matrix/ec.rs `linux_medya_ac`). Yeni bir şey inmez.
 webkit2gtk = "2.0.2"
+# Same reason, same version as in the lock file: the GTK clipboard (src/masaustu_linux.rs). Nothing new is downloaded.
+# Aynı gerekçe, kilit dosyasındaki sürüm: GTK panosu (src/masaustu_linux.rs). Yeni bir şey inmez.
+gtk = "0.18"
 keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["apple-native"] }

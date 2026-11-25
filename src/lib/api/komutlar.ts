@@ -185,3 +185,7 @@ export const sifreDegistir = (eski: string, yeni: string) => cagir<void>("sifre_
 export const epostalarListele = () => cagir<EpostaAdresi[]>("epostalar_listele");
 export const epostaSil = (adres: string) => cagir<void>("eposta_sil", { adres });
 export const hesapKapat = (parola: string, veriyiSil: boolean) => cagir<void>("hesap_kapat", { parola, veriyiSil });
+
+/** Desktop Linux clipboard · Masaüstü Linux panosu */
+export const panoYaz = (metin: string) => cagir<boolean>("pano_yaz", { metin });
+export const panoResim = () => cagir<ArrayBuffer>("pano_resim");

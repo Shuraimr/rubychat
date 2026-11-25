@@ -15,6 +15,7 @@
   durumuna varır (ekranın tamamı bir <svelte:boundary> içindedir).
 -->
 <script lang="ts">
+  import { panoyaYaz } from "../pano";
   import { medyaKaydet } from "../api/komutlar";
   import { saatYaz } from "../zaman-bicim";
   import { hareketVar } from "../hareket";
@@ -49,6 +50,8 @@
   import type { Tepki } from "../api/tipler";
   import { arama } from "../durum/arama.svelte";
   import { bildirim } from "../durum/bildirim.svelte";
+  import { duzen } from "../durum/duzen.svelte";
+  import { klavye, type OdaKlavye } from "../klavyeKisayol.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { zaman } from "../durum/zaman.svelte";
   import { t, type Anahtar } from "../i18n";
@@ -300,7 +303,7 @@
   async function panoya(metin: string) {
     // navigator.clipboard can be missing/blocked in a webview: say so instead of failing silently. · navigator.clipboard webview'da olmayabilir/engellenebilir: sessizce başarısız olmak yerine söyle.
     try {
-      await navigator.clipboard.writeText(metin);
+      await panoyaYaz(metin);
       bildirim.goster(t("bildirim.kopyalandi"), 4000, { tur: "tamam" });
     } catch {
       bildirim.goster(t("bildirim.kopyalanamadi"), 4000, { tur: "hata" });
@@ -336,6 +339,37 @@
     if (eylemleriKur(oge).length === 0 && !gercekOlay(oge)) return;
     menu = { x, y, oge };
   }
+
+  // Keyboard shortcuts act on the open room through this. · Klavye kısayolları açık odada bununla iş görür.
+  $effect(() => {
+    const bul = (id: string) => zaman.ogeler.find((o) => o.olayId === id);
+    const k: OdaKlavye = {
+      kutu: () => kutu,
+      ara: () => (aramaAcik = true),
+      bilgi: () => (bilgiAcik = true),
+      enAlta: asagiIn,
+      menu: (id, x, y) => {
+        const o = bul(id);
+        if (o) menuAc(x, y, o);
+      },
+      yanitla: (id) => {
+        const o = bul(id);
+        if (o && gercekOlay(o)) yazma.yanitla(o);
+      },
+      duzenle: (id) => {
+        const o = bul(id);
+        if (o?.duzenlenebilir) yazma.duzenleBaslat(o);
+      },
+      kopyala: (id) => {
+        const o = bul(id);
+        if (o?.metin) void panoya(o.metin);
+      },
+    };
+    klavye.oda = k;
+    return () => {
+      if (klavye.oda === k) klavye.oda = null;
+    };
+  });
 
   function tepkiKimleri(oge: ZamanOgesi, r: Tepki) {
     tepkiKimlerHedef = { oge, anahtar: r.anahtar };
@@ -426,6 +460,8 @@
   <header class="ust">
     {#if !gezinme.genis}
       <button class="simge-dugme geri" aria-label={t("oda.geri")} onclick={() => gezinme.odaKapat()}><Ikon ad="geri" /></button>
+    {:else if duzen.listeGizli}
+      <button class="simge-dugme geri" aria-label={t("klavye.listeAc")} title="{t("klavye.listeAc")} (Ctrl+E)" onclick={() => duzen.degistir()}><Ikon ad="yanPanel" /></button>
     {/if}
     <!-- Tap = room info, long press = customize sheet (both tactile) · Dokun = oda bilgisi, uzun bas = özelleştir sayfası (ikisi de dokunsal) -->
     {#if bilgi}

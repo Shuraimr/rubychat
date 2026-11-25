@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.rubyyard.rubychat</id>
+  <name>rubychat</name>
+  <summary>Chat on the Matrix network</summary>
+  <summary xml:lang="tr">Matrix ağında sohbet</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-or-later</project_license>
+  <developer id="dev.rubyyard"><name>rubyyard</name></developer>
+  <description>
+    <p>rubychat is a chat client for the Matrix network with end-to-end encryption, spaces, polls, stickers and group calls.</p>
+    <p xml:lang="tr">rubychat; uçtan uca şifreleme, alanlar, anketler, çıkartmalar ve grup aramaları olan bir Matrix sohbet istemcisidir.</p>
+  </description>
+  <launchable type="desktop-id">dev.rubyyard.rubychat.desktop</launchable>
+  <url type="homepage">https://github.com/Shuraimr/rubychat</url>
+  <url type="bugtracker">https://github.com/Shuraimr/rubychat/issues</url>
+  <content_rating type="oars-1.1"><content_attribute id="social-chat">intense</content_attribute></content_rating>
+  <releases><release version="0.1.0~beta.4" date="2026-11-25" type="development"/></releases>
+</component>

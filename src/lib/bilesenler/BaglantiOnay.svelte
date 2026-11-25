@@ -3,6 +3,7 @@
   Bağlantı sayfası (App.svelte'te bir kez bağlanır): tam adres, açma yolları, "bu site için hep", kopyala ve paylaş.
 -->
 <script lang="ts">
+  import { panoyaYaz } from "../pano";
   import { baglantiOnay } from "../durum/baglantiOnay.svelte";
   import { baglantiTercihi, siteOf } from "../durum/baglantiTercihi.svelte";
   import { acanUygulamalar, disariAc, paylas, paylasVar, sekmeVar, type AcanUygulama } from "../disAc";
@@ -43,7 +44,7 @@
   }
   async function kopyala() {
     try {
-      await navigator.clipboard.writeText(baglantiOnay.url ?? "");
+      await panoyaYaz(baglantiOnay.url ?? "");
       bildirim.goster(t("baglanti.kopyalandi"), 2500, { tur: "tamam" });
     } catch {
       bildirim.goster(t("bildirim.kopyalanamadi"), 4000, { tur: "hata" });

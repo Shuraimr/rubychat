@@ -32,6 +32,12 @@
   import Sayfalayici from "./lib/bilesenler/Sayfalayici.svelte";
   import SohbetAramasi from "./lib/ekranlar/SohbetAramasi.svelte";
   import { geriKaydir } from "./lib/geriKaydir";
+  import OdaSeridi from "./lib/bilesenler/OdaSeridi.svelte";
+  import OdaPaleti from "./lib/bilesenler/OdaPaleti.svelte";
+  import KlavyeYardim from "./lib/bilesenler/KlavyeYardim.svelte";
+  import { duzen } from "./lib/durum/duzen.svelte";
+  import { klavye, klavyeBaslat } from "./lib/klavyeKisayol.svelte";
+  import { perdeCik, perdeGir } from "./lib/gecis";
   import Ray from "./lib/bilesenler/Ray.svelte";
   import Arama from "./lib/ekranlar/Arama.svelte";
   import Alanlar from "./lib/ekranlar/Alanlar.svelte";
@@ -59,7 +65,7 @@
   onMount(() => {
     gezinme.baslat();
     oturum.baslat();
-    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat()];
+    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat(), klavyeBaslat()];
     return () => birak.forEach((f) => f());
   });
 
@@ -134,11 +140,21 @@
     <EcKatilSeridi />
     {#if gezinme.genis}
       <div class="kabuk">
-        <Ray />
-        <section class="liste-sutunu">
-          {#if gezinme.sekme === "sohbetler"}<Sohbetler />{:else if gezinme.sekme === "alanlar"}<Alanlar />{:else}<Ben />{/if}
-        </section>
-        <section class="oda-sutunu">
+        {#if duzen.kompakt}
+          <OdaSeridi />
+          {#if duzen.cekmece}
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <div class="cekmece-perde" onclick={() => duzen.cekmeceKapat()} in:perdeGir out:perdeCik></div>
+          {/if}
+        {:else if !duzen.listeGizli}
+          <Ray />
+        {/if}
+        {#if duzen.kompakt ? duzen.cekmece || !gezinme.acikOdaId : !duzen.listeGizli}
+          <section class="liste-sutunu" class:cekmece={duzen.kompakt && duzen.cekmece} class:dolu={duzen.kompakt && !gezinme.acikOdaId}>
+            {#if gezinme.sekme === "sohbetler"}<Sohbetler />{:else if gezinme.sekme === "alanlar"}<Alanlar />{:else}<Ben />{/if}
+          </section>
+        {/if}
+        <section class="oda-sutunu" class:yok={duzen.kompakt && !gezinme.acikOdaId}>
           {#if gezinme.acikOdaId}
             {#key gezinme.acikOdaId}<Oda odaId={gezinme.acikOdaId} />{/key}
           {:else}
@@ -185,14 +201,22 @@
 {#if oturum.ben}<IstekKatmani />{/if}
 <BaglantiOnay />
 {#if oturum.ben}<HizliGecis />{/if}
+{#if oturum.ben && klavye.palet}<OdaPaleti />{/if}
+{#if klavye.yardim}<KlavyeYardim />{/if}
 {#if oturum.ben}<UstBildirim />{/if}
 <Bildirim />
 
 <style>
   .uygulama { height: 100%; display: flex; flex-direction: column; min-height: 0; }
-  .kabuk { flex: 1; min-height: 0; display: flex; }
+  .kabuk { position: relative; flex: 1; min-height: 0; display: flex; }
   .liste-sutunu { width: 360px; flex: none; min-width: 0; border-right: 1px solid var(--kenar-ince); background: var(--zemin); display: flex; flex-direction: column; }
   @media (min-width: 1180px) { .liste-sutunu { width: 380px; } }
+  /* Compact: the list slides over the room beside the strip; without a room it takes the room's place. · Kompakt: liste şeridin yanında odanın üstüne gelir; oda yoksa onun yerini alır. */
+  .liste-sutunu.cekmece { position: absolute; z-index: 5; top: 0; bottom: 0; left: 68px; width: min(380px, calc(100% - 68px - 48px)); box-shadow: 8px 0 24px rgb(0 0 0 / .25); animation: cekmece-gel var(--sure-orta) var(--egri-cikis); }
+  @keyframes cekmece-gel { from { transform: translate3d(-32px, 0, 0); opacity: 0; } }
+  .liste-sutunu.dolu { flex: 1; width: auto; border-right: 0; }
+  .cekmece-perde { position: absolute; z-index: 4; inset: 0; background: color-mix(in srgb, var(--zemin) 55%, transparent); }
+  .oda-sutunu.yok { display: none; }
   .oda-sutunu { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--zemin); }
   .telefon { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
   /* Landscape phone: rail on the left, the list takes the rest. · Yatay telefon: solda ray, liste kalanı alır. */

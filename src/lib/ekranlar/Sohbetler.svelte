@@ -257,7 +257,7 @@
   .izin-metin { flex: 1; min-width: 0; display: grid; gap: 2px; font-size: .875rem; }
   .izin-metin small { color: var(--yazi-2); font-size: .8125rem; }
   .izin-ac { flex: none; min-width: 3.5rem; min-height: 2.75rem; padding: 0 1rem; border-radius: 1.375rem; background: var(--vurgu); color: var(--vurgu-ustu); font-weight: 600; }
-  .liste { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: var(--tepe-yer); }
+  .liste { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: var(--tepe-yer); scroll-padding: var(--tepe-yer) 0 var(--dock-yer, 96px); }
   .alt-bosluk { height: var(--dock-yer); }
   .istek-karti { width: calc(100% - 1.5rem); margin: 0 .75rem .5rem; min-height: 4rem; padding: .625rem 1rem; display: flex; align-items: center; gap: .75rem; text-align: left; background: var(--ton); color: var(--ton-ustu); border-radius: 1.5rem; }
   .istek-karti small { color: inherit; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

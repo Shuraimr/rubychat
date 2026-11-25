@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=rubychat
+GenericName=Matrix client
+GenericName[tr]=Matrix istemcisi
+Comment=Encrypted chat on the Matrix network
+Comment[tr]=Matrix ağında şifreli sohbet
+Exec=rubychat
+Icon=dev.rubyyard.rubychat
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+Keywords=matrix;chat;sohbet;mesaj;
+StartupNotify=true
+StartupWMClass=dev.rubyyard.rubychat

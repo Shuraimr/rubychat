@@ -9,6 +9,7 @@
   Kullanıcının kullanamayacağı düğmeler devre dışı değil GİZLİ. Doğrulama durumu ve ortak odalar gösterilmez: arka uçta henüz komut yok.
 -->
 <script lang="ts">
+  import { panoyaYaz } from "../pano";
   import { dmAc } from "../api/komutlar";
   import { arama } from "../durum/arama.svelte";
   import { bildirim } from "../durum/bildirim.svelte";
@@ -50,7 +51,7 @@
 
   async function kopyala() {
     try {
-      await navigator.clipboard.writeText(hedef?.kullaniciId ?? "");
+      await panoyaYaz(hedef?.kullaniciId ?? "");
       bildirim.goster(t("kart.kopyalandi"), 2500, { tur: "tamam" });
     } catch {
       bildirim.goster(t("bildirim.kopyalanamadi"), 4000, { tur: "hata" });

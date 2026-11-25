@@ -5,6 +5,7 @@
   kimliğimi gör. Sunucu çağrıları src-tauri/src/matrix/profil.rs içinde.
 -->
 <script lang="ts">
+  import { panoyaYaz } from "../pano";
   import { profilAdAyarla, profilAvatarAyarla, profilAvatarKaldir } from "../api/komutlar";
   import Avatar from "../bilesenler/Avatar.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
@@ -75,7 +76,7 @@
 
   async function kopyala(m: string) {
     try {
-      await navigator.clipboard.writeText(m);
+      await panoyaYaz(m);
       bildirim.goster(t("kart.kopyalandi"), 2500, { tur: "tamam" });
     } catch {
       bildirim.goster(t("bildirim.kopyalanamadi"), 4000, { tur: "hata" });

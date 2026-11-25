@@ -20,6 +20,7 @@
     ayar: '<path d="M4 7h9m5 0h2M4 17h2m5 0h9"/><circle cx="15.500" cy="7" r="2.500"/><circle cx="8.500" cy="17" r="2.500"/>',
     // Not in rubyyard's set: written in the same style · rubyyard setinde yok: aynı stilde yazıldı
     geri: '<path d="m15 18-6-6 6-6"/>',
+    yanPanel: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9.500 4v16"/>',
     artik: '<path d="M12 5v14M5 12h14"/>',
     ucNokta: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
     uyari: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16h.01"/>',

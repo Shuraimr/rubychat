@@ -7,6 +7,8 @@ mod dil;
 mod durum;
 mod gizli_depo;
 mod hata;
+#[cfg(target_os = "linux")]
+mod masaustu_linux;
 mod komutlar;
 mod matrix;
 mod medya;
@@ -54,6 +56,10 @@ fn android_tls_baslat() -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     gunlukleri_baslat();
+    #[cfg(target_os = "linux")]
+    if !masaustu_linux::ilk_kopya_mi() {
+        return;
+    }
     #[cfg(target_os = "android")]
     match android_tls_baslat() {
         Ok(()) => tracing::info!("TLS doğrulayıcı hazır"),
@@ -76,7 +82,10 @@ pub fn run() {
             app.manage(durum::AppState::default());
             // Linux: WebKitGTK ships WebRTC / media capture off; Element Call needs them. · Linux: WebKitGTK WebRTC / medya yakalamayı kapalı getirir; Element Call'un ihtiyacı var.
             #[cfg(target_os = "linux")]
-            matrix::ec::linux_medya_ac(app.handle());
+            {
+                matrix::ec::linux_medya_ac(app.handle());
+                masaustu_linux::dinle(app.handle());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -121,6 +130,8 @@ pub fn run() {
             komutlar::bildirim_ayarlarini_ac,
             komutlar::bildirim_bekleyen_oda,
             komutlar::uygulama_arka_planda,
+            komutlar::pano_yaz,
+            komutlar::pano_resim,
             matrix::uyeler::uyeleri_listele,
             matrix::uyeler::benim_yetkilerim,
             matrix::uyeler::uye_davet_et,

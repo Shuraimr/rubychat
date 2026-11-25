@@ -5,6 +5,7 @@
   kurulum (merkez) · dogrulama (SAS emoji) · kurtarma-olustur · kurtarma-gir · parola · cikis (çıkış uyarısı).
 -->
 <script lang="ts">
+  import { panoyaYaz } from "../pano";
   import { bildirim } from "../durum/bildirim.svelte";
   import { oturum } from "../durum/oturum.svelte";
   import { sifreleme } from "../durum/sifreleme.svelte";
@@ -40,7 +41,7 @@
     // navigator.clipboard can be missing/blocked in a webview: say so instead of failing silently.
     // navigator.clipboard webview'da olmayabilir/engellenebilir: sessizce başarısız olmak yerine söyle.
     try {
-      await navigator.clipboard.writeText(sifreleme.yeniAnahtar ?? "");
+      await panoyaYaz(sifreleme.yeniAnahtar ?? "");
       kopyalandi = true;
     } catch {
       bildirim.goster(t("kurtarmaOlustur.kopyalanamadi"));

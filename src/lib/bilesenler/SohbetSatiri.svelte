@@ -49,6 +49,7 @@
     transition: background var(--sure-hizli) var(--egri-cikis);
   }
   @media (hover: hover) { .satir:hover { background: var(--yuzey-1); } }
+  .satir:focus-visible { outline-offset: -2px; border-radius: 12px; }
   .satir:active { background: var(--yuzey-2); }
   /* Selected: only where the list and the room sit side by side · Seçili: yalnızca liste ile oda yan yana dururken */
   .satir.secili { background: var(--yuzey-3); border-radius: 12px; width: calc(100% - 16px); margin: 0 8px; padding: 0 8px; }

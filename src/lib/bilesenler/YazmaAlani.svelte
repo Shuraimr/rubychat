@@ -13,6 +13,7 @@
 -->
 <script lang="ts">
   import { titret } from "../dokunma";
+  import { panodakiResim } from "../pano";
   import { onDestroy, untrack } from "svelte";
   import { cikartmaGonder as cikartmaYolla, mesajDuzenle, yaziyorBildir } from "../api/komutlar";
   import type { PaketGorseli, ZamanOgesi } from "../api/tipler";
@@ -167,6 +168,13 @@
   }
 
   function tus(e: KeyboardEvent) {
+    // WebKitGTK may fire no paste event at all for a picture: look at the clipboard ourselves. · WebKitGTK resim için hiç yapıştırma olayı vermeyebilir: panoya kendimiz bakarız.
+    if (e.key.toLowerCase() === "v" && e.ctrlKey && !e.shiftKey && !e.altKey) {
+      yapistirmaGeldi = false;
+      setTimeout(() => {
+        if (!yapistirmaGeldi) void panoResminiAc();
+      }, 120);
+    }
     // isComposing: do not send while an IME (e.g. mobile keyboard) is still composing a word
     // isComposing: telefon klavyesi gibi bir giriş yöntemi hâlâ kelime oluşturuyorken gönderme
     // With "Enter ile gönder" off, Enter inserts a newline and only the arrow sends. · "Enter ile gönder" kapalıyken Enter satır ekler, yalnızca ok gönderir.
@@ -301,8 +309,30 @@
     if (k === "anket") anketAcik = true;
     else medyaKaynak = k;
   }
+  // ---- Paste: pictures and files open the same send screen ---- · ---- Yapıştırma: resim ve dosyalar aynı gönderme ekranını açar ----
+  let yapistirilan = $state<File[] | undefined>();
+  let yapistirmaGeldi = false;
+  function dosyalariAc(d: File[]) {
+    if (medyaKaynak) return;
+    yapistirilan = d;
+    medyaKaynak = "dosya";
+  }
+  async function panoResminiAc() {
+    const r = await panodakiResim();
+    if (r) dosyalariAc([r]);
+  }
+  function yapistir(e: ClipboardEvent) {
+    yapistirmaGeldi = true;
+    const v = e.clipboardData;
+    const dosyalar = Array.from(v?.files ?? []);
+    if (dosyalar.length > 0) {
+      e.preventDefault();
+      dosyalariAc(dosyalar);
+    } else if (!v?.getData("text/plain")) void panoResminiAc();
+  }
   function medyaKapat() {
     medyaKaynak = null;
+    yapistirilan = undefined;
   }
 </script>
 
@@ -335,6 +365,7 @@
         bind:value={deger}
         oninput={degisti}
         onkeydown={tus}
+        onpaste={yapistir}
         onpointerdown={() => { panelKapat(); ekKapat(); }}
         rows="1"
         placeholder={t("oda.yazi")}
@@ -360,7 +391,7 @@
 
 {#if anketAcik}<AnketOlustur {odaId} onkapat={() => (anketAcik = false)} />{/if}
 {#if medyaKaynak}
-  <div class="medya-kap"><MedyaAkisi {odaId} kaynak={medyaKaynak} onkapat={medyaKapat} /></div>
+  <div class="medya-kap"><MedyaAkisi {odaId} kaynak={medyaKaynak} dosyalar={yapistirilan} onkapat={medyaKapat} /></div>
 {/if}
 
 <style>

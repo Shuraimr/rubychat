@@ -56,7 +56,9 @@ fn on_planda(app: &AppHandle) -> bool {
     if cfg!(target_os = "android") {
         android_jni::on_planda_mi()
     } else {
+        // On the desktop a window behind others is still "visible": the focus decides. · Masaüstünde arkadaki pencere de "görünür"dür: odak belirler.
         !app.state::<AppState>().arka_planda.load(std::sync::atomic::Ordering::Relaxed)
+            && app.get_webview_window("main").and_then(|p| p.is_focused().ok()).unwrap_or(true)
     }
 }
 
@@ -137,15 +139,24 @@ async fn isle(app: AppHandle, bildirim: matrix_sdk::sync::Notification, oda: Roo
             Ok(Err(e)) => warn!("bildirim gösterilemedi: {e}"),
             Err(e) => warn!("bildirim görevi çöktü: {e}"),
         }
+    } else {
+        #[cfg(target_os = "linux")]
+        {
+            let (baslik, govde) = if oda_ad == gonderen_ad { (oda_ad, metin) } else { (oda_ad, format!("{gonderen_ad}: {metin}")) };
+            let _ = tokio::task::spawn_blocking(move || crate::masaustu_linux::bildirim_goster(oda_id.as_str(), &baslik, &govde)).await;
+        }
     }
-    // TODO(desktop): system notification when the window is hidden (tauri-plugin-notification needs approval as a new dependency).
-    // TODO(masaüstü): pencere gizliyken sistem bildirimi (tauri-plugin-notification yeni bağımlılık olarak onay ister).
 }
 
 /// A room was opened in the app: its system notification is no longer needed. · Oda uygulamada açıldı: sistem bildirimi artık gerekmez.
 pub fn oda_acildi(oda_id: &str) {
     if cfg!(target_os = "android") {
         android_jni::bildirim_temizle(oda_id);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let oda = oda_id.to_owned();
+        tauri::async_runtime::spawn_blocking(move || crate::masaustu_linux::bildirim_temizle(&oda));
     }
 }
 

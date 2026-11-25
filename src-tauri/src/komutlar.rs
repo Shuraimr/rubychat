@@ -319,7 +319,9 @@ pub async fn medya_kaydet(app: AppHandle, durum: State<'_, AppState>, kaynak_id:
 /// "verildi" | "verilmedi" | "desteklenmiyor" (desktop: no system notifications yet)
 #[tauri::command]
 pub fn bildirim_izni_durumu() -> &'static str {
-    if !cfg!(target_os = "android") {
+    if cfg!(target_os = "linux") {
+        "verildi"
+    } else if !cfg!(target_os = "android") {
         "desteklenmiyor"
     } else if bildirim::izin_var() {
         "verildi"
@@ -367,3 +369,29 @@ pub fn uygulama_arka_planda(durum: State<'_, AppState>, arka_planda: bool) {
 // Keeps `Hata` imported for the `Sonuc` alias users above. · Yukarıdaki `Sonuc` kullanımı için `Hata` içe aktarımı.
 #[allow(dead_code)]
 type _Hata = Hata;
+
+/// Desktop Linux clipboard (see masaustu_linux.rs); the other platforms use the webview's own. `false` = not written.
+/// Masaüstü Linux panosu (bkz. masaustu_linux.rs); öteki platformlar webview'inkini kullanır. `false` = yazılmadı.
+#[tauri::command]
+pub fn pano_yaz(app: AppHandle, metin: String) -> bool {
+    #[cfg(target_os = "linux")]
+    return crate::masaustu_linux::pano_yaz(&app, metin);
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (app, metin);
+        false
+    }
+}
+
+/// PNG bytes of the picture on the clipboard; empty = there is none. · Panodaki resmin PNG baytları; boş = resim yok.
+#[tauri::command]
+pub async fn pano_resim(app: AppHandle) -> Result<tauri::ipc::Response, ()> {
+    #[cfg(target_os = "linux")]
+    let bayt = crate::masaustu_linux::pano_resim(&app).await.unwrap_or_default();
+    #[cfg(not(target_os = "linux"))]
+    let bayt = {
+        let _ = app;
+        Vec::<u8>::new()
+    };
+    Ok(tauri::ipc::Response::new(bayt))
+}

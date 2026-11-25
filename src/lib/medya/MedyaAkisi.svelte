@@ -39,7 +39,18 @@
 
   /**
    */
-  let { odaId, kaynak, onkapat }: { odaId: string; kaynak: "galeri" | "kamera" | "dosya"; onkapat: () => void } = $props();
+  let {
+    odaId,
+    kaynak,
+    dosyalar,
+    onkapat,
+  }: {
+    odaId: string;
+    kaynak: "galeri" | "kamera" | "dosya";
+    /** Pasted / dropped files: nothing is picked · Yapıştırılan / bırakılan dosyalar: seçim yapılmaz */
+    dosyalar?: File[];
+    onkapat: () => void;
+  } = $props();
 
   interface Oge extends GonderilecekOge {
     id: number;
@@ -80,14 +91,15 @@
     document.body.appendChild(kok);
     // The attach sheet's tap is still a fresh user gesture, so the picker may open right away.
     // Ek sayfasındaki dokunma hâlâ taze bir kullanıcı hareketi; seçici hemen açılabilir.
-    girdi.click();
+    if (dosyalar) void al(dosyalar);
+    else girdi.click();
     // Some Android WebViews never fire `cancel` when the picker is dismissed: when the page regains focus with nothing chosen, leave.
     // Bazı Android WebView'leri seçici kapatılınca `cancel` yollamaz: sayfa hiçbir şey seçilmeden odağı geri alınca akıştan çık.
     const odakGeldi = () =>
       setTimeout(() => {
         if (!ogeler.length && !okunuyor) secimIptal();
       }, 1200);
-    window.addEventListener("focus", odakGeldi, { once: true });
+    if (!dosyalar) window.addEventListener("focus", odakGeldi, { once: true });
     return () => {
       window.removeEventListener("focus", odakGeldi);
       kirpKatman?.birak();
@@ -113,11 +125,15 @@
   const kabul = $derived(kaynak === "dosya" ? undefined : "image/*,video/*");
 
   async function sec() {
-    const dosyalar = Array.from(girdi.files ?? []);
+    const secilen = Array.from(girdi.files ?? []);
     girdi.value = "";
-    if (!dosyalar.length) return;
+    await al(secilen);
+  }
+
+  async function al(gelen: File[]) {
+    if (!gelen.length) return;
     okunuyor = true;
-    for (const d of dosyalar) {
+    for (const d of gelen) {
       if (ogeler.length >= MAKS_OGE) break;
       try {
         const o = await ogeHazirla(d);

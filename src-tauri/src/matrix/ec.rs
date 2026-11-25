@@ -467,7 +467,7 @@ pub async fn sun(app: &AppHandle, istek: Request<Vec<u8>>) -> Response<Vec<u8>> 
 #[cfg(target_os = "linux")]
 pub fn linux_medya_ac(app: &AppHandle) {
     use webkit2gtk::{
-        glib::Cast, PermissionRequestExt, SettingsExt, UserMediaPermissionRequest, WebViewExt,
+        glib::ObjectExt, PermissionRequestExt, SettingsExt, UserMediaPermissionRequest, WebViewExt,
     };
     let Some(pencere) = tauri::Manager::get_webview_window(app, "main") else {
         tracing::warn!("ana pencere yok: WebKitGTK medya ayarları açılamadı");
@@ -482,6 +482,8 @@ pub fn linux_medya_ac(app: &AppHandle) {
             ayar.set_enable_media_stream(true);
             ayar.set_enable_mediasource(true);
             ayar.set_media_playback_requires_user_gesture(false);
+            // Copy from script (document.execCommand) is refused otherwise. · Yoksa betikten kopyalama reddedilir.
+            ayar.set_javascript_can_access_clipboard(true);
         }
         // Allow microphone / camera / screen capture requests. The signal does not tell us the requesting origin, but the app CSP
         // lets this webview load ONLY our own origins (app + `ec`), so every request comes from our code.

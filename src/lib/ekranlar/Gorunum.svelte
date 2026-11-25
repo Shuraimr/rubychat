@@ -10,7 +10,8 @@
   import Ikon from "../bilesenler/Ikon.svelte";
   import OzellestirSayfasi from "../bilesenler/OzellestirSayfasi.svelte";
   import Secici from "../bilesenler/Secici.svelte";
-  import { tercihler } from "../durum/tercihler.svelte";
+  import { klavye } from "../klavyeKisayol.svelte";
+  import { tercihler, type Kompakt } from "../durum/tercihler.svelte";
   import { ayarlar, type AzAnimasyon, type Tema, type VurguAdi, type YaziBoyutu, type YaziTipi } from "../durum/ayarlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { dil, dilSecimi, dilYaz, t } from "../i18n";
@@ -53,6 +54,14 @@
   const hareketler = $derived<{ id: AzAnimasyon; ad: string }[]>([
     { id: "sistem", ad: t("gorunum.sistem") },
     { id: "acik", ad: t("gorunum.acikHareket") },
+  ]);
+
+  // Only where there is a mouse: a phone has neither windows nor these keys. · Yalnızca fare olan yerde: telefonda pencere de bu tuşlar da yok.
+  const masaustu = window.matchMedia("(any-hover: hover) and (any-pointer: fine)").matches;
+  const kompaktlar = $derived<{ id: Kompakt; ad: string }[]>([
+    { id: "otomatik", ad: t("klavye.otomatik") },
+    { id: "acik", ad: t("klavye.acik") },
+    { id: "kapali", ad: t("klavye.kapali") },
   ]);
 
   function ozelRenkSec(e: Event) {
@@ -122,6 +131,25 @@
         <Ikon ad="sagOk" boyut={20} />
       </button></div>
     </section>
+
+    {#if masaustu}
+      <section class="ay-bolum">
+        <h2>{t("klavye.masaustu")}</h2>
+        <div class="ay-kart">
+          <div class="ay-satir"><div class="ay-metin"><strong>{t("klavye.kompakt")}</strong><span>{t("klavye.kompaktAlt")}</span></div></div>
+          <div class="ay-secici"><Secici secenekler={kompaktlar} deger={tercihler.d.kompakt} sec={(id) => tercihler.yaz("kompakt", id)} etiket={t("klavye.kompakt")} /></div>
+          <div class="ay-satir">
+            <div class="ay-metin"><strong>{t("klavye.vim")}</strong><span>{t("klavye.vimAlt")}</span></div>
+            <Anahtar acik={tercihler.d.vim} degis={(v) => tercihler.yaz("vim", v)} etiket={t("klavye.vim")} />
+          </div>
+          <button class="ay-satir dugme" data-dalga onclick={() => (klavye.yardim = true)}>
+            <span class="ay-simge"><Ikon ad="klavye" boyut={20} /></span>
+            <div class="ay-metin"><strong>{t("klavye.kisayollar")}</strong></div>
+            <Ikon ad="sagOk" boyut={20} />
+          </button>
+        </div>
+      </section>
+    {/if}
 
     <section class="ay-bolum">
       <h2>{t("gorunum.dil")}</h2>

@@ -84,6 +84,15 @@
     git();
   }
 
+  /** Enter = older match, Shift+Enter = newer (Ctrl+K / Ctrl+J too) · Enter = önceki eşleşme, Shift+Enter = sonraki (Ctrl+K / Ctrl+J de) */
+  function tus(e: KeyboardEvent) {
+    const k = e.key.toLowerCase();
+    const yon = e.key === "Enter" && !e.isComposing ? (e.shiftKey ? 1 : -1) : e.ctrlKey && k === "k" ? -1 : e.ctrlKey && k === "j" ? 1 : 0;
+    if (!yon) return;
+    e.preventDefault();
+    adim(yon as -1 | 1);
+  }
+
   // The list view covers the room; it is a layer of its own · Liste görünümü odayı örter; kendi katmanı var
   function listeAc() {
     liste = true;
@@ -112,7 +121,7 @@
   </div>
   <div class="satir">
     <button class="ikon" aria-label={t("aramaOda.kapat")} onclick={() => gezinme.katmanKapat(katman)}><Ikon ad="geri" boyut={20} /></button>
-    <input bind:this={alan} bind:value={sorgu} type="search" enterkeyhint="search" placeholder={t("aramaOda.yer")} aria-label={t("aramaOda.yer")} autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <input bind:this={alan} bind:value={sorgu} type="search" enterkeyhint="search" placeholder={t("aramaOda.yer")} aria-label={t("aramaOda.yer")} autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown={tus} />
     {#if gecerli || medyaKipi}<span class="sayac" aria-live="polite">{toplam ? `${sira + 1}/${toplam}` : "0/0"}</span>{/if}
     <button class="ok" aria-label={t("aramaOda.onceki")} disabled={!toplam} onclick={() => adim(-1)}><Ikon ad="yukari" boyut={20} /></button>
     <button class="ok" aria-label={t("aramaOda.sonraki")} disabled={!toplam} onclick={() => adim(1)}><Ikon ad="asagi" boyut={20} /></button>
