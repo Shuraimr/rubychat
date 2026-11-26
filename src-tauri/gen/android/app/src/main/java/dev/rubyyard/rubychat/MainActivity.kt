@@ -295,6 +295,11 @@ class BaglantiKoprusu(private val etkinlik: MainActivity) {
   }
 }
 
+/** JNI entry for libwebrtc's one-time init (android_jni.rs). · libwebrtc'nin tek seferlik başlatması için JNI girişi (android_jni.rs). */
+object WebrtcKoprusu {
+  @JvmStatic external fun baslat(context: Context)
+}
+
 class MainActivity : TauriActivity() {
   private var web: WebView? = null
 
@@ -351,6 +356,9 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // Native calls: libwebrtc must find its Java classes from a Java thread (see android_jni.rs). After super.onCreate, the library is loaded.
+    // Yerel aramalar: libwebrtc Java sınıflarını bir Java iş parçacığından bulmalı (bkz. android_jni.rs). super.onCreate'ten sonra kütüphane yüklüdür.
+    WebrtcKoprusu.baslat(applicationContext)
     aktif = this
     Bildirimci.sayfaSifirla()
     niyetIsle(intent)

@@ -1,8 +1,8 @@
 <!--
-  Thin one-line shortcut hint + Vim mode strip floating right above the composer while a message is selected.
-  Outside normal flow so it never shifts the message list, never wraps (extra items clip), uses only CSS tokens and a short fade.
-  Mesaj seçiliyken yazma alanının hemen üstünde yüzen ince tek satırlık kısayol ipucu + Vim kip şeridi.
-  Normal akışın dışındadır (mesaj listesini hiç kaydırmaz), asla satır kırmaz (fazlası kırpılır), yalnızca renk değişkenleri ve kısa solma kullanır.
+  Thin one-line shortcut hint + Vim mode strip right under the composer while a message is selected.
+  In flow, part of the measured composer height, never wraps (extra items clip), uses only CSS tokens and a short fade.
+  Mesaj seçiliyken yazma alanının hemen altında duran ince tek satırlık kısayol ipucu + Vim kip şeridi.
+  Akış içindedir (ölçülen yazma yüksekliğine dahil), asla satır kırmaz (fazlası kırpılır), yalnızca renk değişkenleri ve kısa solma kullanır.
 -->
 <script lang="ts">
   import type { ZamanOgesi } from "../api/tipler";
@@ -67,31 +67,24 @@
 {/if}
 
 <style>
-  /* Outside the composer flow (bottom: 100%) and below popovers (z-index: 1 vs 4), so it never shifts messages or covers @mentions. */
-  /* Yazma alanı akışının dışında (bottom: 100%) ve açılır kartların altında (z-index: 1 vs 4); mesajları kaydırmaz, @bahsetmeyi örtmez. */
+  /* In flow right under the composer pill: a quiet caption row, no card, no shadow, aligned with the text inside the pill. */
+  /* Yazma hapının hemen altında, akış içinde: sessiz bir alt yazı satırı; kart ya da gölge yok, hapın içindeki yazıyla hizalı. */
   .ipucu {
-    position: absolute;
-    z-index: 1;
-    left: .75rem;
-    right: .75rem;
-    bottom: calc(100% + 4px);
-    height: 1.75rem;
-    padding: 0 .625rem 0 .375rem;
-    border-radius: .75rem;
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
-    gap: .5rem;
+    gap: .875rem;
+    height: 1.5rem;
+    margin-top: -.25rem;
+    padding: 0 calc(.75rem + 3.75em) .375rem;
     overflow: hidden;
     white-space: nowrap;
     pointer-events: none;
-    background: var(--yuzey-2);
-    border: 1px solid var(--kenar-ince);
     color: var(--yazi-2);
     font-size: .75rem;
     line-height: 1;
-    box-shadow: var(--kat-1);
   }
+  @media (max-width: 600px) { .ipucu { padding-left: .75rem; padding-right: .75rem; } }
   .kip {
     flex: none;
     display: inline-flex;
@@ -126,7 +119,9 @@
   kbd {
     padding: .125rem .3125rem;
     border-radius: .3125rem;
-    background: var(--yuzey-3);
+    background: var(--yuzey-2);
+    border: 1px solid var(--kenar-ince);
+    font-family: var(--mono-tipi);
     color: var(--yazi);
     font-size: .6875rem;
     font-weight: 600;

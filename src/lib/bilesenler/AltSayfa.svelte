@@ -18,6 +18,7 @@
     baslik,
     onkapat,
     kapatilabilir = true,
+    ustEylem,
     children,
     altlik,
   }: {
@@ -25,6 +26,8 @@
     onkapat: () => void;
     /** false = no backdrop/Escape/back/✕/drag close (a step the user must finish) · false = arka plan/Escape/geri/✕/sürükleme ile kapanmaz (kullanıcının bitirmesi gereken adım) */
     kapatilabilir?: boolean;
+    /** Optional action rendered in the header beside the close button · Başlıkta kapatma düğmesinin yanında isteğe bağlı eylem */
+    ustEylem?: Snippet;
     children: Snippet;
     /** Buttons row pinned under the content · İçeriğin altına sabit düğme satırı */
     altlik?: Snippet;
@@ -121,9 +124,12 @@
       {#if !gezinme.genis && kapatilabilir}<span class="tutamak"></span>{/if}
       <header>
         <h2>{baslik}</h2>
-        {#if kapatilabilir}
-          <button class="simge-dugme" onclick={kapat} aria-label={t("eylem.kapat")}><Ikon ad="kapat" boyut={20} /></button>
-        {/if}
+        <div class="baslik-sag">
+          {#if ustEylem}{@render ustEylem()}{/if}
+          {#if kapatilabilir}
+            <button class="simge-dugme" onclick={kapat} aria-label={t("eylem.kapat")}><Ikon ad="kapat" boyut={20} /></button>
+          {/if}
+        </div>
       </header>
     </div>
     <div class="icerik">{@render children()}</div>
@@ -154,6 +160,7 @@
   .tutamak-alani { flex: none; touch-action: none; }
   .tutamak { display: block; width: 32px; height: 4px; border-radius: 2px; background: var(--kenar); margin: 8px auto 0; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 4px 20px; min-height: 56px; }
+  .baslik-sag { display: flex; align-items: center; gap: 4px; flex: none; }
   h2 { font-size: 1.25rem; line-height: 1.3; font-weight: 600; }
   .icerik { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 16px; display: grid; grid-auto-rows: max-content; gap: 16px; align-content: start; }
   footer { flex: none; display: grid; gap: 8px; padding: 8px 20px 16px; border-top: 1px solid var(--kenar-ince); }

@@ -5,6 +5,7 @@ import type {
   AramaOlayi,
   DogrulamaDurumu,
   EsitlemeDurumu,
+  GuncellemeIlerleme,
   MedyaIlerlemeOlayi,
   OdaOzeti,
   SifrelemeDurumu,
@@ -60,3 +61,7 @@ export const ecAramaDurumu = (isle: (d: EcAramaDurumu) => void): Promise<Unliste
   listen<EcAramaDurumu>("ec-arama-durumu", (e) => isle(e.payload));
 /** The in-app sign-up window was closed by hand (desktop). · Uygulama içi kayıt penceresi elle kapatıldı (masaüstü). */
 export const kayitKapandi = (isle: () => void): Promise<UnlistenFn> => listen("kayit-kapandi", () => isle());
+
+/** Download progress of an in-app update (`guncelleme-ilerleme`). · Uygulama içi güncelleme indirme ilerlemesi (`guncelleme-ilerleme`). */
+export const guncellemeIlerlemesiniDinle = (isle: (o: GuncellemeIlerleme) => void): Promise<UnlistenFn> =>
+  listen<GuncellemeIlerleme>("guncelleme-ilerleme", (e) => isle(e.payload));

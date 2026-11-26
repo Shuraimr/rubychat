@@ -6,7 +6,19 @@ import { arama } from "./arama.svelte";
 
 export type Sekme = "sohbetler" | "alanlar" | "ben";
 /** Sub-pages under "Ben" · "Ben" altındaki alt sayfalar */
-export type BenAlt = "gorunum" | "sohbet" | "bildirimler" | "klavye" | "guvenlik" | "hakkinda" | "profil" | "hesap";
+export type BenAlt = "gorunum" | "sohbet" | "bildirimler" | "klavye" | "guvenlik" | "guncellemeler" | "hakkinda" | "profil" | "hesap";
+/** Target for the shared room / space settings screen · Ortak oda / alan ayarları ekranının hedefi */
+export interface OdaAyarHedefi {
+  odaId: string;
+  /** Space id when opened from inside a space (enables the "Space members" join rule) · Bir alanın içinden açıldıysa alan kimliği ("Alan üyeleri" kuralını açar) */
+  alanId?: string;
+  /** Name of the space above, if known · Yukarıdaki alanın adı (biliniyorsa) */
+  alanAd?: string;
+  /** Hint for the initial header title before settings finish loading · Ayarlar yüklenmeden önceki ilk başlık için ipucu */
+  alanMi?: boolean;
+  /** Callback after a setting changes or the user leaves, so the caller can refresh · Bir ayar değişince ya da ayrılınca çağıranı yenilemek için */
+  degisti?: () => void;
+}
 /**
  * Layout by SHAPE, not by width alone (design section 15):
  *  - yatay   = height <= 500px (a landscape phone, even if it is 844px wide): 64px rail, room replaces the list
@@ -32,6 +44,7 @@ class Gezinme {
   sekme = $state<Sekme>("sohbetler");
   acikOdaId = $state<string | null>(null);
   benAlt = $state<BenAlt | null>(null);
+  odaAyar = $state<OdaAyarHedefi | null>(null);
   sekil = $state<Sekil>("telefon");
   /** Side-by-side layout (tablet and bigger) · Yan yana düzen (tablet ve üstü) */
   genis = $derived(this.sekil === "tablet");
@@ -44,6 +57,7 @@ class Gezinme {
   #bekleyenEklemeler: { id: number; ekle: () => void }[] = [];
   #odaKatmani = 0;
   #benAltKatmani = 0;
+  #odaAyarKatmani = 0;
   #sekmeKatmani = 0;
 
   baslat() {
@@ -184,6 +198,7 @@ class Gezinme {
   }
 
   sekmeSec(s: Sekme) {
+    this.odaAyarKapat();
     this.benAltKapat();
     this.#sekmeyeGec(s);
     // Where a room covers the tab panels (phone, landscape phone), leaving to a tab closes it. · Odanın sekme panellerini örttüğü yerde (telefon, yatay) sekmeye geçmek odayı kapatır.
@@ -208,9 +223,9 @@ class Gezinme {
     }
   }
 
-  /** Is the open room / the Ben sub-page the top-most layer? Then a swipe to the right may close it. · Açık oda / Ben alt sayfası en üst katman mı? Öyleyse sağa kaydırma kapatabilir. */
-  ustKatmanMi(hangi: "oda" | "benAlt"): boolean {
-    const k = hangi === "oda" ? this.#odaKatmani : this.#benAltKatmani;
+  /** Is the open room / Ben sub-page / room settings the top-most layer? Then a swipe to the right may close it. · Açık oda / Ben alt sayfası / oda ayarları en üst katman mı? Öyleyse sağa kaydırma kapatabilir. */
+  ustKatmanMi(hangi: "oda" | "benAlt" | "odaAyar"): boolean {
+    const k = hangi === "oda" ? this.#odaKatmani : hangi === "benAlt" ? this.#benAltKatmani : this.#odaAyarKatmani;
     return !!k && this.#katmanlar.at(-1)?.id === k;
   }
 
@@ -224,6 +239,8 @@ class Gezinme {
    * Bir odayı aç. `sekmeyiKoru`: mevcut sekmede kal (bir alanın içinden açılan oda geri dönüşte sohbet listesine değil o alana dönmeli).
    */
   odaAc(id: string, sekmeyiKoru = false) {
+    // Switching to a room closes any open room/space settings panel so the chat is visible · Odaya geçmek açık oda/alan ayarları panelini kapatır ki sohbet görünsün
+    this.odaAyarKapat();
     // Phone: opening a room (a notification tap, a search hit) also leaves the other main page. · Telefon: oda açmak (bildirime dokunma, arama sonucu) diğer ana sayfadan da çıkarır.
     if (!sekmeyiKoru) {
       this.benAltKapat();
@@ -240,12 +257,34 @@ class Gezinme {
   }
 
   odaKapat() {
+    this.odaAyarKapat();
     if (this.#odaKatmani) {
       const k = this.#odaKatmani;
       this.#odaKatmani = 0;
       this.acikOdaId = null;
       this.katmanBirak(k);
     } else this.acikOdaId = null;
+  }
+
+  /** Opens the shared room / space settings screen as a back-button layer · Ortak oda / alan ayarları ekranını geri tuşu katmanı olarak açar */
+  odaAyarAc(hedef: OdaAyarHedefi) {
+    if (this.#odaAyarKatmani) this.katmanBirak(this.#odaAyarKatmani);
+    this.odaAyar = hedef;
+    this.#odaAyarKatmani = this.katmanAc(() => {
+      this.#odaAyarKatmani = 0;
+      this.odaAyar = null;
+    });
+  }
+
+  odaAyarKapat() {
+    if (!this.#odaAyarKatmani) {
+      this.odaAyar = null;
+      return;
+    }
+    const k = this.#odaAyarKatmani;
+    this.#odaAyarKatmani = 0;
+    this.odaAyar = null;
+    this.katmanBirak(k);
   }
 
   #sekmeBirak() {
@@ -280,11 +319,13 @@ class Gezinme {
     this.sekme = "sohbetler";
     this.acikOdaId = null;
     this.benAlt = null;
+    this.odaAyar = null;
     this.#katmanlar = [];
     this.#bekleyenEklemeler = [];
     this.#geriBekleyen = 0;
     this.#odaKatmani = 0;
     this.#benAltKatmani = 0;
+    this.#odaAyarKatmani = 0;
     this.#sekmeKatmani = 0;
   }
 }

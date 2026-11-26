@@ -89,6 +89,14 @@ class Alanlar {
     if (k !== undefined) gezinme.katmanKapat(k);
   }
 
+  /** Closes the given space (and any sub-spaces above it) after leaving it · Ayrıldıktan sonra verilen alanı (ve üstündeki alt alanları) kapatır */
+  kapatId(id: string) {
+    this.icerikler.delete(id);
+    const i = this.yigin.findIndex((a) => a.id === id);
+    if (i < 0) return;
+    while (this.yigin.length > i) this.geri();
+  }
+
   sifirla() {
     this.#katmanlar = [];
     this.#imza = "";

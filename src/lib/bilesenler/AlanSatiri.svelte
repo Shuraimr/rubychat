@@ -1,11 +1,14 @@
 <!--
   One row of the space screens: a joined room / space opens when tapped; a room that is not joined shows its name, topic and member
   count with a "Katıl" button instead (design: same 72px-ish row as the chat list, so spaces feel like the rest of the app).
+  When `uzun` is given (space admins), long-press / right-click — and an optional ⋮ button on wide screens — open the management menu.
   Alan ekranlarının bir satırı: katılınmış oda / alan dokununca açılır; katılınmamış oda adını, konusunu ve üye sayısını gösterir ve
   yerine "Katıl" düğmesi çıkar (tasarım: sohbet listesiyle aynı ~72px satır; alanlar uygulamanın gerisi gibi hissettirir).
+  `uzun` verilirse (alan yöneticileri), uzun basma / sağ tık ve geniş ekranda isteğe bağlı ⋮ düğmesi yönetim menüsünü açar.
 -->
 <script lang="ts">
   import type { AlanOgesi } from "../api/tipler";
+  import { uzunBasma } from "../dokunma";
   import { t } from "../i18n";
   import Avatar from "./Avatar.svelte";
   import Ikon from "./Ikon.svelte";
@@ -15,6 +18,8 @@
     ac,
     katil,
     katiliyor = false,
+    uzun,
+    menuDugmesi = false,
   }: {
     oge: AlanOgesi;
     /** Tap on the row · Satıra dokunma */
@@ -22,6 +27,10 @@
     /** "Katıl" for a room that is not joined · Katılınmamış oda için "Katıl" */
     katil?: () => void;
     katiliyor?: boolean;
+    /** Long-press / right-click / ⋮ handler (admins only) · Uzun basma / sağ tık / ⋮ işleyicisi (yalnızca yöneticiler) */
+    uzun?: (x: number, y: number) => void;
+    /** Show the visible ⋮ button (wide screens, admins only) · Görünür ⋮ düğmesini göster (geniş ekran, yalnızca yönetici) */
+    menuDugmesi?: boolean;
   } = $props();
 
   const bilgi = $derived(
@@ -32,9 +41,15 @@
   // Not joined and not a space: the row itself does nothing (only "Katıl" does); sub-spaces can always be opened to look inside.
   // Katılınmamış ve alan değil: satırın kendisi bir şey yapmaz (yalnızca "Katıl" yapar); alt alanlar içine bakmak için hep açılabilir.
   const acilabilir = $derived(oge.katildi || oge.alan);
+
+  function menuDugmesindenAc(e: MouseEvent) {
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    uzun?.(r.right, r.bottom);
+  }
 </script>
 
-<div class="satir" class:acilabilir>
+<div class="satir" class:acilabilir class:menulu={!!uzun && menuDugmesi} use:uzunBasma={{ ac: (x, y) => uzun?.(x, y), sure: 350, etkin: !!uzun }}>
   <button class="govde" data-dalga onclick={ac} disabled={!acilabilir} aria-label={oge.ad}>
     <Avatar harf={oge.avatarHarf} mxc={oge.avatarMxc} boyut={48} />
     <span class="orta">
@@ -51,10 +66,16 @@
   {#if !oge.katildi && katil}
     <button class="buton tonlu katil" onclick={katil} disabled={katiliyor}>{katiliyor ? t("alanlar.katiliyor") : t("alanlar.katil")}</button>
   {/if}
+  {#if uzun && menuDugmesi}
+    <button type="button" class="simge-dugme menu-dugme" aria-label={t("alanYonet.dahaFazla")} title={t("alanYonet.dahaFazla")} onclick={menuDugmesindenAc}>
+      <Ikon ad="ucNokta" boyut={20} />
+    </button>
+  {/if}
 </div>
 
 <style>
-  .satir { content-visibility: auto; contain-intrinsic-size: auto var(--liste-satir-boy, 4.5rem); contain: layout style; display: flex; align-items: center; gap: 8px; padding-right: 16px; }
+  .satir { content-visibility: auto; contain-intrinsic-size: auto var(--liste-satir-boy, 4.5rem); contain: layout style; display: flex; align-items: center; gap: 4px; padding-right: 16px; }
+  .satir.menulu { padding-right: 6px; }
   .govde {
     flex: 1; min-width: 0; min-height: var(--liste-satir-boy, 4.5rem); padding: var(--liste-satir-py, .5rem) .5rem var(--liste-satir-py, .5rem) var(--liste-satir-px, 1rem); display: flex; align-items: center; gap: var(--liste-satir-ara, .75rem); text-align: left;
   }
@@ -69,4 +90,5 @@
   .konu { font-size: .8125rem; line-height: 1.35; color: var(--yazi-2); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .bilgi { font-size: .75rem; color: var(--yazi-2); }
   .katil { flex: none; width: auto; min-width: 72px; padding: 0 16px; }
+  .menu-dugme { color: var(--yazi-2); }
 </style>

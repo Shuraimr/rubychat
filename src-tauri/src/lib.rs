@@ -6,7 +6,9 @@ mod bildirim;
 mod dil;
 mod durum;
 mod gizli_depo;
+mod guncelleme;
 mod hata;
+mod kurulum_raporu;
 #[cfg(target_os = "linux")]
 mod masaustu_linux;
 #[cfg(target_os = "linux")]
@@ -99,8 +101,8 @@ pub fn run() {
         Ok(()) => tracing::info!("TLS doğrulayıcı hazır"),
         Err(e) => tracing::error!("TLS doğrulayıcı başlatılamadı: {e}"),
     }
-    #[cfg(all(feature = "yerel-arama", target_os = "android"))]
-    android_jni::webrtc_baslat();
+    // libwebrtc is initialised from MainActivity.onCreate on the Java main thread (android_jni.rs, WebrtcKoprusu), not here.
+    // libwebrtc burada değil, MainActivity.onCreate'te Java ana iş parçacığında başlatılır (android_jni.rs, WebrtcKoprusu).
 
     tauri::Builder::default()
         // System browser for account pages (MAS). · Hesap sayfaları için sistem tarayıcısı (MAS).
@@ -245,6 +247,16 @@ pub fn run() {
             matrix::alanlar::alanlari_al,
             matrix::alanlar::alan_icerigi,
             matrix::alanlar::alana_katil,
+            matrix::alan_yonetimi::alan_yetkim,
+            matrix::alan_yonetimi::alanda_oda_olustur,
+            matrix::alan_yonetimi::eklenebilir_odalar,
+            matrix::alan_yonetimi::alana_oda_ekle,
+            matrix::alan_yonetimi::alandan_cikar,
+            matrix::alan_yonetimi::alan_one_cikar,
+            matrix::alan_yonetimi::oda_ayarlari,
+            matrix::alan_yonetimi::oda_ayarlarini_yaz,
+            matrix::alan_yonetimi::oda_avatar_ayarla,
+            matrix::alan_yonetimi::oda_avatar_kaldir,
             matrix::kesif::kullanici_ara,
             matrix::kesif::odalari_kesfet,
             matrix::yerel_arama::yerel_arama_var,
@@ -277,6 +289,15 @@ pub fn run() {
             matrix::profil::epostalar_listele,
             matrix::profil::eposta_sil,
             matrix::profil::hesap_kapat,
+            guncelleme::uygulama_surumu,
+            guncelleme::guncelleme_denetle,
+            guncelleme::guncelleme_indir,
+            guncelleme::guncelleme_iptal,
+            guncelleme::guncelleme_izin_var,
+            guncelleme::guncelleme_izin_ac,
+            guncelleme::guncelleme_kur,
+            kurulum_raporu::kurulum_raporu,
+            kurulum_raporu::kurulum_duzelt,
         ])
         .run(tauri::generate_context!())
         .expect("rubychat başlatılamadı");

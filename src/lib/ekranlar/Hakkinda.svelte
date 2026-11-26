@@ -30,7 +30,7 @@
   let surum = $state("");
   onMount(() => {
     // The app version from Tauri; absent in a plain browser. · Tauri'den uygulama sürümü; sade tarayıcıda yok.
-    import("@tauri-apps/api/app").then((m) => m.getVersion()).then((v) => (surum = v)).catch(() => {});
+    import("../api/komutlar").then((m) => m.uygulamaSurumu()).then((v) => (surum = v)).catch(() => {});
   });
 </script>
 

@@ -197,17 +197,29 @@ pub fn medya_kaydet(yol: &str, ad: &str, mime: &str) -> Result<String, String> {
 // The loops run inside one `calistir`: the thread stays attached and the class is looked up once, not 100 times a second.
 // Döngüler tek bir `calistir` içinde döner: iş parçacığı bağlı kalır ve sınıf saniyede 100 kez değil, bir kez aranır.
 
-/// Hands the JVM and the Context to libwebrtc (its Java helpers live in libwebrtc.jar). Once, before the first call.
-/// JVM'i ve Context'i libwebrtc'ye verir (Java yardımcıları libwebrtc.jar'da). İlk aramadan önce bir kez.
-#[cfg(all(feature = "yerel-arama", target_os = "android"))]
-pub fn webrtc_baslat() {
-    let ctx = ndk_context::android_context();
-    // SAFETY: the live JavaVM and Context set up by tao. · GÜVENLİK: tao'nun kurduğu canlı JavaVM ve Context.
-    let Ok(vm) = (unsafe { JavaVM::from_raw(ctx.vm().cast()) }) else { return };
-    let context = unsafe { JObject::from_raw(ctx.context().cast()) };
-    if !libwebrtc::android::initialize_android_context(&vm, &context) {
-        tracing::warn!("libwebrtc Android bağlamı kurulamadı");
+/// `WebrtcKoprusu.baslat(context)`, called by MainActivity.onCreate ON THE MAIN JAVA THREAD. libwebrtc's init looks its Java classes up
+/// with `FindClass`; from our own Rust thread that only sees system classes, returns null and the next JNI call aborts the whole
+/// process ("java_class == null in GetStaticMethodID", beta.8 crashed at launch). A native method called from Java resolves classes
+/// with the caller's class loader, so here they are found. Once per process; later activities skip it.
+/// `WebrtcKoprusu.baslat(context)`, MainActivity.onCreate tarafından ANA JAVA İŞ PARÇACIĞINDA çağrılır. libwebrtc'nin başlatıcısı Java
+/// sınıflarını `FindClass` ile arar; kendi Rust iş parçacığımızdan bu yalnızca sistem sınıflarını görür, null döner ve sonraki JNI çağrısı
+/// bütün süreci düşürür ("java_class == null in GetStaticMethodID", beta.8 açılışta çöküyordu). Java'dan çağrılan yerel yöntem sınıfları
+/// çağıranın sınıf yükleyicisiyle çözer; burada bulunurlar. Süreç başına bir kez; sonraki etkinlikler atlar.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_dev_rubyyard_rubychat_WebrtcKoprusu_baslat(env: JNIEnv, _sinif: JClass, context: JObject) {
+    #[cfg(feature = "yerel-arama")]
+    {
+        static BIR_KEZ: std::sync::Once = std::sync::Once::new();
+        BIR_KEZ.call_once(|| {
+            let Ok(vm) = env.get_java_vm() else { return };
+            if !libwebrtc::android::initialize_android_context(&vm, &context) {
+                tracing::warn!("libwebrtc Android bağlamı kurulamadı");
+            }
+        });
     }
+    #[cfg(not(feature = "yerel-arama"))]
+    let _ = (env, context);
 }
 
 /// Opens the player (AudioTrack, 48 kHz stereo, voice call use); returns its id (generation). · Çaları açar (AudioTrack, 48 kHz stereo, sesli arama kullanımı); kimliğini (kuşağını) döndürür.
@@ -288,4 +300,70 @@ pub fn arama_sesi_kayit_dongusu(dur: &std::sync::atomic::AtomicBool, id_yuvasi: 
 /// Stops the microphone with this id; a read that waits returns. · Bu kimlikli mikrofonu durdurur; bekleyen okuma döner.
 pub fn arama_sesi_kayit_kapat(id: i32) {
     let _ = calistir("AramaSesi", |env, _, s| env.call_static_method(s, "kayitKapat", "(I)V", &[JValue::Int(id)]).map(|_| ()));
+}
+
+// ---- Guncelleyici (in-app updates · uygulama içi güncellemeler) ----
+
+/// Streaming SHA-256 hex digest of a downloaded update file (see `Guncelleyici.kt`).
+/// İndirilen güncelleme dosyasının akışlı SHA-256 onaltılık özeti (bkz. `Guncelleyici.kt`).
+pub fn guncelleme_sha256(yol: &str) -> Result<String, String> {
+    calistir("Guncelleyici", |env, _, sinif| {
+        let y = env.new_string(yol)?;
+        let r = env.call_static_method(sinif, "sha256", "(Ljava/lang/String;)Ljava/lang/String;", &[JValue::Object(&y)])?;
+        metin(env, r.l()?)
+    })
+}
+
+pub fn guncelleme_izin_var() -> bool {
+    calistir("Guncelleyici", |env, ctx, sinif| {
+        env.call_static_method(sinif, "izinVar", "(Landroid/content/Context;)Z", &[JValue::Object(ctx)])?.z()
+    })
+    .unwrap_or(false)
+}
+
+pub fn guncelleme_izin_ac() -> Result<(), String> {
+    calistir("Guncelleyici", |env, ctx, sinif| {
+        env.call_static_method(sinif, "izinAc", "(Landroid/content/Context;)V", &[JValue::Object(ctx)]).map(|_| ())
+    })
+}
+
+/// Launches the Android package installer for an APK; returns false when install permission is missing.
+/// Bir APK için Android paket yükleyicisini başlatır; kurulum izni yoksa false döner.
+pub fn guncelleme_kur(yol: &str) -> Result<bool, String> {
+    calistir("Guncelleyici", |env, ctx, sinif| {
+        let y = env.new_string(yol)?;
+        env.call_static_method(
+            sinif,
+            "kur",
+            "(Landroid/content/Context;Ljava/lang/String;)Z",
+            &[JValue::Object(ctx), JValue::Object(&y)],
+        )?
+        .z()
+    })
+}
+
+// ---- Kurulum (setup diagnostics report · kurulum tanı raporu) ----
+
+/// Returns the Android setup report as a JSON array matching `Vec<RaporSatiri>` (see `Kurulum.kt`).
+/// Android kurulum raporunu `Vec<RaporSatiri>` ile eşleşen JSON dizisi olarak döndürür (bkz. `Kurulum.kt`).
+pub fn kurulum_raporu() -> Result<String, String> {
+    calistir("Kurulum", |env, ctx, sinif| {
+        let r = env.call_static_method(sinif, "rapor", "(Landroid/content/Context;)Ljava/lang/String;", &[JValue::Object(ctx)])?;
+        metin(env, r.l()?)
+    })
+}
+
+/// Runs an Android setup-report fix action (`pil_muaf`, `mikrofon`, `kamera`, `yukleme_izni`); false = unknown action.
+/// Android kurulum raporu düzeltme eylemini çalıştırır (`pil_muaf`, `mikrofon`, `kamera`, `yukleme_izni`); false = bilinmeyen eylem.
+pub fn kurulum_duzelt(eylem: &str) -> Result<bool, String> {
+    calistir("Kurulum", |env, ctx, sinif| {
+        let e = env.new_string(eylem)?;
+        env.call_static_method(
+            sinif,
+            "duzelt",
+            "(Landroid/content/Context;Ljava/lang/String;)Z",
+            &[JValue::Object(ctx), JValue::Object(&e)],
+        )?
+        .z()
+    })
 }

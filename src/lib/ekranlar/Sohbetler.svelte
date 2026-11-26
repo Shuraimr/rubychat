@@ -15,6 +15,7 @@
   import BosDurum from "../bilesenler/BosDurum.svelte";
   import EsitlemeSeridi from "../bilesenler/EsitlemeSeridi.svelte";
   import Ikon from "../bilesenler/Ikon.svelte";
+  import Zil from "../bilesenler/Zil.svelte";
   import KlasorSekmeleri, { type Sekme } from "../bilesenler/KlasorSekmeleri.svelte";
   import { tercihler } from "../durum/tercihler.svelte";
   import { klavye } from "../klavyeKisayol.svelte";
@@ -145,7 +146,10 @@
           <h1>{t("sohbetler.baslik")}</h1>
           {#if odalar.ilkListeGeldi}<span class="ozet" class:var={odalar.okunmamisOda > 0}>{odalar.okunmamisOda > 0 ? t("sohbetler.ozetOkunmamis", { o: odalar.okunmamisOda, n: odalar.suz("tumu").length }) : t("sohbetler.ozet", { n: odalar.suz("tumu").length })}</span>{/if}
         </span>
-        <button class="duzenle" aria-label={t("sohbetler.cipEkle")} onclick={() => (cipDuzenle = true)}><Ikon ad="ayar" boyut={22} /></button>
+        <span class="ust-eylemler">
+          <Zil />
+          <button class="duzenle" aria-label={t("sohbetler.cipEkle")} onclick={() => (cipDuzenle = true)}><Ikon ad="ayar" boyut={22} /></button>
+        </span>
       </header>
       <div class="tepsi"><KlasorSekmeleri {sekmeler} {secili} {ilerleme} sec={sekmeSec} /><EsitlemeSeridi /></div>
     </div>
@@ -257,6 +261,7 @@
   .ozet { font-size: .8125rem; line-height: 1.35; color: var(--yazi-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ozet.var { color: var(--vurgu); font-weight: 500; }
   .duzenle { flex: none; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--yuzey-2); color: var(--yazi-2); }
+  .ust-eylemler { flex: none; display: inline-flex; align-items: center; gap: 8px; }
   .duzenle:active { background: var(--yuzey-3); }
   .tepsi { margin: 0 12px 8px; overflow: hidden; border-radius: 28px; background: var(--yuzey-2); box-shadow: var(--kat-2); }
   /* The sync strip is the tray's lower storey. · Eşitleme şeridi tepsinin alt katıdır. */

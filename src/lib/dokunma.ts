@@ -125,7 +125,7 @@ export function dokunmaBaslat(): () => void {
  * Uzun basma eylemi: `sure` ms boyunca 10px'ten fazla oynamazsa öğe 1.02'ye büyür, telefon 10ms titrer ve `ac(x, y)` çalışır.
  * Normal dokunuşa karışmaz (uzun basma olduysa o tıklama yutulur).
  */
-export function uzunBasma(node: HTMLElement, secenek: { ac: (x: number, y: number) => void; sure?: number }) {
+export function uzunBasma(node: HTMLElement, secenek: { ac: (x: number, y: number) => void; sure?: number; etkin?: boolean }) {
   let ayar = secenek;
   let z: ReturnType<typeof setTimeout> | undefined;
   let bx = 0;
@@ -133,7 +133,7 @@ export function uzunBasma(node: HTMLElement, secenek: { ac: (x: number, y: numbe
   let oldu = false;
   const iptal = () => clearTimeout(z);
   const asagi = (e: PointerEvent) => {
-    if (e.pointerType === "mouse") return;
+    if (ayar.etkin === false || e.pointerType === "mouse") return;
     oldu = false;
     bx = e.clientX;
     by = e.clientY;
@@ -159,6 +159,7 @@ export function uzunBasma(node: HTMLElement, secenek: { ac: (x: number, y: numbe
     }
   };
   const sag = (e: MouseEvent) => {
+    if (ayar.etkin === false) return;
     e.preventDefault();
     ayar.ac(e.clientX, e.clientY);
   };

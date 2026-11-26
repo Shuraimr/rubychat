@@ -334,7 +334,7 @@ function satiraKaydir(e: HTMLElement) {
   // Floating header, composer and the optional hint strip sit over the list: stay between them. · Yüzen başlık, yazma alanı ve isteğe bağlı ipucu şeridi listenin üstündedir: aralarında kal.
   const stil = getComputedStyle(kutu);
   const ust = kutu.getBoundingClientRect().top + (parseFloat(stil.getPropertyValue("--tepe-yer")) || 64) + 8;
-  const ipucuPay = tercihler.d.kisayolIpucu ? 36 : 0;
+  const ipucuPay = 0; // hint strip is inside --yazma-yer now · ipucu şeridi artık --yazma-yer içinde
   const alt = kutu.getBoundingClientRect().bottom - (parseFloat(stil.getPropertyValue("--yazma-yer")) || 0) - ipucuPay - 8;
   const r = e.getBoundingClientRect();
   if (r.top < ust) kutu.scrollTop -= ust - r.top;
@@ -472,7 +472,7 @@ function satiriHizala(yer: "orta" | "ust" | "alt") {
   const stil = getComputedStyle(kutu);
   const kr = kutu.getBoundingClientRect();
   const ust = kr.top + (parseFloat(stil.getPropertyValue("--tepe-yer")) || 64) + 8;
-  const ipucuPay = tercihler.d.kisayolIpucu ? 36 : 0;
+  const ipucuPay = 0; // hint strip is inside --yazma-yer now · ipucu şeridi artık --yazma-yer içinde
   const alt = kr.bottom - (parseFloat(stil.getPropertyValue("--yazma-yer")) || 76) - ipucuPay - 8;
   const r = satir.getBoundingClientRect();
   if (yer === "orta") kutu.scrollTop += (r.top + r.bottom) / 2 - (ust + alt) / 2;

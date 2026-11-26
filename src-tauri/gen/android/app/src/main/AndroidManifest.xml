@@ -23,6 +23,9 @@
     <!-- Save to gallery: Android 10+ uses MediaStore (no permission); only Android 7-9 needs this one -->
     <!-- Galeriye kaydet: Android 10+ MediaStore kullanır (izin yok); yalnızca Android 7-9 buna ihtiyaç duyar -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- In-app self-update: lets the system package installer open a verified APK (Android 8+ asks per-app permission) -->
+    <!-- Uygulama içi güncelleme: doğrulanmış APK'yı sistem paket yükleyicisinde açmayı sağlar (Android 8+ uygulama başına izin ister) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Which browsers / apps can open a web link (long press on a link) · Web bağlantısını hangi tarayıcı / uygulama açabilir (bağlantıya uzun bas) -->
     <queries>

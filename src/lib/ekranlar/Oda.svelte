@@ -18,7 +18,8 @@
   import { panoyaYaz } from "../pano";
   import { medyaKaydet } from "../api/komutlar";
   import { saatYaz } from "../zaman-bicim";
-  import { hareketVar } from "../hareket";
+  import { egri, hareketVar, sureMs } from "../hareket";
+  import { odalar } from "../durum/odalar.svelte";
   import { onDestroy, tick, untrack } from "svelte";
   import type { ZamanOgesi } from "../api/tipler";
   import Avatar from "../bilesenler/Avatar.svelte";
@@ -698,19 +699,64 @@
 
   // Calls only in rooms with exactly two joined members. · Arama yalnızca tam iki üyeli odalarda.
   const aranabilir = $derived(!!bilgi && bilgi.uyeSayisi === 2 && !!bilgi.karsiKullanici);
+
+  /** Unread total across all other chats (excluding this open room), shown on the phone back button. · Açık oda dışındaki diğer sohbetlerdeki okunmamış toplamı (telefonda geri düğmesinde). */
+  const digerOkunmamis = $derived(
+    odalar.liste.reduce((n, o) => (o.id === buOda || o.davet || o.alan ? n : n + Math.max(o.okunmamis, o.bahsedilme)), 0),
+  );
+
+  /** Pulses the badge (or icon) once when a flying top banner lands on this button. · Uçan üst şerit bu düğmeye inince rozeti (ya da simgeyi) bir kez nabızlandırır. */
+  function zilNabiz(node: HTMLElement) {
+    const inis = () => {
+      if (!hareketVar()) return;
+      const hedef = node.querySelector<HTMLElement>(".geri-rozet") ?? node.querySelector<HTMLElement>("svg") ?? node;
+      const sure = sureMs("--sure-orta") || 200;
+      hedef.style.willChange = "transform";
+      const temizle = () => {
+        if (hedef.style.willChange === "transform") hedef.style.removeProperty("will-change");
+      };
+      const a = hedef.animate(
+        [
+          { transform: "scale(1)" },
+          { transform: "scale(1.25)", offset: 0.45 },
+          { transform: "scale(1)" },
+        ],
+        { duration: sure, easing: egri("--egri-cikis") },
+      );
+      a.onfinish = temizle;
+      a.oncancel = temizle;
+    };
+    node.addEventListener("zil-inis", inis);
+    return {
+      destroy() {
+        node.removeEventListener("zil-inis", inis);
+      },
+    };
+  }
 </script>
 
 <div class="oda" class:itildi={bilgiAcik || uyelerAcik} style="{gorunumStili(gorunum)};--tepe-yer:{tepeYuk}px;--yazma-yer:{aramaAcik ? 0 : altYuk}px">
 <svelte:boundary onerror={(e) => console.error("oda çizimi başarısız", e)}>
   <!-- Floating header card (the dock's counterpart): identity + actions; the pinned message and the sync strip are its lower storeys. -->
   <!-- Yüzen başlık kartı (dock'un karşılığı): kimlik + eylemler; sabit mesaj ve eşitleme şeridi onun alt katlarıdır. -->
-  <div class="tepe" bind:clientHeight={tepeYuk}>
+  <div class="tepe" data-oda-tepe bind:clientHeight={tepeYuk}>
   <div class="kart">
   <header class="ust">
     {#if !gezinme.genis}
-      <button class="simge-dugme geri" aria-label={t("oda.geri")} onclick={() => gezinme.odaKapat()}><Ikon ad="geri" /></button>
+      <button
+        class="simge-dugme geri"
+        data-zil-hedef="geri"
+        use:zilNabiz
+        aria-label={digerOkunmamis > 0 ? t("oda.digerOkunmamis", { n: digerOkunmamis }) : t("oda.geri")}
+        onclick={() => gezinme.odaKapat()}
+      >
+        <Ikon ad="geri" />
+        {#if digerOkunmamis > 0}
+          <span class="rozet geri-rozet" aria-hidden="true">{digerOkunmamis > 99 ? "99+" : digerOkunmamis}</span>
+        {/if}
+      </button>
     {:else if duzen.listeGizli}
-      <button class="simge-dugme geri" aria-label={t("klavye.listeAc")} title="{t("klavye.listeAc")} (Ctrl+B)" onclick={() => duzen.degistir()}><Ikon ad="yanPanel" /></button>
+      <button class="simge-dugme geri" data-zil-hedef="yanPanel" use:zilNabiz aria-label={t("klavye.listeAc")} title="{t("klavye.listeAc")} (Ctrl+B)" onclick={() => duzen.degistir()}><Ikon ad="yanPanel" /></button>
     {/if}
     <!-- Tap = room info, long press = customize sheet (both tactile) · Dokun = oda bilgisi, uzun bas = özelleştir sayfası (ikisi de dokunsal) -->
     {#if bilgi}
@@ -887,6 +933,8 @@
   .kart :global(.cubuk) { width: 100%; border-bottom: 0; border-top: 1px solid var(--kenar-ince); }
   .kart :global(.serit) { border-bottom: 0; }
   .ust { min-height: 64px; display: flex; align-items: center; gap: 2px; padding: 8px; }
+  .geri { position: relative; }
+  .geri-rozet { position: absolute; top: 2px; right: 0; min-width: 1.125rem; height: 1.125rem; padding: 0 .25rem; border-radius: .5625rem; font-size: .6875rem; border: 2px solid var(--yuzey-2); box-sizing: content-box; pointer-events: none; }
     .kimlik { flex: 1; min-width: 0; min-height: 44px; padding: 0 6px 0 2px; display: flex; align-items: center; gap: .75rem; text-align: left; border-radius: 22px; }
   .adlar { flex: 1; min-width: 0; display: grid; }
   .ad-satir { display: flex; align-items: center; gap: 6px; min-width: 0; }

@@ -9,14 +9,34 @@
   import { t } from "../i18n";
   import AltSayfa from "./AltSayfa.svelte";
 
-  let { baskasininki = false, onay, onkapat }: { baskasininki?: boolean; onay: () => void; onkapat: () => void } = $props();
+  let {
+    baskasininki = false,
+    baslik,
+    metin,
+    eylem,
+    tehlike = true,
+    onay,
+    onkapat,
+  }: {
+    baskasininki?: boolean;
+    /** Optional override title (defaults to message deletion) · İsteğe bağlı özel başlık (varsayılan: mesaj silme) */
+    baslik?: string;
+    /** Optional override body text · İsteğe bağlı özel açıklama metni */
+    metin?: string;
+    /** Optional override confirm button label · İsteğe bağlı özel onay düğmesi etiketi */
+    eylem?: string;
+    /** Red destructive button (default true) vs primary accent button · Kırmızı yıkıcı düğme (varsayılan true) ya da birincil vurgu düğmesi */
+    tehlike?: boolean;
+    onay: () => void;
+    onkapat: () => void;
+  } = $props();
 </script>
 
-<AltSayfa baslik={t("sil.baslik")} {onkapat}>
-  <p class="metin">{baskasininki ? t("sil.baskasi") : t("sil.alt")}</p>
+<AltSayfa baslik={baslik ?? t("sil.baslik")} {onkapat}>
+  <p class="metin">{metin ?? (baskasininki ? t("sil.baskasi") : t("sil.alt"))}</p>
   <div class="dugmeler">
     <button class="buton cizgili" onclick={onkapat}>{t("eylem.iptal")}</button>
-    <button class="buton tehlike" onclick={() => { onay(); onkapat(); }}>{t("sil.sil")}</button>
+    <button class="buton" class:tehlike class:birincil={!tehlike} onclick={() => { onay(); onkapat(); }}>{eylem ?? t("sil.sil")}</button>
   </div>
 </AltSayfa>
 

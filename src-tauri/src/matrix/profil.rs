@@ -32,14 +32,14 @@ fn sifre_hatasi(e: impl std::fmt::Display) -> Hata {
 
 /// Reads an upload the UI wrote in chunks (`medya_parca_yaz`) and removes the temp file afterwards.
 /// Arayüzün parça parça yazdığı yüklemeyi (`medya_parca_yaz`) okur ve ardından geçici dosyayı siler.
-async fn gecici_oku(app: &AppHandle, kimlik: &str) -> Sonuc<Vec<u8>> {
+pub(crate) async fn gecici_oku(app: &AppHandle, kimlik: &str) -> Sonuc<Vec<u8>> {
     let yol = medya::dosya_yolu(app, kimlik)?;
     let veri = tokio::fs::read(&yol).await.map_err(|e| Hata::Depolama(e.to_string()))?;
     let _ = tokio::fs::remove_file(&yol).await;
     Ok(veri)
 }
 
-fn mime_coz(m: &str) -> Sonuc<mime::Mime> {
+pub(crate) fn mime_coz(m: &str) -> Sonuc<mime::Mime> {
     // Only images are accepted here: an avatar / sticker must never be some other file type.
     // Burada yalnızca resim kabul edilir: avatar / çıkartma başka bir dosya türü olamaz.
     let mime: mime::Mime = m.parse().map_err(|_| Hata::Diger("geçersiz MIME".into()))?;

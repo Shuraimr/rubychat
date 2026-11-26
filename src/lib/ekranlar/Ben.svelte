@@ -7,24 +7,34 @@
   Yan ray olan yerde (tablet, yatay telefon) rayda zaten Görünüm kısayolu var; liste onu tekrar etmez.
 -->
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { alanaKatil, uygulamaSurumu } from "../api/komutlar";
   import Anahtar from "../bilesenler/Anahtar.svelte";
   import Avatar from "../bilesenler/Avatar.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
   import HesapListesi from "../bilesenler/HesapListesi.svelte";
   import Ikon from "../bilesenler/Ikon.svelte";
+  import Maskot from "../bilesenler/Maskot.svelte";
+  import { alanlar } from "../durum/alanlar.svelte";
   import { arama } from "../durum/arama.svelte";
   import { ayarlar } from "../durum/ayarlar.svelte";
+  import { baglantiAc } from "../durum/baglantiOnay.svelte";
   import { duzen } from "../durum/duzen.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
+  import { guncelleme } from "../durum/guncelleme.svelte";
+  import { kurulum, kurulumRaporuAc } from "../durum/kurulum.svelte";
   import { oturum } from "../durum/oturum.svelte";
+  import { RUBYCHAT_ALAN_AD, RUBYCHAT_ALAN_ID, rubychatUyeMi, rubychatVia } from "../durum/rubychatAlan";
   import { sifreleme } from "../durum/sifreleme.svelte";
   import { tercihler } from "../durum/tercihler.svelte";
   import { titret } from "../dokunma";
   import { geriKaydir } from "../geriKaydir";
   import { kayCik, kayGir } from "../gecis";
   import { t } from "../i18n";
+  import { hataBildir } from "../mesaj/eylemler";
   import BildirimAyarlari from "./BildirimAyarlari.svelte";
   import Gorunum from "./Gorunum.svelte";
+  import Guncellemeler from "./Guncellemeler.svelte";
   import Guvenlik from "./Guvenlik.svelte";
   import Hakkinda from "./Hakkinda.svelte";
   import Hesap from "./Hesap.svelte";
@@ -76,6 +86,36 @@
 
   /** Always asked: logging back in is work. · Her zaman sorulur: yeniden giriş yapmak uğraştırır. */
   const cikisIste = () => sifreleme.ac("cikis");
+
+  let yerSurum = $state("");
+  const surum = $derived(guncelleme.mevcutSurum || yerSurum);
+  const rubychatUye = $derived(rubychatUyeMi());
+  let alanKatiliyor = $state(false);
+
+  onMount(() => {
+    if (!guncelleme.mevcutSurum) {
+      void uygulamaSurumu().then((v) => (yerSurum = v)).catch(() => {});
+    }
+  });
+
+  async function rubychatAlanAc() {
+    if (rubychatUye) {
+      gezinme.sekmeSec("alanlar");
+      alanlar.ac(RUBYCHAT_ALAN_ID, RUBYCHAT_ALAN_AD);
+      return;
+    }
+    if (alanKatiliyor) return;
+    alanKatiliyor = true;
+    try {
+      const id = await alanaKatil(RUBYCHAT_ALAN_ID, rubychatVia(oturum.ben?.kullaniciId));
+      gezinme.sekmeSec("alanlar");
+      alanlar.ac(id, RUBYCHAT_ALAN_AD);
+    } catch (e) {
+      hataBildir(e);
+    } finally {
+      alanKatiliyor = false;
+    }
+  }
 </script>
 
 <div class="ben">
@@ -132,6 +172,19 @@
     </div>
 
     <div class="ay-kart">
+      <button class="ay-satir dugme" data-dalga onclick={() => altAc("guncellemeler")}>
+        <span class="ay-simge" style:--r="var(--tas-zumrut)"><Ikon ad="indir" boyut={20} /></span>
+        <span class="ay-metin">
+          <strong>{t("ayar.guncellemeler")}</strong>
+          <span class:durum={!!guncelleme.bilgi?.yeni} class:vurgu={!!guncelleme.bilgi?.yeni}>
+            {guncelleme.bilgi?.yeni ? t("guncelleme.yeniVarKisa", { surum: guncelleme.bilgi.yeni.surum }) : (guncelleme.mevcutSurum || t("ben.guncellemelerAlt"))}
+          </span>
+        </span>
+      </button>
+      <button class="ay-satir dugme" data-dalga onclick={() => { titret("tik"); kurulumRaporuAc(); }}>
+        <span class="ay-simge" style:--r="var(--tas-zumrut)"><Ikon ad="kalkanOnay" boyut={20} /></span>
+        <span class="ay-metin"><strong>{t("kurulumRaporu.baslik")}</strong><span>{t("kurulumRaporu.benAlt")}</span></span>
+      </button>
       <button class="ay-satir dugme" data-dalga onclick={() => altAc("hakkinda")}>
         <span class="ay-simge" style:--r="var(--tas-zumrut)"><Ikon ad="bilgi" boyut={20} /></span>
         <span class="ay-metin"><strong>{t("ayar.hakkinda")}</strong><span>{t("ben.hakkindaAlt")}</span></span>
@@ -141,13 +194,41 @@
         <span class="ay-metin"><strong>{oturum.mesgul ? t("ben.cikisYapiliyor") : t("ben.cikis")}</strong><span>{oturum.ben?.sunucu}</span></span>
       </button>
     </div>
+
+    <section class="hakkinda-bolum" aria-label={t("benHakkinda.bolum")}>
+      <h2>{t("benHakkinda.bolum")}</h2>
+      <div class="ay-kart govde hakkinda-kart">
+        <div class="hakkinda-ust">
+          <div class="hakkinda-maskot">
+            <Maskot poz="selam" boyut={40} />
+          </div>
+          <div class="hakkinda-kimlik">
+            <strong>{surum ? `rubychat ${surum}` : "rubychat"}</strong>
+            <span>{t("benHakkinda.alt")}</span>
+          </div>
+        </div>
+        <p class="hakkinda-metin">{t("benHakkinda.aciklama")}</p>
+        <div class="hakkinda-dugmeler">
+          <button class="buton tonlu" type="button" disabled={alanKatiliyor} onclick={() => void rubychatAlanAc()}>
+            {#if alanKatiliyor}<span class="yuklenme"></span>{/if}
+            {rubychatUye ? t("rubychatAlan.ac") : t("rubychatAlan.katil")}
+          </button>
+          <button class="buton cizgili" type="button" onclick={() => baglantiAc("https://github.com/Shuraimr/rubychat")}>
+            {t("benHakkinda.github")}
+          </button>
+        </div>
+        <button class="buton metin tur-tekrar" type="button" onclick={() => { titret("tik"); kurulum.turAc(); }}>
+          {t("benHakkinda.turuIzle")}
+        </button>
+      </div>
+    </section>
   </div>
   </div>
 
   <!-- Sub-pages slide in over this screen; they take no taps until they have arrived. · Alt sayfalar bu ekranın üstüne kayar; yerine oturana kadar dokunuş almaz. -->
   {#if gezinme.benAlt}
     <div class="alt-sayfa" class:yolda in:kayGir out:kayCik onintrostart={() => (yolda = true)} onintroend={() => (yolda = false)} onoutrostart={() => (yolda = true)} use:geriKaydir={{ etkin: () => raySiz && gezinme.ustKatmanMi("benAlt"), geri: () => gezinme.benAltKapat(), altta: () => ana }}>
-      {#if gezinme.benAlt === "gorunum"}<Gorunum />{:else if gezinme.benAlt === "sohbet"}<SohbetAyarlari />{:else if gezinme.benAlt === "bildirimler"}<BildirimAyarlari />{:else if gezinme.benAlt === "klavye"}<KlavyeAyarlari />{:else if gezinme.benAlt === "hakkinda"}<Hakkinda />{:else if gezinme.benAlt === "profil"}<ProfilDuzenle />{:else if gezinme.benAlt === "hesap"}<Hesap />{:else}<Guvenlik />{/if}
+      {#if gezinme.benAlt === "gorunum"}<Gorunum />{:else if gezinme.benAlt === "sohbet"}<SohbetAyarlari />{:else if gezinme.benAlt === "bildirimler"}<BildirimAyarlari />{:else if gezinme.benAlt === "klavye"}<KlavyeAyarlari />{:else if gezinme.benAlt === "guncellemeler"}<Guncellemeler />{:else if gezinme.benAlt === "hakkinda"}<Hakkinda />{:else if gezinme.benAlt === "profil"}<ProfilDuzenle />{:else if gezinme.benAlt === "hesap"}<Hesap />{:else}<Guvenlik />{/if}
     </div>
   {/if}
 </div>
@@ -163,6 +244,73 @@
   .ad { font-size: 1.125rem !important; font-weight: 600 !important; }
   .durum.tamam { color: var(--cozum) !important; }
   .durum.bekliyor { color: var(--bekliyor) !important; }
+  .durum.vurgu { color: var(--vurgu) !important; }
   .ay-metin > :global(*) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tehlike strong { color: var(--hata); }
+
+  .hakkinda-bolum {
+    margin-top: .5rem;
+    display: grid;
+    gap: .5rem;
+  }
+  .hakkinda-bolum > h2 {
+    font-family: var(--yazi-tipi);
+    font-size: .75rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    color: var(--yazi-2);
+    padding: 0 .75rem;
+  }
+  .hakkinda-kart {
+    gap: .75rem;
+  }
+  .hakkinda-ust {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+  }
+  .hakkinda-maskot {
+    flex: none;
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: var(--yuzey-1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hakkinda-kimlik {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .hakkinda-kimlik strong {
+    font-family: var(--baslik-tipi);
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--yazi);
+  }
+  .hakkinda-kimlik span {
+    font-size: .8125rem;
+    color: var(--yazi-2);
+  }
+  .hakkinda-metin {
+    font-size: .875rem;
+    line-height: 1.45;
+    color: var(--yazi-2);
+  }
+  .hakkinda-dugmeler {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+  }
+  .hakkinda-dugmeler > .buton {
+    flex: 1 1 7.5rem;
+    width: auto;
+    min-height: 44px;
+  }
+  .tur-tekrar {
+    min-height: 44px;
+  }
 </style>

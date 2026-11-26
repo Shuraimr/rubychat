@@ -1,26 +1,30 @@
 <!--
-  "Odaları keşfet" sheet: a server's public room directory (`odalari_kesfet`), searchable, with Rooms / Spaces filter and a server
-  switch (mine, matrix.org, or any typed server). A room address (#oda:sunucu or !kimlik) typed in the search joins directly.
+  "Odaları keşfet" sheet: a server's public room directory (`odalari_kesfet`), searchable, with Rooms / Spaces filter, a server
+  switch (mine, matrix.org, or any typed server), the official rubychat space card at the top, and tap-to-preview room details.
+  A room address (#oda:sunucu or !kimlik) typed in the search joins directly.
   "Katıl" joins (the directory's server as `via`), a knock room opens the join request, a room I am already in just opens.
-  This sheet replaced "Adresle odaya katıl".
-  "Odaları keşfet" sayfası: bir sunucunun herkese açık oda dizini (`odalari_kesfet`); aranabilir, Odalar / Alanlar süzgeci ve sunucu
-  seçimi var (benimki, matrix.org ya da yazılan herhangi biri). Aramaya oda adresi (#oda:sunucu ya da !kimlik) yazılırsa doğrudan
-  katılınır. "Katıl" katılır (dizinin sunucusu `via` olarak), kapı çalınan odada katılma isteği açılır, zaten içinde olduğum oda açılır.
-  Bu sayfa "Adresle odaya katıl"ın yerini aldı.
+  "Odaları keşfet" sayfası: bir sunucunun herkese açık oda dizini (`odalari_kesfet`); aranabilir, Odalar / Alanlar süzgeci, sunucu
+  seçimi (benimki, matrix.org ya da yazılan herhangi biri), en üstte resmi rubychat alanı kartı ve katılmadan oda önizlemesi var.
+  Aramaya oda adresi (#oda:sunucu ya da !kimlik) yazılırsa doğrudan katılınır.
+  "Katıl" katılır (dizinin sunucusu `via` olarak), kapı çalınan odada katılma isteği açılır, zaten içinde olduğum oda açılır.
 -->
 <script lang="ts">
-  import { untrack } from "svelte";
-  import { alanaKatil, odalariKesfet } from "../api/komutlar";
-  import type { BulunanOda } from "../api/tipler";
+  import { onMount, untrack } from "svelte";
+  import { alanIcerigi, alanaKatil, odalariKesfet, odaOnizleme } from "../api/komutlar";
+  import type { BulunanOda, OnizlemeMesaji } from "../api/tipler";
   import { alanlar } from "../durum/alanlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { istekAc } from "../durum/istekler.svelte";
   import { oturum } from "../durum/oturum.svelte";
+  import { RUBYCHAT_ALAN_AD, RUBYCHAT_ALAN_ID, rubychatUyeMi, rubychatVia } from "../durum/rubychatAlan";
+  import { tercihler } from "../durum/tercihler.svelte";
   import { t } from "../i18n";
   import { hataBildir } from "../mesaj/eylemler";
+  import { goreliZaman } from "../zaman-bicim";
   import AltSayfa from "./AltSayfa.svelte";
   import Avatar from "./Avatar.svelte";
   import Ikon from "./Ikon.svelte";
+  import Maskot from "./Maskot.svelte";
 
   let { onkapat, ilkTur = "" }: { onkapat: () => void; ilkTur?: "" | "oda" | "alan" } = $props();
 
@@ -41,8 +45,40 @@
   // Gösterilen listenin gerçekte geldiği sunucu (yeni liste yüklenirken çip başka sunucuyu gösteriyor olabilir): "Katıl"ın `via`sı odur.
   let listeSunucusu = $state("");
 
+  // Official rubychat space card metadata (fetched quietly from space hierarchy if available).
+  // Resmi rubychat alanı kartının üst verisi (alınabiliyorsa alan hiyerarşisinden sessizce çekilir).
+  let rubychatOdaSayisi = $state(0);
+  let rubychatUyeSayisi = $state(0);
+  const rubychatUye = $derived(rubychatUyeMi());
+  const rubychatKartGorunur = $derived(!tercihler.d.rubychatKartiKapali && !sorgu.trim());
+
+  // Room preview sheet state · Oda önizleme alt sayfası durumu
+  let onizlenen = $state<BulunanOda | null>(null);
+  let onizlemeMesajlar = $state<OnizlemeMesaji[]>([]);
+  let onizlemeYukleniyor = $state(false);
+  let onizlemeIstekNo = 0;
+
   // #alias:server, !id:server, or a Room v12 id (`!hash`, no server part). · #takma:sunucu, !kimlik:sunucu ya da Room v12 kimliği (`!özet`, sunucu kısmı yok).
   const adres = $derived(/^(#[^\s:]+:[^\s]+|![^\s:]+(:[^\s]+)?)$/.test(sorgu.trim()) ? sorgu.trim() : null);
+
+  onMount(() => {
+    if (tercihler.d.rubychatKartiKapali) return;
+    const onbellek = alanlar.icerikler.get(RUBYCHAT_ALAN_ID);
+    if (onbellek) {
+      rubychatOdaSayisi = onbellek.cocuklar.length || onbellek.alan?.altSayisi || 0;
+      rubychatUyeSayisi = onbellek.alan?.uyeSayisi ?? 0;
+      return;
+    }
+    void alanIcerigi(RUBYCHAT_ALAN_ID)
+      .then((s) => {
+        alanlar.icerikler.set(RUBYCHAT_ALAN_ID, s);
+        rubychatOdaSayisi = s.cocuklar.length || s.alan?.altSayisi || 0;
+        rubychatUyeSayisi = s.alan?.uyeSayisi ?? 0;
+      })
+      .catch(() => {
+        /* Space metadata unavailable before joining: card falls back to "Alan". · Katılmadan alan bilgisi alınamadı: kart "Alan" gösterir. */
+      });
+  });
 
   let istekNo = 0;
   async function yukle(devam: boolean) {
@@ -95,6 +131,7 @@
   }
 
   function ac(id: string, ad: string, alan: boolean) {
+    onizlenen = null;
     onkapat();
     if (alan) {
       gezinme.sekmeSec("alanlar");
@@ -106,6 +143,7 @@
     const ad = o.ad ?? o.adres ?? o.odaId;
     if (o.uye) return ac(o.odaId, ad, o.alan);
     if (o.katilim === "kapi") {
+      onizlenen = null;
       onkapat();
       istekAc({ kimlik: o.adres ?? o.odaId, ad, via: [listeSunucusu || sunucu] });
       return;
@@ -119,6 +157,46 @@
     } finally {
       mesgul = null;
     }
+  }
+
+  async function rubychatKatil() {
+    if (rubychatUye) return ac(RUBYCHAT_ALAN_ID, RUBYCHAT_ALAN_AD, true);
+    mesgul = RUBYCHAT_ALAN_ID;
+    try {
+      const id = await alanaKatil(RUBYCHAT_ALAN_ID, rubychatVia(oturum.ben?.kullaniciId));
+      ac(id, RUBYCHAT_ALAN_AD, true);
+    } catch (err) {
+      hataBildir(err);
+    } finally {
+      mesgul = null;
+    }
+  }
+
+  function rubychatOdalariGor() {
+    ac(RUBYCHAT_ALAN_ID, RUBYCHAT_ALAN_AD, true);
+  }
+
+  function onizle(o: BulunanOda) {
+    onizlenen = o;
+    onizlemeMesajlar = [];
+    const bu = ++onizlemeIstekNo;
+    if (o.alan) {
+      onizlemeYukleniyor = false;
+      return;
+    }
+    onizlemeYukleniyor = true;
+    // `oda_onizleme` currently returns cached messages for joined rooms and errors for unjoined ones; fail quietly to the closed-history note.
+    // `oda_onizleme` şu an katılınmış odaların önbellekteki mesajlarını döner, katılınmayanlarda hata verir; sessizce önizlemeye kapalı notuna düş.
+    void odaOnizleme(o.odaId, 3)
+      .then((m) => {
+        if (bu === onizlemeIstekNo) onizlemeMesajlar = m.slice(-3);
+      })
+      .catch(() => {
+        if (bu === onizlemeIstekNo) onizlemeMesajlar = [];
+      })
+      .finally(() => {
+        if (bu === onizlemeIstekNo) onizlemeYukleniyor = false;
+      });
   }
 
   async function adresleKatil() {
@@ -140,6 +218,15 @@
   }
 
   const sayi = (n: number) => new Intl.NumberFormat(undefined, { notation: n >= 10000 ? "compact" : "standard" }).format(n);
+
+  const rubychatMeta = $derived.by(() => {
+    if (rubychatOdaSayisi > 0 && rubychatUyeSayisi > 0) {
+      return t("rubychatAlan.meta", { oda: sayi(rubychatOdaSayisi), uye: sayi(rubychatUyeSayisi) });
+    }
+    if (rubychatOdaSayisi > 0) return t("rubychatAlan.metaOda", { oda: sayi(rubychatOdaSayisi) });
+    if (rubychatUyeSayisi > 0) return t("rubychatAlan.metaUye", { uye: sayi(rubychatUyeSayisi) });
+    return t("kesfet.alanEtiket");
+  });
 </script>
 
 <AltSayfa baslik={t("kesfet.baslik")} {onkapat}>
@@ -170,6 +257,50 @@
       {/each}
     </div>
 
+    {#if rubychatKartGorunur}
+      <section class="rc-kart" aria-label={RUBYCHAT_ALAN_AD}>
+        <div class="rc-ust">
+          <div class="rc-maskot">
+            <Maskot poz="selam" boyut={44} />
+          </div>
+          <div class="rc-baslik">
+            <strong>{RUBYCHAT_ALAN_AD}</strong>
+            <span>{rubychatMeta}</span>
+          </div>
+          <button
+            class="simge-dugme rc-kapat"
+            type="button"
+            onclick={() => tercihler.yaz("rubychatKartiKapali", true)}
+            aria-label={t("rubychatAlan.kapat")}
+          >
+            <Ikon ad="kapat" boyut={18} />
+          </button>
+        </div>
+        <p class="rc-metin">{t("rubychatAlan.aciklama")}</p>
+        <div class="rc-dugmeler">
+          <button
+            class="buton {rubychatUye ? 'tonlu' : 'birincil'} rc-dugme"
+            type="button"
+            disabled={!!mesgul}
+            onclick={() => void rubychatKatil()}
+          >
+            {#if mesgul === RUBYCHAT_ALAN_ID}<span class="yuklenme"></span>{/if}
+            {rubychatUye ? t("rubychatAlan.ac") : t("rubychatAlan.katil")}
+          </button>
+          {#if !rubychatUye}
+            <button
+              class="buton cizgili rc-dugme"
+              type="button"
+              disabled={!!mesgul}
+              onclick={rubychatOdalariGor}
+            >
+              {t("rubychatAlan.odalariGor")}
+            </button>
+          {/if}
+        </div>
+      </section>
+    {/if}
+
     <ul class="liste">
       {#if adres}
         <li>
@@ -183,12 +314,19 @@
         {#each odalarListe as o (o.odaId)}
           {@const ad = o.ad ?? o.adres ?? o.odaId}
           <li class="oda">
-            <Avatar harf={ad.replace(/^[#!]/, "").slice(0, 1).toUpperCase()} mxc={o.avatarMxc} boyut={44} />
-            <div class="metin">
-              <b>{ad}{#if o.alan}<span class="etiket">{t("kesfet.alanEtiket")}</span>{/if}</b>
-              <small>{t("kesfet.uye", { n: sayi(o.uyeSayisi) })}{#if o.adres && o.adres !== ad} · {o.adres}{/if}</small>
-              {#if o.konu}<p class="konu">{o.konu}</p>{/if}
-            </div>
+            <button
+              class="oda-bilgi"
+              type="button"
+              onclick={() => onizle(o)}
+              aria-label={t("kesfet.onizle", { ad })}
+            >
+              <Avatar harf={ad.replace(/^[#!]/, "").slice(0, 1).toUpperCase()} mxc={o.avatarMxc} boyut={44} />
+              <div class="metin">
+                <b>{ad}{#if o.alan}<span class="etiket">{t("kesfet.alanEtiket")}</span>{/if}</b>
+                <small>{t("kesfet.uye", { n: sayi(o.uyeSayisi) })}{#if o.adres && o.adres !== ad} · {o.adres}{/if}</small>
+                {#if o.konu}<p class="konu">{o.konu}</p>{/if}
+              </div>
+            </button>
             <button class="buton {o.uye ? 'tonlu' : 'birincil'} kucuk" type="button" disabled={!!mesgul} onclick={() => void katil(o)}>
               {#if mesgul === o.odaId}<span class="yuklenme"></span>{/if}{o.uye ? t("kesfet.ac") : o.katilim === "kapi" ? t("kesfet.iste") : t("kesfet.katil")}
             </button>
@@ -207,6 +345,59 @@
   </div>
 </AltSayfa>
 
+{#if onizlenen}
+  {@const o = onizlenen}
+  {@const ad = o.ad ?? o.adres ?? o.odaId}
+  <AltSayfa baslik={ad} onkapat={() => (onizlenen = null)}>
+    <div class="oniz-ust">
+      <Avatar harf={ad.replace(/^[#!]/, "").slice(0, 1).toUpperCase()} mxc={o.avatarMxc} boyut={56} />
+      <div class="oniz-kimlik">
+        <strong>{ad}{#if o.alan}<span class="etiket">{t("kesfet.alanEtiket")}</span>{/if}</strong>
+        <span>{#if o.adres}{o.adres} · {/if}{t("kesfet.uye", { n: sayi(o.uyeSayisi) })}</span>
+      </div>
+    </div>
+
+    {#if o.konu}
+      <p class="oniz-konu">{o.konu}</p>
+    {/if}
+
+    {#if !o.alan}
+      {#if onizlemeYukleniyor}
+        <p class="oniz-not"><span class="yuklenme"></span>{t("kesfet.onizlemeYukleniyor")}</p>
+      {:else if onizlemeMesajlar.length > 0}
+        <section class="oniz-mesajlar">
+          <h3>{t("kesfet.sonMesajlar")}</h3>
+          <div class="oniz-kutu">
+            {#each onizlemeMesajlar as m (m.olayId)}
+              <div class="oniz-satir">
+                <div class="oniz-meta">
+                  <strong>{m.gonderenAd}</strong>
+                  <span>{goreliZaman(m.zaman)}</span>
+                </div>
+                <p>{m.metin}</p>
+              </div>
+            {/each}
+          </div>
+        </section>
+      {:else}
+        <p class="oniz-not">{t("kesfet.onizlemeKapali")}</p>
+      {/if}
+    {/if}
+
+    {#snippet altlik()}
+      <button
+        class="buton {o.uye ? 'tonlu' : 'birincil'}"
+        type="button"
+        disabled={!!mesgul}
+        onclick={() => void katil(o)}
+      >
+        {#if mesgul === o.odaId}<span class="yuklenme"></span>{/if}
+        {o.uye ? t("kesfet.ac") : o.katilim === "kapi" ? t("kesfet.iste") : t("kesfet.katil")}
+      </button>
+    {/snippet}
+  </AltSayfa>
+{/if}
+
 <style>
   .kesfet { display: grid; gap: 12px; }
   .ara { display: flex; align-items: center; gap: 10px; padding: 0 14px; color: var(--yazi-2); }
@@ -222,11 +413,89 @@
   .bolum { display: grid; grid-template-columns: repeat(3, 1fr); padding: 4px; gap: 4px; border-radius: 16px; background: var(--yuzey-2); }
   .bolum button { min-height: 44px; border-radius: 12px; font-size: .875rem; font-weight: 600; color: var(--yazi-2); }
   .bolum button.secili { background: var(--yuzey-1); color: var(--yazi); }
+
+  /* Official rubychat space card · Resmi rubychat alanı kartı */
+  .rc-kart {
+    background: var(--yuzey-2);
+    border: 1px solid var(--kenar);
+    border-radius: 16px;
+    padding: 14px;
+    display: grid;
+    gap: 10px;
+  }
+  .rc-ust {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .rc-maskot {
+    flex: none;
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    background: var(--yuzey-1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .rc-baslik {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .rc-baslik strong {
+    font-family: var(--baslik-tipi);
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--yazi);
+  }
+  .rc-baslik span {
+    font-size: .8125rem;
+    color: var(--yazi-2);
+  }
+  .rc-kapat {
+    margin: -6px -6px 0 0;
+    align-self: flex-start;
+    color: var(--yazi-2);
+  }
+  .rc-metin {
+    font-size: .875rem;
+    line-height: 1.45;
+    color: var(--yazi-2);
+  }
+  .rc-dugmeler {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .rc-dugme {
+    flex: 1 1 8rem;
+    width: auto;
+    min-height: 44px;
+  }
+
   .liste { list-style: none; margin: 0 -8px; padding: 0; display: grid; gap: 2px; }
   .satir { width: 100%; min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 16px; text-align: left; color: var(--yazi); }
   .satir:hover, .satir:focus-visible { background: var(--yuzey-2); }
   .yer { width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; background: var(--yuzey-2); color: var(--vurgu); flex: none; }
-  .oda { display: flex; align-items: flex-start; gap: 12px; padding: 10px 8px; }
+  .oda { display: flex; align-items: center; gap: 8px; padding: 2px 8px 2px 0; }
+  .oda-bilgi {
+    flex: 1;
+    min-width: 0;
+    min-height: 56px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px;
+    border-radius: 16px;
+    text-align: left;
+    color: var(--yazi);
+  }
+  @media (hover: hover) {
+    .oda-bilgi:hover { background: var(--yuzey-2); }
+  }
+  .oda-bilgi:active { background: var(--yuzey-3); }
   .metin { flex: 1; min-width: 0; display: grid; gap: 2px; }
   .metin b, .metin small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .metin b { font-weight: 600; font-size: .9375rem; }
@@ -236,4 +505,88 @@
   .kucuk { flex: none; width: auto; min-height: 44px; min-width: 72px; padding: 0 14px; align-self: center; }
   .bos { padding: 24px 8px; font-size: .875rem; color: var(--yazi-2); text-align: center; }
   .devam { display: flex; justify-content: center; }
+
+  /* Room preview sheet · Oda önizleme alt sayfası */
+  .oniz-ust {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .oniz-kimlik {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+  .oniz-kimlik strong {
+    font-family: var(--baslik-tipi);
+    font-size: 1.0625rem;
+    font-weight: 600;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  .oniz-kimlik span {
+    font-size: .8125rem;
+    color: var(--yazi-2);
+    overflow-wrap: anywhere;
+  }
+  .oniz-konu {
+    font-size: .9375rem;
+    line-height: 1.5;
+    color: var(--yazi);
+    overflow-wrap: anywhere;
+  }
+  .oniz-mesajlar {
+    display: grid;
+    gap: 8px;
+  }
+  .oniz-mesajlar h3 {
+    font-size: .75rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    color: var(--yazi-2);
+  }
+  .oniz-kutu {
+    background: var(--yuzey-2);
+    border: 1px solid var(--kenar-ince);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .oniz-satir {
+    padding: 10px 14px;
+    display: grid;
+    gap: 4px;
+  }
+  .oniz-satir + .oniz-satir {
+    border-top: 1px solid var(--kenar-ince);
+  }
+  .oniz-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .oniz-meta strong {
+    font-size: .8125rem;
+    font-weight: 600;
+    color: var(--yazi);
+  }
+  .oniz-meta span {
+    font-size: .75rem;
+    color: var(--yazi-2);
+    flex: none;
+  }
+  .oniz-satir p {
+    font-size: .875rem;
+    line-height: 1.4;
+    color: var(--yazi-2);
+    overflow-wrap: anywhere;
+  }
+  .oniz-not {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: .875rem;
+    color: var(--yazi-2);
+  }
 </style>

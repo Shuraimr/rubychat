@@ -537,7 +537,7 @@
   }
 
   /** Hide the shortcut hint strip whenever any composer popover or mention card is open. · Yazma alanı açılır kartı ya da bahsetme listesi açıkken kısayol ipucu şeridini gizle. */
-  const ipucuAcik = $derived(!!seciliOge && tercihler.d.ctrlKisayol && tercihler.d.kisayolIpucu && !bahisAcik && !emojiAcik && !ekAcik);
+  const ipucuAcik = $derived(!!seciliOge && tercihler.d.ctrlKisayol && tercihler.d.kisayolIpucuAcik && !bahisAcik && !emojiAcik && !ekAcik);
 </script>
 
 <div class="yazma" data-alt-cubuk bind:clientHeight={yukseklik}>
@@ -555,12 +555,9 @@
   {#if !altta && !emojiAcik && !ekAcik && !bahisAcik}
     <!-- Counted as a bottom bar, so toasts stay above it. mousedown is cancelled: the focus (and the keyboard) stays. · Alt çubuk sayılır, bildirimler üstünde durur. mousedown iptal: odak (ve klavye) kalır. -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="inis" class:ipuclu={ipucuAcik} data-alt-cubuk onmousedown={(e) => e.preventDefault()}>
+    <div class="inis" data-alt-cubuk onmousedown={(e) => e.preventDefault()}>
       <button class="in" class:var={yeniSayi > 0} onclick={enAlta} aria-label={yeniSayi > 0 ? t("oda.asagiInSayi", { n: yeniSayi }) : t("oda.asagiIn")}><Ikon ad="asagiOk" boyut={24} />{#if yeniSayi > 0}<span class="rozet sayi">{yeniSayi > 99 ? "99+" : yeniSayi}</span>{/if}</button>
     </div>
-  {/if}
-  {#if ipucuAcik && seciliOge}
-    <KisayolIpucu oge={seciliOge} />
   {/if}
   {#if bahisAcik}
     <div class="bahis acilir acik" id="bahis-listesi" role="listbox" aria-label={t("bahis.liste")} bind:this={bahisListe}>
@@ -620,6 +617,10 @@
       <button class="gonder" type="button" aria-label={t("oda.gonder")} disabled={!yazili} tabindex={yazili ? 0 : -1} onmousedown={(e) => e.preventDefault()} onclick={yolla}><Ikon ad={yazma.duzenle ? "onay" : "gonder"} boyut={24} /></button>
     </span>
   </div>
+  <!-- Shortcut hint sits under the composer, in flow (off by default) · Kısayol ipucu yazma alanının altında, akış içinde (varsayılan kapalı) -->
+  {#if ipucuAcik && seciliOge}
+    <KisayolIpucu oge={seciliOge} />
+  {/if}
   <div class="ek acilir" class:acik={ekAcik} inert={!ekAcik} role="menu" aria-label={t("ek.baslik")}>
     {#each ekler as e (e.id)}
       <button class="ek-satir" role="menuitem" data-dalga style:--r={e.renk} onmousedown={(o) => o.preventDefault()} onclick={() => medyaAc(e.id)}><span class="ek-simge"><Ikon ad={e.ikon} boyut={22} /></span><span class="ek-metin"><strong>{t(`ek.${e.id}`)}</strong><small>{t(`ek.${e.id}Alt`)}</small></span></button>
@@ -668,7 +669,6 @@
   .acik > .gonder { transform: none; opacity: 1; }
   /* Outside the flow: the bar (and the timeline padding measured from it) keeps its height · Akışın dışında: çubuğun (ve ondan ölçülen boşluğun) boyu değişmez */
   .inis { position: absolute; right: 14px; bottom: 100%; height: 48px; font-size: 1rem; }
-  .inis.ipuclu { bottom: calc(100% + 2.25rem); }
   .in { position: relative; pointer-events: auto; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--yuzey-2); color: var(--yazi); box-shadow: var(--kat-2); animation: in-gel var(--sure-orta) var(--egri-ac) backwards; }
   .in.var { color: var(--vurgu); }
   @keyframes in-gel { from { transform: translate3d(0, 12px, 0) scale(.75); opacity: 0; } }

@@ -5,6 +5,9 @@ import { enG } from "./en-g";
 import { enH } from "./en-h";
 import { enI } from "./en-i";
 import { enJ } from "./en-j";
+import { enK } from "./en-k";
+import { enL } from "./en-l";
+import { enAlan } from "./en-alan";
 import type { Anahtar } from "./tr";
 
 export const en: Record<Anahtar, string> = {
@@ -866,4 +869,7 @@ export const en: Record<Anahtar, string> = {
   ...enH,
   ...enI,
   ...enJ,
+  ...enK,
+  ...enL,
+  ...enAlan,
 };

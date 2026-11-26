@@ -28,6 +28,7 @@
     eylemler,
     onkapat,
     ust,
+    baslik,
     onizleme,
   }: {
     x: number;
@@ -36,15 +37,46 @@
     onkapat: () => void;
     /** Optional row above the actions (the quick reaction bar); it gets a `kapat` function · Eylemlerin üstünde isteğe bağlı satır (hızlı tepki çubuğu); bir `kapat` işlevi alır */
     ust?: Snippet<[() => void]>;
+    /** Optional custom header inside the menu card (e.g. avatar + name + address) · Menü kartı içinde isteğe bağlı özel başlık (ör. avatar + ad + adres) */
+    baslik?: Snippet;
     /** Which message this is about · Hangi mesajla ilgili olduğu */
     onizleme?: { ad: string; zaman: string; metin: string };
   } = $props();
 
+  let menuEl: HTMLDivElement | undefined = $state();
+  let oncekiOdak: HTMLElement | null = null;
   let katmanId = 0;
   onMount(() => {
+    oncekiOdak = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     katmanId = gezinme.katmanAc(() => onkapat());
+    // Move focus into the menu so ArrowUp / ArrowDown / Enter / Esc work right away · Odağı menüye al; Yukarı/Aşağı ok, Enter ve Esc hemen çalışsın
+    menuEl?.focus();
   });
-  onDestroy(() => gezinme.katmanBirak(katmanId));
+  onDestroy(() => {
+    gezinme.katmanBirak(katmanId);
+    if (oncekiOdak?.isConnected) oncekiOdak.focus();
+  });
+
+  /** Keyboard navigation across menu items (ArrowDown / ArrowUp / Home / End) · Menü öğeleri arasında klavye gezintisi (Aşağı/Yukarı/Home/End) */
+  function klavye(e: KeyboardEvent) {
+    if (!menuEl) return;
+    const ogeler = Array.from(menuEl.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'));
+    if (ogeler.length === 0) return;
+    const suan = ogeler.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      ogeler[(suan + 1) % ogeler.length]?.focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      ogeler[(suan - 1 + ogeler.length) % ogeler.length]?.focus();
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      ogeler[0]?.focus();
+    } else if (e.key === "End") {
+      e.preventDefault();
+      ogeler[ogeler.length - 1]?.focus();
+    }
+  }
 
   // Place the menu next to the touch, kept inside the screen; open upwards when there is no room below. The size is MEASURED after the
   // first paint (labels wrap and the text may be zoomed, so a guessed size would overflow); until then it stays invisible.
@@ -66,9 +98,10 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="perde" onclick={() => gezinme.katmanKapat(katmanId)} oncontextmenu={(e) => e.preventDefault()} in:perdeGir|global out:perdeCik|global></div>
-<div class="menu" class:olculdu={w > 0} class:genis={!!ust} role="menu" bind:offsetWidth={w} bind:offsetHeight={h} style:left="{sol}px" style:top="{ustKonum}px" style:transform-origin="{x - sol}px {y - ustKonum}px" in:menuGir|global out:menuCik|global>
+<div class="menu" class:olculdu={w > 0} class:genis={!!ust} role="menu" tabindex="-1" bind:this={menuEl} onkeydown={klavye} bind:offsetWidth={w} bind:offsetHeight={h} style:left="{sol}px" style:top="{ustKonum}px" style:transform-origin="{x - sol}px {y - ustKonum}px" in:menuGir|global out:menuCik|global>
   {#if ust}<div class="ust kart">{@render ust(() => gezinme.katmanKapat(katmanId))}</div>{/if}
   <div class="govde kart">
+    {#if baslik}<div class="baslik">{@render baslik()}</div>{/if}
     {#if onizleme}<div class="onizleme"><span class="kim"><b>{onizleme.ad}</b><small>{onizleme.zaman}</small></span><span class="ne">{onizleme.metin}</span></div>{/if}
     {#if karolar.length > 0}
       <div class="karolar" style:--n={karolar.length}>
@@ -89,7 +122,7 @@
   .menu {
     position: fixed; z-index: 33; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px;
     width: max-content; min-width: min(14.5rem, calc(100vw - 2rem)); max-width: min(20rem, calc(100vw - 2rem)); max-height: calc(var(--gorunen-yukseklik, 100vh) - 1rem); overflow-y: auto; scrollbar-width: none;
-    visibility: hidden;
+    visibility: hidden; outline: none;
   }
   .menu::-webkit-scrollbar { display: none; }
   .menu.olculdu { visibility: visible; }
@@ -97,6 +130,7 @@
   .kart { background: var(--yuzey-3); border-radius: 1.75rem; box-shadow: var(--kat-2); }
   .ust { padding: .25rem .5rem; }
   .govde { padding: 8px; display: grid; grid-template-columns: minmax(0, 1fr); }
+  .baslik { padding: 6px 10px 10px; border-bottom: 1px solid var(--kenar-ince); margin-bottom: 4px; min-width: 0; }
   .onizleme { padding: 6px 10px 10px; display: grid; gap: 2px; min-width: 0; }
   .kim { display: flex; align-items: baseline; gap: 8px; font-size: .8125rem; color: var(--vurgu); }
   .kim b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

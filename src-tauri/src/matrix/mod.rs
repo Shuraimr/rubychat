@@ -1,5 +1,6 @@
 //! Everything that talks to Matrix. Each file is one concern; `komutlar.rs` only calls into these.
 //! Matrix ile konuşan her şey. Her dosya tek bir konu; `komutlar.rs` yalnızca bunları çağırır.
+pub mod alan_yonetimi;
 pub mod alanlar;
 pub mod arama;
 pub mod cihaz_giris;

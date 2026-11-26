@@ -28,7 +28,7 @@
         {#if tercihler.d.ctrlKisayol}
           <div class="ay-satir">
             <span class="ay-metin"><strong>{t("klavye.ipucu")}</strong><span>{t("klavye.ipucuYeniAlt")}</span></span>
-            <Anahtar acik={tercihler.d.kisayolIpucu} degis={(v) => tercihler.yaz("kisayolIpucu", v)} etiket={t("klavye.ipucu")} />
+            <Anahtar acik={tercihler.d.kisayolIpucuAcik} degis={(v) => tercihler.yaz("kisayolIpucuAcik", v)} etiket={t("klavye.ipucu")} />
           </div>
         {/if}
       </div>

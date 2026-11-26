@@ -595,3 +595,88 @@ export interface OnizlemeMesaji {
   metin: string;
   tur: OnizlemeTuru;
 }
+
+// ---- Updates & setup report · Güncellemeler ve kurulum raporu ----
+
+/** One downloadable release artifact (guncelleme.rs) · İndirilebilir tek sürüm varlığı (guncelleme.rs) */
+export interface Varlik {
+  ad: string;
+  url: string;
+  boyut: number;
+  sha256: string | null;
+}
+
+export interface YeniSurum {
+  surum: string;
+  etiket: string;
+  notlar: string;
+  tarih: string;
+  sayfa: string;
+  apk: Varlik | null;
+  flatpak: Varlik | null;
+}
+
+export interface GuncellemeBilgisi {
+  mevcut: string;
+  yeni: YeniSurum | null;
+}
+
+/** Event "guncelleme-ilerleme": bytes downloaded so far · "guncelleme-ilerleme" olayı: şimdiye dek indirilen bayt */
+export interface GuncellemeIlerleme {
+  indirilen: number;
+  toplam: number;
+}
+
+/** One diagnostic row from kurulum_raporu.rs; UI translates labels from `kimlik` · kurulum_raporu.rs tanı satırı; etiketler arayüzde `kimlik`ten çevrilir */
+export interface RaporSatiri {
+  kimlik: string;
+  grup: "sistem" | "izinler" | "baglanti";
+  durum: "tamam" | "uyari" | "eksik";
+  deger: string | null;
+  eylem: string | null;
+}
+
+// ---- Space management and room settings · Alan yönetimi ve oda ayarları ----
+export interface AlanYetkim {
+  cocukYonetebilir: boolean;
+  ayarDegistirebilir: boolean;
+  davetEdebilir: boolean;
+}
+export interface EklenebilirOda {
+  id: string;
+  ad: string;
+  avatarHarf: string;
+  avatarMxc: string | null;
+  uyeSayisi: number;
+  sifreli: boolean;
+  alan: boolean;
+  /** I administer it (otherwise shown disabled) · Yönetiyorum (yoksa soluk gösterilir) */
+  yetkili: boolean;
+}
+export type Katilim = "acik" | "alan" | "davet" | "istek" | "diger";
+export interface OdaAyarlari {
+  ad: string;
+  konu: string;
+  avatarMxc: string | null;
+  adres: string | null;
+  katilim: Katilim;
+  katilimAlani: string | null;
+  dizinde: boolean;
+  duyuru: boolean;
+  sifreli: boolean;
+  alan: boolean;
+  adDegistirebilir: boolean;
+  konuDegistirebilir: boolean;
+  avatarDegistirebilir: boolean;
+  katilimDegistirebilir: boolean;
+  gucDegistirebilir: boolean;
+}
+export interface OdaAyarYazimi {
+  ad?: string;
+  konu?: string;
+  katilim?: Exclude<Katilim, "diger">;
+  katilimAlani?: string;
+  dizinde?: boolean;
+  duyuru?: boolean;
+  sifrele?: boolean;
+}

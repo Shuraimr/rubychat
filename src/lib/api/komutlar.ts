@@ -6,6 +6,10 @@ import type {
   EsitlemeDurumu,
   AramaGonderIstegi,
   AlanIcerigi,
+  AlanYetkim,
+  EklenebilirOda,
+  OdaAyarlari,
+  OdaAyarYazimi,
   AlanOgesi,
   AnketIstegi,
   Ben,
@@ -37,6 +41,8 @@ import type {
   VideoSonucu,
   BulunanKisi,
   KesifSayfasi,
+  GuncellemeBilgisi,
+  RaporSatiri,
 } from "./tipler";
 import type { EcAcIstegi, EcAcilis, EcAramaDurumu } from "../arama-ec/tipler";
 
@@ -108,6 +114,28 @@ export const alanlariAl = () => cagir<AlanOgesi[]>("alanlari_al");
 export const alanIcerigi = (alanId: string) => cagir<AlanIcerigi>("alan_icerigi", { alanId });
 /** Joins by room id or alias through the given servers; returns the room id · Verilen sunucular üzerinden oda kimliği ya da takma adla katılır; oda kimliğini döndürür */
 export const alanaKatil = (kimlik: string, via: string[]) => cagir<string>("alana_katil", { kimlik, via });
+// ---- Space management and room settings · Alan yönetimi ve oda ayarları ----
+/** What I may do in a space · Bir alanda neler yapabileceğim */
+export const alanYetkim = (alanId: string) => cagir<AlanYetkim>("alan_yetkim", { alanId });
+/** Creates a room or sub-space inside a space and links it both ways; returns the new room id · Alanın içinde oda ya da alt alan oluşturur, iki yönde bağlar; yeni oda kimliğini döndürür */
+export const alandaOdaOlustur = (alanId: string, ad: string, konu: string | null, katilim: "alan" | "acik" | "davet", duyuru: boolean, sifreli: boolean, altAlan: boolean) =>
+  cagir<string>("alanda_oda_olustur", { alanId, ad, konu, katilim, duyuru, sifreli, altAlan });
+/** Joined rooms that can be added to the space · Alana eklenebilecek katılınmış odalar */
+export const eklenebilirOdalar = (alanId: string) => cagir<EklenebilirOda[]>("eklenebilir_odalar", { alanId });
+/** Adds existing rooms; returns how many were added · Var olan odaları ekler; kaç tane eklendiğini döndürür */
+export const alanaOdaEkle = (alanId: string, odaIdler: string[]) => cagir<number>("alana_oda_ekle", { alanId, odaIdler });
+/** Takes a room out of the space (does not delete it) · Odayı alandan çıkarır (silmez) */
+export const alandanCikar = (alanId: string, odaId: string) => cagir<void>("alandan_cikar", { alanId, odaId });
+/** Marks a child as featured (suggested) or not · Bir çocuğu öne çıkarır ya da geri alır */
+export const alanOneCikar = (alanId: string, odaId: string, onerilen: boolean) => cagir<void>("alan_one_cikar", { alanId, odaId, onerilen });
+/** Settings of a room or space + what I may change · Oda ya da alan ayarları + neyi değiştirebileceğim */
+export const odaAyarlari = (odaId: string) => cagir<OdaAyarlari>("oda_ayarlari", { odaId });
+/** Writes only the given settings · Yalnızca verilen ayarları yazar */
+export const odaAyarlariniYaz = (odaId: string, d: OdaAyarYazimi) =>
+  cagir<void>("oda_ayarlarini_yaz", { odaId, ad: d.ad ?? null, konu: d.konu ?? null, katilim: d.katilim ?? null, katilimAlani: d.katilimAlani ?? null, dizinde: d.dizinde ?? null, duyuru: d.duyuru ?? null, sifrele: d.sifrele ?? null });
+/** Sets a room avatar from a picked temp file (same flow as the profile avatar) · Seçilen geçici dosyadan oda avatarı koyar */
+export const odaAvatarAyarla = (odaId: string, kimlik: string, mime: string) => cagir<string>("oda_avatar_ayarla", { odaId, kimlik, mime });
+export const odaAvatarKaldir = (odaId: string) => cagir<void>("oda_avatar_kaldir", { odaId });
 // ---- Invitations and join requests · Davetler ve katılma istekleri ----
 export const istekleriAl = () => cagir<Istekler>("istekleri_al");
 export const davetKabul = (odaId: string) => cagir<void>("davet_kabul", { odaId });
@@ -232,3 +260,16 @@ export const kayitPenceresiKapat = () => cagir<void>("kayit_penceresi_kapat");
 export const kullaniciAra = (sorgu: string) => cagir<BulunanKisi[]>("kullanici_ara", { sorgu });
 export const odalariKesfet = (sunucu: string, sorgu: string, tur: "" | "oda" | "alan", sonraki: string | null) =>
   cagir<KesifSayfasi>("odalari_kesfet", { sunucu, sorgu, tur, sonraki });
+
+// ---- Updates & setup report (guncelleme.rs, kurulum_raporu.rs) · Güncellemeler ve kurulum raporu ----
+/** Real app version including beta tags (guncelleme::SURUM) · Beta etiketleri dahil gerçek uygulama sürümü (guncelleme::SURUM) */
+export const uygulamaSurumu = () => cagir<string>("uygulama_surumu");
+export const guncellemeDenetle = (beta: boolean) => cagir<GuncellemeBilgisi>("guncelleme_denetle", { beta });
+export const guncellemeIndir = (url: string, ad: string, sha256: string | null) =>
+  cagir<string>("guncelleme_indir", { url, ad, sha256 });
+export const guncellemeIptal = () => cagir<void>("guncelleme_iptal");
+export const guncellemeIzinVar = () => cagir<boolean>("guncelleme_izin_var");
+export const guncellemeIzinAc = () => cagir<void>("guncelleme_izin_ac");
+export const guncellemeKur = (yol: string) => cagir<boolean>("guncelleme_kur", { yol });
+export const kurulumRaporu = () => cagir<RaporSatiri[]>("kurulum_raporu");
+export const kurulumDuzelt = (eylem: string) => cagir<void>("kurulum_duzelt", { eylem });

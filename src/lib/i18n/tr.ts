@@ -6,6 +6,9 @@ import { trG } from "./tr-g";
 import { trH } from "./tr-h";
 import { trI } from "./tr-i";
 import { trJ } from "./tr-j";
+import { trK } from "./tr-k";
+import { trL } from "./tr-l";
+import { trAlan } from "./tr-alan";
 
 export const tr = {
   // Login · Giriş
@@ -726,6 +729,9 @@ export const tr = {
   ...trH,
   ...trI,
   ...trJ,
+  ...trK,
+  ...trL,
+  ...trAlan,
 } as const;
 
 export type Anahtar = keyof typeof tr;

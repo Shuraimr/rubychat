@@ -101,6 +101,7 @@
       </div>
 
       <div class="ay-kart">
+        <button class="ay-satir dugme" data-dalga onclick={() => gezinme.odaAyarAc({ odaId })}><span class="ay-simge" style:--r="var(--tas-kehribar)"><Ikon ad="disli" boyut={20} /></span><span class="ay-metin"><strong>{t("alanYonet.odaAyarlari")}</strong><span>{t("alanYonet.odaAyarlariAlt")}</span></span></button>
         <button class="ay-satir dugme" data-dalga onclick={uyelerAc}><span class="ay-simge" style:--r="var(--tas-safir)"><Ikon ad="kisi" boyut={20} /></span><span class="ay-metin"><strong>{t("bilgi.uyeler")}</strong><span>{t("oda.uyeler", { n: b.uyeSayisi })}</span></span></button>
         {#if kapida > 0}<button class="ay-satir dugme" data-dalga onclick={() => istekler.ac()}><span class="ay-simge" style:--r="var(--tas-kehribar)"><Ikon ad="zil" boyut={20} /></span><span class="ay-metin"><strong>{t("istek.baslik")}</strong><span>{t("istek.bekleyenKisi", { n: kapida })}</span></span><span class="rozet">{kapida}</span></button>{/if}
         <button class="ay-satir dugme" data-dalga onclick={gorunumAc}><span class="ay-simge" style:--r="var(--tas-ametist)"><Ikon ad="palet" boyut={20} /></span><span class="ay-metin"><strong>{t("bilgi.gorunum")}</strong></span></button>

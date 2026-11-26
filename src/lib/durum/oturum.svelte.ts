@@ -48,7 +48,7 @@ function benYaz(b: Ben | null) {
 /** What this device remembers of the account in use (not of the rooms, whose ids are unique anyway) · Cihazın kullanımdaki hesaptan hatırladıkları (odalar değil; kimlikleri zaten benzersiz) */
 function hesapIziSil() {
   try {
-    for (const a of [PROFIL_ANAHTARI, BEN_ANAHTARI, ODA_ONBELLEK_ANAHTARI, "rubychat.ziyaret", "rubychat.sonAramalar", "rubychat.sonOdalar"]) localStorage.removeItem(a);
+    for (const a of [PROFIL_ANAHTARI, BEN_ANAHTARI, ODA_ONBELLEK_ANAHTARI, "rubychat.ziyaret", "rubychat.sonAramalar", "rubychat.sonOdalar", "rubychat.bildirimMerkezi"]) localStorage.removeItem(a);
   } catch {
     /* ignore · yok say */
   }

@@ -43,3 +43,15 @@ export async function disariAc(url: string, yol?: AcmaYolu): Promise<void> {
   if ("__TAURI_INTERNALS__" in window) await invoke("plugin:opener|open_url", { url });
   else window.open(url, "_blank", "noopener,noreferrer");
 }
+
+/** Reveals a downloaded file in its folder (desktop, via tauri-plugin-opener). · İndirilen dosyayı klasöründe gösterir (masaüstü, tauri-plugin-opener ile). */
+export async function klasorAc(yol: string): Promise<void> {
+  if (!("__TAURI_INTERNALS__" in window)) return;
+  try {
+    await invoke("plugin:opener|reveal_item_in_dir", { paths: [yol] });
+  } catch {
+    // Fallback: open the parent directory when reveal_item_in_dir is not supported. · Yedek: reveal_item_in_dir desteklenmiyorsa üst klasörü aç.
+    const ust = yol.replace(/[/\\][^/\\]+$/, "") || yol;
+    await invoke("plugin:opener|open_path", { path: ust });
+  }
+}

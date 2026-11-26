@@ -30,6 +30,10 @@
   import EcKatman from "./lib/arama-ec/EcKatman.svelte";
   import UstBildirim from "./lib/bilesenler/UstBildirim.svelte";
   import Bildirim from "./lib/bilesenler/Bildirim.svelte";
+  import BildirimPaneli from "./lib/bilesenler/BildirimPaneli.svelte";
+  import GuncellemeSayfasi from "./lib/bilesenler/GuncellemeSayfasi.svelte";
+  import KurulumRaporu from "./lib/bilesenler/KurulumRaporu.svelte";
+  import Tur from "./lib/bilesenler/Tur.svelte";
   import SifrelemeKatmani from "./lib/bilesenler/SifrelemeKatmani.svelte";
   import AltDock from "./lib/bilesenler/AltDock.svelte";
   import Sayfalayici from "./lib/bilesenler/Sayfalayici.svelte";
@@ -47,12 +51,17 @@
   import Ben from "./lib/ekranlar/Ben.svelte";
   import Giris from "./lib/ekranlar/Giris.svelte";
   import Oda from "./lib/ekranlar/Oda.svelte";
+  import OdaAyarlari from "./lib/ekranlar/OdaAyarlari.svelte";
   import Sohbetler from "./lib/ekranlar/Sohbetler.svelte";
   import { alanlar } from "./lib/durum/alanlar.svelte";
   import { arama } from "./lib/durum/arama.svelte";
   import { ayarlar } from "./lib/durum/ayarlar.svelte";
   import { bildirim } from "./lib/durum/bildirim.svelte";
+  import { bildirimMerkezi } from "./lib/durum/bildirimMerkezi.svelte";
   import { gezinme, type Sekme } from "./lib/durum/gezinme.svelte";
+  import { guncelleme } from "./lib/durum/guncelleme.svelte";
+  import { istekler } from "./lib/durum/istekler.svelte";
+  import { kurulum, kurulumRaporuAc } from "./lib/durum/kurulum.svelte";
   import { odalar } from "./lib/durum/odalar.svelte";
   import { oturum } from "./lib/durum/oturum.svelte";
   import { sifreleme } from "./lib/durum/sifreleme.svelte";
@@ -65,7 +74,7 @@
 
   const ANA: Sekme[] = ["sohbetler", "alanlar", "ben"];
   let ekran: HTMLDivElement | undefined = $state();
-  const dockGorunur = $derived(gezinme.sekil === "telefon" && !gezinme.acikOdaId && !gezinme.benAlt && !kabuk.aramaOdakta);
+  const dockGorunur = $derived(gezinme.sekil === "telefon" && !gezinme.acikOdaId && !gezinme.benAlt && !gezinme.odaAyar && !kabuk.aramaOdakta);
 
   onMount(() => {
     // Register keyboard shortcuts before gezinme so Esc drops message selection before closing a room on narrow viewports.
@@ -126,9 +135,20 @@
     onYukle.guncelle(odalar.liste, odalar.ilkListeGeldi && odalar.esitleme.durum === "calisiyor");
   });
 
+  // Mirror pending incoming invitations into the notification center without duplicating them.
+  // Bekleyen gelen davetleri yinelemeden bildirim merkezine yansıt.
+  $effect(() => {
+    if (!oturum.ben || !istekler.yuklendi) return;
+    const gelen = istekler.veri.gelen;
+    untrack(() => bildirimMerkezi.davetleriEsle(gelen));
+  });
+
   // Start/stop room-list tracking with the login state. · Oda listesi izlemesini giriş durumuna göre başlat/durdur.
   $effect(() => {
     if (oturum.ben) {
+      // An account is already signed in (e.g. upgraded from an older build): mark the first-run tour as seen.
+      // Zaten giriş yapılmış bir hesap var (ör. eski sürümden yükseltme): ilk kurulum turunu görüldü say.
+      if (!untrack(() => tercihler.d.turGoruldu)) untrack(() => tercihler.yaz("turGoruldu", true));
       odalar.baslat(oturum.ben.kullaniciId);
       untrack(() => oturum.profilYenile());
       arama.baslat(oturum.ben.kullaniciId);
@@ -137,6 +157,7 @@
       untrack(() => void sifreleme.baslat(cihazId));
       // System + in-app notifications live as long as the session. · Sistem + uygulama içi bildirimler oturum boyunca yaşar.
       untrack(() => arkaPlanAyarla(tercihler.d.arkaPlan));
+      const guncellemeBirak = untrack(() => guncelleme.otomatikBaslat());
       let birak: (() => void) | null = null;
       let bitti = false;
       untrack(() =>
@@ -146,6 +167,17 @@
             // In-app banner follows Ayarlar › Bildirimler (on/off, preview, vibration). · Uygulama içi şerit Ayarlar › Bildirimler'i izler (aç/kapa, önizleme, titreşim).
             if (!tercihler.d.bildirimAcik) return;
             if (tercihler.d.bildirimTitresim) titret("dokunus");
+            const metin = tercihler.d.bildirimOnizleme ? b.metin : "";
+            const bahsetme = "bahsetme" in b && Boolean((b as { bahsetme?: unknown }).bahsetme);
+            bildirimMerkezi.ekle({
+              tur: bahsetme ? "bahsetme" : "mesaj",
+              baslik: b.gonderenAd || b.odaAd,
+              baglam: b.odaAd,
+              metin: metin || t("ustBildirim.yeni"),
+              odaId: b.odaId,
+              avatarMxc: b.avatarMxc,
+              harf: (b.odaAd || b.gonderenAd).charAt(0).toUpperCase() || "#",
+            });
             ustBildirim.goster(tercihler.d.bildirimOnizleme ? b : { ...b, metin: "" });
           },
         })
@@ -155,6 +187,7 @@
       return () => {
         bitti = true;
         birak?.();
+        guncellemeBirak();
         arkaPlanAyarla(false);
         ustBildirim.kapat();
       };
@@ -167,15 +200,27 @@
       zaman.bellekSil();
       onYukle.sil();
       kabuk.sifirla();
+      // Only wipe persisted notifications once session restore settled (not during the pre-restore splash). · Kalıcı bildirimleri yalnızca oturum geri yükleme bittikten sonra sil (açılış öncesi değil).
+      if (oturum.hazir) bildirimMerkezi.temizle();
       // The next account must not see this one's emoji and sticker packs. · Sonraki hesap bunun emoji ve çıkartma paketlerini görmemeli.
       paketler.temizle();
     }
   });
+  /** Finishes or skips the first-run tour and opens the setup report once automatically. · İlk kurulum turunu bitirir/geçer ve kurulum raporunu bir kez otomatik açar. */
+  function ilkTurBitir() {
+    tercihler.yaz("turGoruldu", true);
+    if (!tercihler.d.raporGosterildi) {
+      tercihler.yaz("raporGosterildi", true);
+      kurulumRaporuAc();
+    }
+  }
 </script>
 
 {#if !oturum.hazir}
   <!-- Splash (fades over the app once it is drawn) only while the saved session is restored; cached rooms never wait behind it. · Açılış ekranı yalnızca kayıtlı oturum geri yüklenirken; önbellekteki odalar onun arkasında beklemez. -->
   <Acilis />
+{:else if !oturum.ben && !tercihler.d.turGoruldu}
+  <Tur onbitir={ilkTurBitir} />
 {:else if !oturum.ben}
   <Giris />
 {:else}
@@ -194,16 +239,19 @@
         {:else if !duzen.listeGizli}
           <Ray />
         {/if}
-        {#if duzen.kompakt ? duzen.cekmece || !gezinme.acikOdaId : !duzen.listeGizli}
-          <section class="liste-sutunu" class:cekmece={duzen.kompakt && duzen.cekmece} class:dolu={duzen.kompakt && !gezinme.acikOdaId}>
+        {#if duzen.kompakt ? duzen.cekmece || (!gezinme.acikOdaId && !gezinme.odaAyar) : !duzen.listeGizli}
+          <section class="liste-sutunu" class:cekmece={duzen.kompakt && duzen.cekmece} class:dolu={duzen.kompakt && !gezinme.acikOdaId && !gezinme.odaAyar}>
             {#if gezinme.sekme === "sohbetler"}<Sohbetler />{:else if gezinme.sekme === "alanlar"}<Alanlar />{:else}<Ben />{/if}
           </section>
         {/if}
-        <section class="oda-sutunu" class:yok={duzen.kompakt && !gezinme.acikOdaId}>
+        <section class="oda-sutunu" class:yok={duzen.kompakt && !gezinme.acikOdaId && !gezinme.odaAyar}>
           {#if gezinme.acikOdaId}
             {#key gezinme.acikOdaId}<Oda odaId={gezinme.acikOdaId} />{/key}
           {:else}
             <div class="bos"><p>{t("oda.sec")}</p></div>
+          {/if}
+          {#if gezinme.odaAyar}
+            {#key gezinme.odaAyar.odaId}<OdaAyarlari hedef={gezinme.odaAyar} />{/key}
           {/if}
           {#if arama.gorunur && arama.ekranAcik}<Arama />{/if}
         </section>
@@ -213,12 +261,12 @@
       <!-- Telefon: liste altta kalır (%25 sola kayar); oda üstüne sağdan girer, sağa kaydırınca kapanır. -->
       <div class="telefon" class:yatay={gezinme.yatay}>
         {#if gezinme.yatay}<Ray kompakt />{/if}
-        <div class="ekran" class:itildi={!!gezinme.acikOdaId} class:dikey={!gezinme.yatay} bind:this={ekran} inert={!!gezinme.acikOdaId}>
+        <div class="ekran" class:itildi={!!gezinme.acikOdaId || !!gezinme.odaAyar} class:dikey={!gezinme.yatay} bind:this={ekran} inert={!!gezinme.acikOdaId || !!gezinme.odaAyar}>
           {#if gezinme.yatay}
             {#if gezinme.sekme === "sohbetler"}<Sohbetler />{:else if gezinme.sekme === "alanlar"}<Alanlar />{:else}<Ben />{/if}
           {:else}
             <!-- Portrait phone: the three main pages side by side; swipe or use the dock. · Dikey telefon: üç ana sayfa yan yana; kaydır ya da dock'u kullan. -->
-            <Sayfalayici sayfalar={ANA} secili={gezinme.sekme} sec={(id) => { gezinme.sekmeSec(id as Sekme); kabuk.altGizli = false; titret(6); }} ilerle={(f) => (kabuk.ilerleme = f)} kilitli={!!gezinme.benAlt || kabuk.aramaOdakta || (gezinme.sekme === "alanlar" && alanlar.yigin.length > 0)}>
+            <Sayfalayici sayfalar={ANA} secili={gezinme.sekme} sec={(id) => { gezinme.sekmeSec(id as Sekme); kabuk.altGizli = false; titret(6); }} ilerle={(f) => (kabuk.ilerleme = f)} kilitli={!!gezinme.benAlt || !!gezinme.odaAyar || kabuk.aramaOdakta || (gezinme.sekme === "alanlar" && alanlar.yigin.length > 0)}>
               {#snippet sayfa(id)}
                 {#if id === "sohbetler"}<Sohbetler />{:else if id === "alanlar"}<Alanlar />{:else}<Ben />{/if}
               {/snippet}
@@ -231,6 +279,9 @@
           <div class="oda-katman" in:kayGir out:kayCik use:geriKaydir={{ etkin: () => gezinme.ustKatmanMi("oda"), geri: () => gezinme.odaKapat(), altta: () => ekran }}>
             {#key gezinme.acikOdaId}<Oda odaId={gezinme.acikOdaId} />{/key}
           </div>
+        {/if}
+        {#if gezinme.odaAyar}
+          {#key gezinme.odaAyar.odaId}<OdaAyarlari hedef={gezinme.odaAyar} />{/key}
         {/if}
       </div>
       {#if arama.gorunur && arama.ekranAcik}<Arama />{/if}
@@ -248,7 +299,11 @@
 {#if oturum.ben}<HizliGecis />{/if}
 {#if oturum.ben && klavye.palet}<OdaPaleti />{/if}
 {#if klavye.yardim}<KlavyeYardim />{/if}
+{#if oturum.ben}<BildirimPaneli />{/if}
 {#if oturum.ben}<UstBildirim />{/if}
+{#if kurulum.turAcik}<Tur tekrar onbitir={() => kurulum.turKapat()} />{/if}
+<KurulumRaporu />
+<GuncellemeSayfasi />
 <Bildirim />
 
 <style>
