@@ -8,7 +8,10 @@
 -->
 <script lang="ts">
   import { onMount } from "svelte";
+  import { androidMi } from "../arama-ec/ses";
+  import { tercihler } from "../durum/tercihler.svelte";
   import { resmiCoz } from "../medya/isleme";
+  import { masaustuLinux } from "../pano";
   import { t } from "../i18n";
   import AltSayfa from "./AltSayfa.svelte";
 
@@ -22,6 +25,7 @@
     onkapat: () => void;
   } = $props();
 
+  const masaustuMu = masaustuLinux || (!androidMi() && !/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent));
   let bmp = $state<ImageBitmap | null>(null);
   let hata = $state(false);
   let kare = $state(280);
@@ -104,9 +108,18 @@
       onbitti(blob, cikti, cikti, blob.type || mime);
     } catch {
       hata = true;
-    } finally {
       mesgul = false;
     }
+  }
+
+  function tus(e: KeyboardEvent) {
+    if (!masaustuMu || !tercihler.d.enterGonder || e.defaultPrevented || e.isComposing || e.repeat) return;
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    const hedef = e.target as HTMLElement | null;
+    if (hedef?.closest("button, a, input[type='checkbox'], [role='radio']")) return;
+    if (!bmp || mesgul || hata) return;
+    e.preventDefault();
+    void kirp();
   }
   const sekiller: { id: "kare" | "yuvarlak" | "daire"; ad: string }[] = $derived([
     { id: "kare", ad: t("kirp.kare") },
@@ -114,6 +127,8 @@
     { id: "daire", ad: t("kirp.daire") },
   ]);
 </script>
+
+<svelte:window onkeydown={tus} />
 
 <AltSayfa baslik={cikartmaKipi ? t("kirp.cikartmaBaslik") : t("kirp.baslik")} {onkapat}>
   {#if hata}
@@ -128,11 +143,11 @@
     <label class="zoom"><span>{t("kirp.yakinlas")}</span><input type="range" min="1" max="4" step="0.01" bind:value={zoom} aria-label={t("kirp.yakinlas")} /></label>
     {#if cikartmaKipi}
       <div class="sekiller" role="radiogroup" aria-label={t("kirp.sekil")}>
-        {#each sekiller as s (s.id)}<button role="radio" aria-checked={sekil === s.id} class:aktif={sekil === s.id} onclick={() => (sekil = s.id)}>{s.ad}</button>{/each}
+        {#each sekiller as s (s.id)}<button type="button" role="radio" aria-checked={sekil === s.id} class:aktif={sekil === s.id} onclick={() => (sekil = s.id)}>{s.ad}</button>{/each}
       </div>
       <label class="kenar-satir"><span>{t("kirp.kenar")}</span><input type="checkbox" bind:checked={kenar} /></label>
     {/if}
-    <button class="buton birincil" onclick={kirp} disabled={!bmp || mesgul}>{mesgul ? t("kirp.hazirlaniyor") : t("kirp.tamam")}</button>
+    <button type="button" class="buton birincil" onclick={kirp} disabled={!bmp || mesgul}>{mesgul ? t("kirp.hazirlaniyor") : t("kirp.tamam")}</button>
   {/if}
 </AltSayfa>
 

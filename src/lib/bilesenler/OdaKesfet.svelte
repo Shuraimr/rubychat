@@ -9,6 +9,7 @@
   Bu sayfa "Adresle odaya katıl"ın yerini aldı.
 -->
 <script lang="ts">
+  import { untrack } from "svelte";
   import { alanaKatil, odalariKesfet } from "../api/komutlar";
   import type { BulunanOda } from "../api/tipler";
   import { alanlar } from "../durum/alanlar.svelte";
@@ -36,8 +37,12 @@
   let yukleniyor = $state(false);
   let hata = $state(false);
   let mesgul = $state<string | null>(null);
+  // The server the shown list really came from (the chip may already point at another one while a new list loads): it is the `via` of "Katıl".
+  // Gösterilen listenin gerçekte geldiği sunucu (yeni liste yüklenirken çip başka sunucuyu gösteriyor olabilir): "Katıl"ın `via`sı odur.
+  let listeSunucusu = $state("");
 
-  const adres = $derived(/^[#!][^\s:]+:[^\s]+$/.test(sorgu.trim()) ? sorgu.trim() : null);
+  // #alias:server, !id:server, or a Room v12 id (`!hash`, no server part). · #takma:sunucu, !kimlik:sunucu ya da Room v12 kimliği (`!özet`, sunucu kısmı yok).
+  const adres = $derived(/^(#[^\s:]+:[^\s]+|![^\s:]+(:[^\s]+)?)$/.test(sorgu.trim()) ? sorgu.trim() : null);
 
   let istekNo = 0;
   async function yukle(devam: boolean) {
@@ -49,6 +54,7 @@
       if (bu !== istekNo) return;
       odalarListe = devam ? [...odalarListe, ...s.odalar.filter((o) => !odalarListe.some((x) => x.odaId === o.odaId))] : s.odalar;
       sonraki = s.sonraki;
+      listeSunucusu = s.sunucu || sunucu;
     } catch (e) {
       if (bu !== istekNo) return;
       console.error(e);
@@ -64,7 +70,18 @@
     void sunucu;
     void tur;
     const s = sorgu.trim();
-    if (adres) return;
+    if (adres) {
+      // An address replaces the list: an answer still on the way must not leave the spinner on. · Adres listeyi değiştirir: yoldaki yanıt yükleme göstergesini açık bırakmamalı.
+      ++istekNo;
+      yukleniyor = false;
+      return;
+    }
+    // The server changed: the old server's rooms must not stay clickable under the new chip. · Sunucu değişti: eski sunucunun odaları yeni çipin altında tıklanabilir kalmamalı.
+    // untrack: loading sets listeSunucusu; it must not re-run this effect. · untrack: yükleme listeSunucusu'nu yazar; bu efekti yeniden çalıştırmamalı.
+    if (untrack(() => listeSunucusu) && untrack(() => listeSunucusu) !== sunucu) {
+      odalarListe = [];
+      sonraki = null;
+    }
     const z = setTimeout(() => void yukle(false), s ? 350 : 0);
     return () => clearTimeout(z);
   });
@@ -90,12 +107,12 @@
     if (o.uye) return ac(o.odaId, ad, o.alan);
     if (o.katilim === "kapi") {
       onkapat();
-      istekAc({ kimlik: o.adres ?? o.odaId, ad, via: [sunucu] });
+      istekAc({ kimlik: o.adres ?? o.odaId, ad, via: [listeSunucusu || sunucu] });
       return;
     }
     mesgul = o.odaId;
     try {
-      const id = await alanaKatil(o.adres ?? o.odaId, [sunucu]);
+      const id = await alanaKatil(o.adres ?? o.odaId, [listeSunucusu || sunucu]);
       ac(id, ad, o.alan);
     } catch (err) {
       hataBildir(err);
@@ -107,7 +124,7 @@
   async function adresleKatil() {
     if (!adres) return;
     const d = adres;
-    const via = d.startsWith("!") ? [d.slice(d.indexOf(":") + 1)] : [];
+    const via = d.startsWith("!") && d.includes(":") ? [d.slice(d.indexOf(":") + 1)] : [];
     mesgul = d;
     try {
       ac(await alanaKatil(d, via), d, false);
@@ -195,13 +212,15 @@
   .ara { display: flex; align-items: center; gap: 10px; padding: 0 14px; color: var(--yazi-2); }
   .ara input { flex: 1; min-width: 0; height: 48px; background: none; border: 0; outline: none; color: var(--yazi); font-size: 1rem; }
   .cipler { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -4px; padding: 0 4px; }
-  .cip { flex: none; min-height: 40px; padding: 0 14px; border-radius: 12px; display: inline-flex; align-items: center; gap: 6px; background: var(--yuzey-2); color: var(--yazi); font-size: .875rem; font-weight: 500; }
+  .cip { flex: none; min-height: 44px; padding: 0 14px; border-radius: 12px; display: inline-flex; align-items: center; gap: 6px; background: var(--yuzey-2); color: var(--yazi); font-size: .875rem; font-weight: 500; }
   .cip.secili { background: var(--vurgu); color: var(--vurgu-ustu, #fff); }
   .baska { display: flex; gap: 8px; }
   .baska .alan-kutu { flex: 1; min-width: 0; }
+  /* The global .buton is width:100%: here it must keep its own size beside the field. · Genel .buton width:100%: burada alanın yanında kendi boyutunu korumalı. */
+  .baska .buton { width: auto; flex: none; min-height: 44px; }
   .baska input { width: 100%; height: 44px; padding: 0 14px; background: none; border: 0; outline: none; color: var(--yazi); font-size: 1rem; }
   .bolum { display: grid; grid-template-columns: repeat(3, 1fr); padding: 4px; gap: 4px; border-radius: 16px; background: var(--yuzey-2); }
-  .bolum button { min-height: 40px; border-radius: 12px; font-size: .875rem; font-weight: 600; color: var(--yazi-2); }
+  .bolum button { min-height: 44px; border-radius: 12px; font-size: .875rem; font-weight: 600; color: var(--yazi-2); }
   .bolum button.secili { background: var(--yuzey-1); color: var(--yazi); }
   .liste { list-style: none; margin: 0 -8px; padding: 0; display: grid; gap: 2px; }
   .satir { width: 100%; min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 16px; text-align: left; color: var(--yazi); }
@@ -214,7 +233,7 @@
   .metin small { font-size: .8125rem; color: var(--yazi-2); }
   .etiket { margin-left: 6px; padding: 1px 6px; border-radius: 6px; background: var(--yuzey-2); font-size: .6875rem; font-weight: 600; color: var(--yazi-2); vertical-align: 2px; }
   .konu { margin: 2px 0 0; font-size: .8125rem; line-height: 1.4; color: var(--yazi-2); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-  .kucuk { flex: none; min-height: 40px; min-width: 72px; padding: 0 14px; align-self: center; }
+  .kucuk { flex: none; width: auto; min-height: 44px; min-width: 72px; padding: 0 14px; align-self: center; }
   .bos { padding: 24px 8px; font-size: .875rem; color: var(--yazi-2); text-align: center; }
   .devam { display: flex; justify-content: center; }
 </style>

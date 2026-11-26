@@ -6,6 +6,7 @@ export function altYeriOlc(): () => void {
   const kok = document.documentElement;
   const gozlemci = new ResizeObserver(guncelle);
   const izlenen = new Set<Element>();
+  let son = "";
 
   // The space is measured up to the highest VISIBLE bar's top, not as a sum: a sheet that opens over the dock covers it, and
   // summing both pushed toasts off the top of the screen. Hidden bars (a minimised call, a layer under `inert`) do not count.
@@ -18,7 +19,8 @@ export function altYeriOlc(): () => void {
       if (r.height <= 0 || e.closest("[inert]") || getComputedStyle(e).visibility === "hidden") return;
       ust = Math.min(ust, r.top);
     });
-    kok.style.setProperty("--alt-yer", `${Math.max(0, Math.round(window.innerHeight - ust))}px`);
+    const deger = `${Math.max(0, Math.round(window.innerHeight - ust))}px`;
+    if (deger !== son) kok.style.setProperty("--alt-yer", (son = deger));
   }
 
   function tara() {
@@ -28,11 +30,25 @@ export function altYeriOlc(): () => void {
     guncelle();
   }
 
-  const degisim = new MutationObserver(tara);
+  // Only mutations that can add, remove or hide a bar matter; everything else (every message, every ripple span) used to run two
+  // document-wide queries plus a forced layout. The work that remains is batched into one animation frame.
+  // Yalnızca çubuk ekleyebilen, kaldırabilen ya da gizleyebilen değişiklikler önemli; geri kalanı (her mesaj, her dalga span'i)
+  // eskiden iki belge çapında sorgu ve zorunlu yerleşim çalıştırıyordu. Kalan iş tek bir animasyon karesinde toplanır.
+  let kare = 0;
+  const planla = () => {
+    if (!kare) kare = requestAnimationFrame(() => ((kare = 0), tara()));
+  };
+  const ilgili = (d: Node) => d instanceof Element && (d.hasAttribute("data-alt-cubuk") || d.querySelector("[data-alt-cubuk]") !== null);
+  const degisim = new MutationObserver((kayitlar) => {
+    for (const k of kayitlar) {
+      if (k.type === "attributes" || [...k.addedNodes].some(ilgili) || [...k.removedNodes].some(ilgili)) return planla();
+    }
+  });
   degisim.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-alt-cubuk", "inert"] });
   window.addEventListener("resize", guncelle);
   tara();
   return () => {
+    cancelAnimationFrame(kare);
     gozlemci.disconnect();
     degisim.disconnect();
     window.removeEventListener("resize", guncelle);

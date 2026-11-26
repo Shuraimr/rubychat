@@ -25,7 +25,7 @@ export class MesajAramasi {
   #izleyici: ReturnType<typeof setInterval> | undefined;
 
   /** Run (debounced) a search; an empty / short query clears the results. · (Bekletmeli) arama yap; boş / kısa sorgu sonuçları temizler. */
-  ara(sorgu: string, odaId?: string) {
+  ara(sorgu: string, odaId?: string, sinir = 50) {
     clearTimeout(this.#zamanlayici);
     const s = sorgu.trim();
     const sira = ++this.#sira; // every call invalidates older answers · her çağrı eski cevapları geçersiz kılar
@@ -41,7 +41,7 @@ export class MesajAramasi {
       try {
         // Keep the trailing space of the raw query: it tells the backend the last word is finished (no prefix match).
         // Ham sorgunun sondaki boşluğunu koru: arka uca son sözcüğün bittiğini (önek eşleşmesi yok) söyler.
-        const sonuc = await mesajAra(sorgu.trimStart(), odaId, 50);
+        const sonuc = await mesajAra(sorgu.trimStart(), odaId, sinir);
         if (sira !== this.#sira) return; // a newer search started meanwhile · bu arada daha yeni bir arama başladı
         this.sonuclar = sonuc;
         this.sorgu = s;

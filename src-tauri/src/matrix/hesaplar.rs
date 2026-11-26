@@ -3,16 +3,28 @@
 //! Birden çok girişli hesap, biri kullanımda. Her hesabın kendi veri klasörü var: ilkininki uygulamanın veri klasörünün kendisi (tek
 //! hesap varken olduğu gibi), ötekilerinki `hesaplar/<id>/`. `hesaplar.json` hangi hesapların olduğunu söyler; gizli bilgi içermez.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{hata::Sonuc, tipler::Ben};
+use crate::{
+    hata::{Hata, Sonuc},
+    tipler::Ben,
+};
 
 const DOSYA: &str = "hesaplar.json";
 pub const KLASOR: &str = "hesaplar";
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+/// Process-wide cache of `hesaplar.json` (also serializes writes so two saves never race on the `.yeni` temp file).
+/// The bool tracks whether the cached value is already persisted on disk (false when the file did not exist yet).
+/// `hesaplar.json` için süreç çapında önbellek (yazmaları da sıraya dizer; iki kayıt `.yeni` geçici dosyasında yarışmasın).
+/// Bool alanı önbellekteki değerin diskte zaten kayıtlı olup olmadığını tutar (dosya henüz yoksa false).
+static ONBELLEK: Mutex<Option<(PathBuf, Hesaplar, bool)>> = Mutex::new(None);
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Hesap {
     /// Empty = the first account (data folder itself) · Boş = ilk hesap (veri klasörünün kendisi)
@@ -25,7 +37,7 @@ pub struct Hesap {
     pub avatar_mxc: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Hesaplar {
     pub aktif: String,
@@ -33,17 +45,46 @@ pub struct Hesaplar {
 }
 
 impl Hesaplar {
+    /// Reads the account list from memory once loaded, avoiding repeated disk reads and JSON parses at startup.
+    /// Bir kez yüklendikten sonra hesap listesini bellekten okur; açılışta tekrarlanan disk okumalarını ve JSON ayrıştırmalarını önler.
     pub fn oku(kok: &Path) -> Hesaplar {
-        std::fs::read(kok.join(DOSYA)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        let mut onbellek = ONBELLEK.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((k, h, _)) = onbellek.as_ref() {
+            if k.as_path() == kok {
+                return h.clone();
+            }
+        }
+        let (h, diskte) = match std::fs::read(kok.join(DOSYA)).ok().and_then(|b| serde_json::from_slice(&b).ok()) {
+            Some(h) => (h, true),
+            None => (Hesaplar::default(), false),
+        };
+        *onbellek = Some((kok.to_path_buf(), h.clone(), diskte));
+        h
     }
 
-    /// Through a temporary file: a half-written list would lose the way to the other accounts. · Geçici dosya üzerinden: yarım yazılan liste öteki hesapların yolunu kaybettirirdi.
+    /// Through a temporary file: a half-written list would lose the way to the other accounts. Skips the disk write when nothing changed.
+    /// Geçici dosya üzerinden: yarım yazılan liste öteki hesapların yolunu kaybettirirdi. Hiçbir şey değişmediyse diske yazmayı atlar.
     pub fn yaz(&self, kok: &Path) -> Sonuc<()> {
+        let mut onbellek = ONBELLEK.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((k, mevcut, diskte)) = onbellek.as_ref() {
+            if *diskte && k.as_path() == kok && mevcut == self {
+                return Ok(());
+            }
+        }
         std::fs::create_dir_all(kok)?;
         let gecici = kok.join(format!("{DOSYA}.yeni"));
         std::fs::write(&gecici, serde_json::to_vec_pretty(self)?)?;
         std::fs::rename(gecici, kok.join(DOSYA))?;
+        *onbellek = Some((kok.to_path_buf(), self.clone(), true));
         Ok(())
+    }
+
+    /// Async wrapper for `yaz` so callers inside Tokio do not block a worker thread on file I/O.
+    /// `yaz` için async sarmalayıcı; Tokio içindeki çağıranlar dosya G/Ç'sinde işçi iş parçacığını bloklamasın.
+    pub async fn yaz_async(self, kok: PathBuf) -> Sonuc<()> {
+        tokio::task::spawn_blocking(move || self.yaz(&kok))
+            .await
+            .map_err(|e| Hata::Depolama(e.to_string()))?
     }
 
     pub fn klasor(&self, kok: &Path) -> PathBuf {

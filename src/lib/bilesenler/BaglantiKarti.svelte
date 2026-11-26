@@ -72,17 +72,17 @@
 {/if}
 
 <style>
-  .kart { display: block; width: 100%; max-width: 320px; margin-top: 8px; border-radius: 12px; overflow: hidden; background: color-mix(in srgb, var(--yuzey-1) 70%, transparent); border: 1px solid var(--kenar-ince); text-align: left; color: var(--yazi); }
+  .kart { display: block; width: 100%; max-width: min(100%, 20em); margin-top: .5em; border-radius: .75em; overflow: hidden; background: color-mix(in srgb, var(--yuzey-1) 70%, transparent); border: 1px solid var(--kenar-ince); text-align: left; color: var(--yazi); }
   .oran { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; background: var(--yuzey-3); overflow: hidden; }
   .oran img, .oran iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: cover; }
   .kapak { padding: 0; }
   .oynat { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 28px; display: inline-flex; align-items: center; justify-content: center; background: color-mix(in srgb, #000 62%, transparent); color: #fff; }
-  .metin { display: grid; gap: 2px; padding: 10px 12px; min-height: 44px; width: 100%; text-align: left; }
-  .metin strong { display: flex; align-items: center; gap: 6px; font-size: .875rem; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
+  .metin { display: grid; gap: 2px; padding: .625em .75em; min-height: 44px; width: 100%; text-align: left; }
+  .metin strong { display: flex; align-items: center; gap: 6px; font-size: .875em; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
   .gh .metin strong { display: flex; -webkit-line-clamp: unset; line-clamp: unset; }
-  .metin small { font-size: .75rem; color: var(--yazi-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .kompakt { display: flex; align-items: center; gap: 10px; padding: 6px 10px 6px 6px; min-height: 56px; }
+  .metin small { font-size: .75em; color: var(--yazi-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kompakt { display: flex; align-items: center; gap: .625em; padding: .375em .625em .375em .375em; min-height: 3.5em; }
   .kompakt .metin { padding: 0; min-width: 0; flex: 1; }
-  .karo { flex: none; width: 44px; height: 44px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.125rem; color: var(--marka); background: color-mix(in srgb, var(--marka) 16%, var(--zemin)); }
+  .karo { flex: none; width: 2.75em; height: 2.75em; border-radius: .625em; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.125em; color: var(--marka); background: color-mix(in srgb, var(--marka) 16%, var(--zemin)); }
   .gh .gorsel { aspect-ratio: 2 / 1; }
 </style>

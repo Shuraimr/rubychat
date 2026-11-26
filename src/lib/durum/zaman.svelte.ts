@@ -1,10 +1,11 @@
-// Open-room timeline state. Backend sends the FULL item list on every change (simple and robust).
-// Açık odanın zaman çizelgesi durumu. Arka uç her değişiklikte TÜM öğe listesini yollar (basit ve sağlam).
+// Open-room timeline state. Backend sends the FULL item list on every change (simple and robust); `paylas` keeps unchanged items.
+// Açık odanın zaman çizelgesi durumu. Arka uç her değişiklikte TÜM öğe listesini yollar (basit ve sağlam); `paylas` değişmeyenleri korur.
 import { geriSayfala, mesajGonder, medyaGonderimiIptal, mesajYenidenDene, odayiAc, odayiKapat, okunduIsaretle } from "../api/komutlar";
 import { acilisOlc, onYukle } from "./onYukle.svelte";
 import { yaziyorGuncellendi, zamanGuncellendi } from "../api/olaylar";
 import type { Hata, KisiBilgisi, OdaBilgisi, ZamanHazir, ZamanOgesi } from "../api/tipler";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { paylas } from "../paylas";
 
 /** The last state of the rooms opened recently: going back to one draws it in the first frame · Son açılan odaların son hâli; birine dönünce ilk karede çizilir */
 interface Kayit { bilgi: OdaBilgisi | null; ogeler: ZamanOgesi[]; sabitler: string[]; sabitleyebilir: boolean }
@@ -60,7 +61,9 @@ class Zaman {
     const abone = await zamanGuncellendi((g) => {
       if (g.odaId !== this.#aktifId) return;
       this.onbellekten = false;
-      this.ogeler = g.ogeler;
+      // The backend sends the whole list on every change: unchanged messages keep their objects, so only changed bubbles re-render.
+      // Arka uç her değişiklikte bütün listeyi yollar: değişmeyen mesajlar nesnelerini korur, yalnızca değişen balonlar yeniden çizilir.
+      this.ogeler = paylas(this.ogeler, g.ogeler, (o) => o.id);
       olc();
       this.basaUlasildi = g.basaUlasildi;
       this.sabitler = g.sabitler;

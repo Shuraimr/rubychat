@@ -21,10 +21,34 @@ function profilOku(): Profil | null {
   }
 }
 
+// Who was signed in at the last run. The app opens on it at once while the backend restores the session in the background (its
+// commands wait for that restore, see AppState::client), instead of a blank start screen for seconds.
+// Son çalıştırmada kim girişliydi. Arka uç oturumu arka planda geri yüklerken uygulama saniyelerce boş açılış ekranı yerine hemen
+// bununla açılır (komutları o geri yüklemeyi bekler, bkz. AppState::client).
+const BEN_ANAHTARI = "rubychat.sonBen";
+/** Room list snapshot of odalar.svelte.ts (removed together with the account) · odalar.svelte.ts'nin oda listesi anlık görüntüsü (hesapla birlikte silinir) */
+export const ODA_ONBELLEK_ANAHTARI = "rubychat.odaOnbellek";
+function benOku(): Ben | null {
+  try {
+    const b = JSON.parse(localStorage.getItem(BEN_ANAHTARI) ?? "null") as Ben | null;
+    return b && typeof b.kullaniciId === "string" && b.kullaniciId && typeof b.cihazId === "string" ? b : null;
+  } catch {
+    return null;
+  }
+}
+function benYaz(b: Ben | null) {
+  try {
+    if (b) localStorage.setItem(BEN_ANAHTARI, JSON.stringify(b));
+    else localStorage.removeItem(BEN_ANAHTARI);
+  } catch {
+    /* not persisted · saklanamadı */
+  }
+}
+
 /** What this device remembers of the account in use (not of the rooms, whose ids are unique anyway) · Cihazın kullanımdaki hesaptan hatırladıkları (odalar değil; kimlikleri zaten benzersiz) */
 function hesapIziSil() {
   try {
-    for (const a of [PROFIL_ANAHTARI, "rubychat.ziyaret", "rubychat.sonAramalar", "rubychat.sonOdalar"]) localStorage.removeItem(a);
+    for (const a of [PROFIL_ANAHTARI, BEN_ANAHTARI, ODA_ONBELLEK_ANAHTARI, "rubychat.ziyaret", "rubychat.sonAramalar", "rubychat.sonOdalar"]) localStorage.removeItem(a);
   } catch {
     /* ignore · yok say */
   }
@@ -80,11 +104,25 @@ class Oturum {
       sonUyari = Date.now();
       bildirim.goster(t("oturum.gecersiz"), 60_000, { tur: "hata", eylem: { etiket: t("ben.cikis"), calistir: () => void this.cikis() } });
     });
+    const onceki = benOku();
+    // Asked first, so the backend is already restoring when the screens below send their own commands.
+    // Önce istenir; aşağıdaki ekranlar kendi komutlarını yolladığında arka uç zaten geri yüklüyor olur.
+    const istek = komutlar.oturumuGeriYukle();
+    if (onceki) {
+      this.ben = onceki;
+      this.hazir = true;
+    }
     try {
-      this.ben = await komutlar.oturumuGeriYukle();
+      const b = await istek;
+      // The same account and device: keep the object, or every effect that follows `ben` would start over.
+      // Aynı hesap ve cihaz: nesneyi koru; yoksa `ben`i izleyen her etki baştan başlardı.
+      if (b && onceki && b.kullaniciId === onceki.kullaniciId && b.cihazId === onceki.cihazId) Object.assign(this.ben!, b);
+      else this.ben = b;
+      benYaz(b);
     } catch (e) {
       this.hata = e as Hata;
       this.ben = null;
+      benYaz(null);
     } finally {
       this.hazir = true;
     }
@@ -95,6 +133,7 @@ class Oturum {
     this.hata = null;
     try {
       this.ben = await komutlar.giris(istek);
+      benYaz(this.ben);
     } catch (e) {
       this.hata = e as Hata;
     } finally {
@@ -106,6 +145,7 @@ class Oturum {
   girildi(ben: Ben) {
     this.hata = null;
     this.ben = ben;
+    benYaz(ben);
   }
 
   async cikis() {

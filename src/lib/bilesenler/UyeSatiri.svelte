@@ -87,7 +87,7 @@
       {#if yasaklayabilir}<button class="e yasakla" onclick={() => { x = 0; acik = false; yasakla?.(); }}>{t("uyeler.yasakla")}</button>{/if}
     </div>
   {/if}
-  <div class="on" class:suruk={surukle} style:transform="translateX({x}px)" onpointerdown={asagi} onpointermove={oyna} onpointerup={birak} onpointercancel={birak} role="presentation">
+  <div class="on" class:suruk={surukle} style:transform="translate3d({x}px, 0, 0)" onpointerdown={asagi} onpointermove={oyna} onpointerup={birak} onpointercancel={birak} role="presentation">
     <button class="satir" data-dalga onclick={tikla}>
       <Avatar harf={uye.ad.charAt(0).toUpperCase() || "#"} mxc={uye.avatarMxc} boyut={48} />
       <span class="orta"><strong>{uye.ad}</strong><small>{uye.kullaniciId}</small></span>
@@ -100,12 +100,12 @@
 </div>
 
 <style>
-  .kap { position: relative; overflow: hidden; }
+  .kap { content-visibility: auto; contain-intrinsic-size: auto 4rem; contain: layout style paint; position: relative; overflow: hidden; }
   .eylemler { position: absolute; right: 0; top: 0; bottom: 0; display: flex; }
   .e { flex: 1; font-weight: 600; font-size: .9375rem; }
   .cikar { background: var(--yuzey-3); color: var(--yazi); }
   .yasakla { background: var(--hata); color: var(--zemin); }
-  .on { position: relative; background: var(--zemin); touch-action: pan-y; transition: transform var(--sure-orta) var(--egri-yay); }
+  .on { position: relative; background: var(--zemin); touch-action: pan-y; transition: transform var(--sure-orta) var(--egri-ac); }
   .on.suruk { transition: none; }
   .satir { width: 100%; min-height: 64px; padding: 8px 16px; display: flex; align-items: center; gap: 12px; text-align: left; }
   .orta { flex: 1; min-width: 0; display: grid; }

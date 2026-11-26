@@ -63,7 +63,7 @@ fn simdi_ms() -> u64 {
 pub async fn durum_hesapla(durum: &AppState, client: &Client) -> SifrelemeDurumu {
     let enc = client.encryption();
     let (kimlik_sorgulandi, parola_gerekli) = {
-        let k = durum.sifreleme.lock().unwrap();
+        let k = durum.sifreleme.lock().unwrap_or_else(|e| e.into_inner());
         (k.kimlik_sorgulandi, k.parola_gerekli)
     };
     let kimlik_var = match client.user_id() {
@@ -99,7 +99,7 @@ pub async fn yayinla(app: &AppHandle, client: &Client) {
     let durum = app.state::<AppState>();
     let yeni = durum_hesapla(&durum, client).await;
     let degisti = {
-        let mut k = durum.sifreleme.lock().unwrap();
+        let mut k = durum.sifreleme.lock().unwrap_or_else(|e| e.into_inner());
         if k.son.as_ref() == Some(&yeni) {
             false
         } else {
@@ -171,12 +171,16 @@ fn izleyici(app: AppHandle, client: Client) -> JoinHandle<()> {
         let mut kurtarma = Box::pin(enc.recovery().state_stream());
         let mut yedek = Box::pin(enc.backups().state_stream());
         let mut dogrulama = enc.verification_state();
+        let (mut kurtarma_acik, mut yedek_acik, mut dogrulama_acik) = (true, true, true);
         yayinla(&app, &client).await;
         loop {
+            if !kurtarma_acik && !yedek_acik && !dogrulama_acik {
+                break;
+            }
             tokio::select! {
-                r = kurtarma.next() => if r.is_none() { break },
-                r = yedek.next() => if r.is_none() { break },
-                r = dogrulama.next() => if r.is_none() { break },
+                r = kurtarma.next(), if kurtarma_acik => if r.is_none() { kurtarma_acik = false; continue; },
+                r = yedek.next(), if yedek_acik => if r.is_none() { yedek_acik = false; continue; },
+                r = dogrulama.next(), if dogrulama_acik => if r.is_none() { dogrulama_acik = false; continue; },
                 _ = tokio::time::sleep(Duration::from_secs(20)) => {}
             }
             yayinla(&app, &client).await;
@@ -200,7 +204,7 @@ fn capraz_imza_hazirla(app: AppHandle, client: Client) -> JoinHandle<()> {
             match enc.bootstrap_cross_signing_if_needed(None).await {
                 Ok(()) => {
                     let durum = app.state::<AppState>();
-                    let mut k = durum.sifreleme.lock().unwrap();
+                    let mut k = durum.sifreleme.lock().unwrap_or_else(|e| e.into_inner());
                     k.kimlik_sorgulandi = true;
                     k.parola_gerekli = false;
                     break;
@@ -208,7 +212,7 @@ fn capraz_imza_hazirla(app: AppHandle, client: Client) -> JoinHandle<()> {
                 Err(e) => {
                     if let Some(parola) = parola_kabul_ediliyor(&e) {
                         let durum = app.state::<AppState>();
-                        let mut k = durum.sifreleme.lock().unwrap();
+                        let mut k = durum.sifreleme.lock().unwrap_or_else(|e| e.into_inner());
                         k.kimlik_sorgulandi = true;
                         k.parola_gerekli = parola;
                         info!("çapraz imza için hesap şifresi gerekiyor (parola kabul: {parola})");
@@ -246,7 +250,7 @@ pub async fn capraz_imza_kur(app: &AppHandle, client: &Client, parola: String) -
     }
     {
         let durum = app.state::<AppState>();
-        let mut k = durum.sifreleme.lock().unwrap();
+        let mut k = durum.sifreleme.lock().unwrap_or_else(|e| e.into_inner());
         k.kimlik_sorgulandi = true;
         k.parola_gerekli = false;
     }
@@ -367,6 +371,14 @@ async fn istegi_izle(app: AppHandle, istek: VerificationRequest) {
             VerificationRequestState::Transitioned { verification } => {
                 if let Some(sas) = verification.sas() {
                     sas_izle(&app, sas).await;
+                } else {
+                    // We only support SAS emoji; tell the UI instead of leaving it stuck in `Hazir`.
+                    // Yalnızca SAS emoji desteklenir; arayüzü `Hazir`da takılı bırakmak yerine iptal bildir.
+                    guncelle(&app, |s| {
+                        s.asama = DogrulamaAsamasi::Iptal;
+                        s.neden = Some("desteklenmeyen doğrulama yöntemi".into());
+                    })
+                    .await;
                 }
                 break;
             }
@@ -412,6 +424,12 @@ async fn sas_izle(app: &AppHandle, sas: SasVerification) {
                 if !sas.we_started() {
                     if let Err(e) = sas.accept().await {
                         warn!("SAS kabul edilemedi: {e}");
+                        guncelle(app, |s| {
+                            s.asama = DogrulamaAsamasi::Iptal;
+                            s.neden = Some(e.to_string());
+                        })
+                        .await;
+                        break;
                     }
                 }
                 guncelle(app, |s| s.asama = DogrulamaAsamasi::Hazir).await;
@@ -526,5 +544,5 @@ pub async fn temizle(durum: &AppState) {
     if let Some(a) = durum.dogrulama.lock().await.take() {
         a.gorev.abort();
     }
-    *durum.sifreleme.lock().unwrap() = Default::default();
+    *durum.sifreleme.lock().unwrap_or_else(|e| e.into_inner()) = Default::default();
 }

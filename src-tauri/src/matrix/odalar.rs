@@ -37,7 +37,7 @@ fn onizleme(deger: &LatestEventValue) -> Option<String> {
 
 /// The preview text of one raw event (None = not something a chat list shows).
 /// Tek bir ham olayın önizleme metni (None = sohbet listesinin göstereceği bir şey değil).
-fn ham_onizleme<T>(ham: &matrix_sdk::ruma::serde::Raw<T>) -> Option<String> {
+pub(crate) fn ham_onizleme<T>(ham: &matrix_sdk::ruma::serde::Raw<T>) -> Option<String> {
     let tur = ham.get_field::<String>("type").ok().flatten()?;
     match tur.as_str() {
         "m.room.message" => {
@@ -139,12 +139,13 @@ pub async fn ozetle(room: &Room) -> OdaOzeti {
 /// All joined + invited rooms, newest activity first (invites without a timestamp go on top).
 /// Katıldığımız + davetli bütün odalar, en yeni etkinlik önce (zaman damgasız davetler üstte).
 pub async fn liste(client: &Client) -> Vec<OdaOzeti> {
-    let mut sonuc = Vec::new();
-    for room in client.rooms() {
-        if matches!(room.state(), RoomState::Joined | RoomState::Invited) {
-            sonuc.push(ozetle(&room).await);
-        }
-    }
+    use futures_util::StreamExt;
+    // Several rooms at once: the first summary of each room reads the store (event cache, heroes), and one after the other
+    // that was ~2.3 s for 38 rooms at startup. A small bound keeps the store from being flooded.
+    // Aynı anda birkaç oda: her odanın ilk özeti depoyu okur (olay önbelleği, kahramanlar); art arda bu, açılışta 38 oda için
+    // ~2,3 sn idi. Küçük bir sınır depoyu boğmamak için.
+    let odalar: Vec<Room> = client.rooms().into_iter().filter(|r| matches!(r.state(), RoomState::Joined | RoomState::Invited)).collect();
+    let mut sonuc: Vec<OdaOzeti> = futures_util::stream::iter(odalar).map(|r| async move { ozetle(&r).await }).buffer_unordered(8).collect().await;
     sonuc.sort_by(|a, b| {
         let (x, y) = (a.son_zaman.unwrap_or(u64::MAX), b.son_zaman.unwrap_or(u64::MAX));
         y.cmp(&x)

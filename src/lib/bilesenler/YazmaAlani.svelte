@@ -13,7 +13,8 @@
 -->
 <script lang="ts">
   import { titret } from "../dokunma";
-  import { panodakiResim } from "../pano";
+  import { masaustuLinux, panodakiResim } from "../pano";
+  import { androidMi } from "../arama-ec/ses";
   import { onDestroy, untrack } from "svelte";
   import { cikartmaGonder as cikartmaYolla, mesajDuzenle, yaziyorBildir } from "../api/komutlar";
   import type { PaketGorseli, ZamanOgesi } from "../api/tipler";
@@ -30,6 +31,7 @@
   } from "../bicim/bahis";
   import { markdownCevir } from "../bicim/markdown";
   import { emojiJetonu } from "../emoji/paketler.svelte";
+  import KameraCekim from "../medya/KameraCekim.svelte";
   import MedyaAkisi from "../medya/MedyaAkisi.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { odalar } from "../durum/odalar.svelte";
@@ -82,7 +84,10 @@
   let kutu: HTMLTextAreaElement | undefined = $state();
   let ekAcik = $state(false);
   let medyaKaynak = $state<Exclude<EkKaynagi, "anket"> | null>(null);
+  let kameraAcik = $state(false);
   let anketAcik = $state(false);
+  /** Desktop (non-Android): `<input capture>` opens a file picker there, so use our in-app camera dialog. · Masaüstü (Android değil): `<input capture>` dosya seçici açar, uygulama içi kamera penceresini kullan. */
+  const masaustuKamera = masaustuLinux || (!androidMi() && !/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent));
   let medyaKatmani = 0;
   /** Custom emoji inserted from packs: shortcode → mxc:// (turned into <img> when the message is sent) · Paketlerden eklenen özel emojiler: kısa kod → mxc:// (mesaj yollanırken <img> olur) */
   let ozelEmoji: Record<string, string> = {};
@@ -365,10 +370,26 @@
   /** Built on the first opening and kept: later openings only show it · İlk açılışta kurulur ve tutulur: sonraki açılışlar yalnızca gösterir */
   let panelKuruldu = $state(false);
 
-  // Built quietly once the room has settled, so the first opening is only a movement and not a construction. · Oda oturunca sessizce kurulur; ilk açılış yalnızca hareket olur, kurulum değil.
+  // Built quietly when the person starts writing (the composer got focus) and the page is idle, so the first opening is only a
+  // movement and not a construction. It used to be built 1.5 s after every room opened: ~1,900 buttons for rooms only read.
+  // Kişi yazmaya başlayınca (yazma alanı odak alınca) ve sayfa boştayken sessizce kurulur; ilk açılış yalnızca hareket olur, kurulum
+  // değil. Eskiden her oda açılışından 1,5 sn sonra kuruluyordu: yalnızca okunan odalar için ~1.900 düğme.
   $effect(() => {
-    const z = setTimeout(() => (panelKuruldu = true), 1500);
-    return () => clearTimeout(z);
+    const k = kutu;
+    if (!k || panelKuruldu) return;
+    let bekleyen = 0;
+    const kur = () => {
+      if (bekleyen) return;
+      const bosta = (window as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+      bekleyen = bosta ? bosta(() => (panelKuruldu = true), { timeout: 2000 }) : window.setTimeout(() => (panelKuruldu = true), 300);
+    };
+    if (document.activeElement === k) kur();
+    k.addEventListener("focus", kur);
+    return () => {
+      k.removeEventListener("focus", kur);
+      const iptal = (window as { cancelIdleCallback?: (n: number) => void }).cancelIdleCallback;
+      if (bekleyen) (iptal ?? clearTimeout)(bekleyen);
+    };
   });
 
   // Neither the bar nor the keyboard moves: the card only appears above them. · Ne çubuk ne klavye oynar: kart yalnızca üstlerinde belirir.
@@ -482,7 +503,12 @@
     ekKapat();
     // The poll sheet is not part of the media flow. · Anket sayfası medya akışının parçası değil.
     if (k === "anket") anketAcik = true;
+    else if (k === "kamera" && masaustuKamera) kameraAcik = true;
     else medyaKaynak = k;
+  }
+  function kameradanAl(dosya: File) {
+    kameraAcik = false;
+    dosyalariAc([dosya]);
   }
   // ---- Paste: pictures and files open the same send screen ---- · ---- Yapıştırma: resim ve dosyalar aynı gönderme ekranını açar ----
   let yapistirilan = $state<File[] | undefined>();
@@ -607,48 +633,51 @@
 </div>
 
 {#if anketAcik}<AnketOlustur {odaId} onkapat={() => (anketAcik = false)} />{/if}
+{#if kameraAcik}<KameraCekim oncek={kameradanAl} onkapat={() => (kameraAcik = false)} />{/if}
 {#if medyaKaynak}
   <div class="medya-kap"><MedyaAkisi {odaId} kaynak={medyaKaynak} dosyalar={yapistirilan} onkapat={medyaKapat} /></div>
 {/if}
 
 <style>
-  /* Floats over the messages, like the header card. The phone's bottom inset is inside the keyboard's height, so it is not added twice. */
-  /* Başlık kartı gibi mesajların üstünde yüzer. Telefonun alt payı klavye boyunun içindedir; iki kez eklenmez. */
-  .yazma { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; padding-bottom: max(0px, calc(env(safe-area-inset-bottom) - var(--klavye-simdi, 0px))); pointer-events: none; }
+  /* Floats over the messages, like the header card. Scales with --sohbet-olcek via font-size/em while popovers reset to 1rem. */
+  /* Başlık kartı gibi mesajların üstünde yüzer. --sohbet-olcek ile font-size/em üzerinden ölçeklenir; açılır kartlar 1rem'de kalır. */
+  .yazma { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; font-size: calc(1rem * var(--sohbet-olcek, 1)); padding-bottom: max(0px, calc(env(safe-area-inset-bottom) - var(--klavye-simdi, 0px))); pointer-events: none; }
   .yazma > :global(*) { pointer-events: auto; }
   .yazma > .satir, .yazma > .inis, .yazma > :global(.ipucu) { pointer-events: none; }
   /* Messages fade out under the pill instead of being cut by a line · Mesajlar çizgiyle kesilmek yerine hapın altında solar */
   .yazma::before { content: ""; position: absolute; z-index: -1; inset: -16px 0 0; background: linear-gradient(transparent, var(--sohbet-zemin, var(--zemin)) 60%); pointer-events: none; }
-  .cevrimdisi { display: flex; align-items: center; gap: 6px; min-height: 1.75rem; padding: .25rem 1rem 0; font-size: .75rem; font-weight: 500; color: var(--bekliyor); }
-  .satir { display: flex; align-items: flex-end; gap: .5rem; padding: .5rem .75rem; }
-  .yan, .gonder { pointer-events: auto; flex: none; width: min(3.25rem, 54px); height: min(3.25rem, 54px); border-radius: 1.625rem; display: inline-flex; align-items: center; justify-content: center; }
+  .cevrimdisi { display: flex; align-items: center; gap: 6px; min-height: 1.75em; padding: .25em 1rem 0; font-size: .75em; font-weight: 500; color: var(--bekliyor); }
+  .satir { display: flex; align-items: flex-end; gap: .5em; padding: .5em .75rem; }
+  :global([data-yogunluk="kompakt"]) .satir { padding: .375em .5rem; }
+  .yan, .gonder { pointer-events: auto; flex: none; width: clamp(44px, 3.25em, 64px); height: clamp(44px, 3.25em, 64px); border-radius: 1.625em; display: inline-flex; align-items: center; justify-content: center; }
   .yan { background: var(--ton); color: var(--ton-ustu); }
   /* Opaque tonal surface, no border: the shape itself is the field. · Opak tonlu yüzey, kenarlık yok: biçimin kendisi alandır. */
-  .kutu { pointer-events: auto; flex: 1; min-width: 0; min-height: min(3.25rem, 54px); display: flex; align-items: flex-end; border-radius: 1.625rem; background: var(--yuzey-3); transition: border-radius var(--sure-orta) var(--egri-cikis); }
+  .kutu { pointer-events: auto; flex: 1; min-width: 0; min-height: clamp(44px, 3.25em, 64px); display: flex; align-items: flex-end; border-radius: 1.625em; background: var(--yuzey-3); }
   textarea {
     flex: 1; min-width: 0; min-height: 44px; resize: none; background: none; border: 0; outline: none;
-    scrollbar-width: none; padding: .875rem 0 .875rem min(1.25rem, 18px); line-height: 1.5rem; font-size: 1rem; color: var(--yazi);
+    scrollbar-width: none; padding: .875em 0 .875em clamp(14px, 1.25em, 24px); line-height: 1.5em; font-size: 1em; color: var(--yazi);
   }
   textarea::placeholder { color: var(--yazi-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .uc { flex: none; width: min(3rem, 48px); height: min(3.25rem, 54px); border-radius: 1.5rem; display: inline-flex; align-items: center; justify-content: center; color: var(--yazi-2); transition: color var(--sure-orta) var(--egri-cikis); }
+  .uc { flex: none; width: clamp(44px, 3em, 56px); height: clamp(44px, 3.25em, 64px); border-radius: 1.5em; display: inline-flex; align-items: center; justify-content: center; color: var(--yazi-2); }
   .uc.acik { color: var(--vurgu); }
-  /* Send: its place opens from 0 while the button scales in; squarer than the rest so it reads as the main action. · Gönder: yeri 0'dan açılırken düğme büyür; ana eylem olduğu için ötekilerden daha köşeli. */
-  .gonder-yer { pointer-events: auto; flex: none; width: 0; margin-left: -.5rem; display: flex; justify-content: flex-end; overflow: hidden; border-radius: 1.125rem; transition: width var(--sure-orta) var(--egri-vurgulu), margin var(--sure-orta) var(--egri-vurgulu); }
-  .gonder-yer.acik { width: min(3.25rem, 54px); margin-left: 0; }
-  .gonder { border-radius: 1.125rem; background: var(--vurgu); color: var(--vurgu-ustu); transform: scale(.5); opacity: 0; transition: transform var(--sure-orta) var(--egri-vurgulu), opacity var(--sure-hizli) var(--egri-cikis); }
+  /* Send: container snaps width without per-frame layout reflow; only the button animates via transform + opacity. */
+  /* Gönder: kapsayıcı kare başına düzen hesabı yapmadan yerini açar; yalnızca düğme transform + opacity ile canlanır. */
+  .gonder-yer { pointer-events: auto; flex: none; width: 0; margin-left: -.5em; display: flex; justify-content: flex-end; overflow: hidden; border-radius: 1.125em; }
+  .gonder-yer.acik { width: clamp(44px, 3.25em, 64px); margin-left: 0; }
+  .gonder { border-radius: 1.125em; background: var(--vurgu); color: var(--vurgu-ustu); transform: scale(.6); opacity: 0; transition: transform var(--sure-orta) var(--egri-ac), opacity var(--sure-hizli) linear; }
   .acik > .gonder { transform: none; opacity: 1; }
   /* Outside the flow: the bar (and the timeline padding measured from it) keeps its height · Akışın dışında: çubuğun (ve ondan ölçülen boşluğun) boyu değişmez */
-  .inis { position: absolute; right: 14px; bottom: 100%; height: 48px; }
+  .inis { position: absolute; right: 14px; bottom: 100%; height: 48px; font-size: 1rem; }
   .inis.ipuclu { bottom: calc(100% + 2.25rem); }
-  .in { position: relative; pointer-events: auto; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--yuzey-2); color: var(--yazi); box-shadow: var(--kat-2); animation: in-gel var(--sure-orta) var(--egri-cikis) backwards; }
+  .in { position: relative; pointer-events: auto; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--yuzey-2); color: var(--yazi); box-shadow: var(--kat-2); animation: in-gel var(--sure-orta) var(--egri-ac) backwards; }
   .in.var { color: var(--vurgu); }
-  @keyframes in-gel { from { transform: translateY(12px) scale(.7); opacity: 0; } }
+  @keyframes in-gel { from { transform: translate3d(0, 12px, 0) scale(.75); opacity: 0; } }
   .sayi { position: absolute; top: -6px; right: -4px; border: 2px solid var(--zemin); }
-  /* Popover cards above the bar; each grows from its own button. · Çubuğun üstündeki açılır kartlar; her biri kendi düğmesinden büyür. */
-  /* Everything between the room header and the bar, never more: the card must not slide under the header. · Oda başlığıyla çubuk arası, fazlası değil: kart başlığın altına girmemeli. */
-  .ek, .emoji, .bahis { --kart-yer: calc(var(--gorunen-yukseklik, 100vh) - var(--tepe-yer, 88px) - var(--yazma-yer, 72px) - 12px); position: absolute; z-index: 4; bottom: 100%; box-sizing: border-box; }
+  /* Popover cards above the bar; kept at 1rem so emoji/attach/mention cards never blow up when chat zoom is high. */
+  /* Çubuğun üstündeki açılır kartlar; sohbet ölçeği yüksekken taşmasın diye 1rem'de tutulur. */
+  .ek, .emoji, .bahis { --kart-yer: calc(var(--gorunen-yukseklik, 100vh) - var(--tepe-yer, 88px) - var(--yazma-yer, 72px) - 12px); font-size: 1rem; position: absolute; z-index: 4; bottom: 100%; box-sizing: border-box; }
   .bahis { left: .75rem; bottom: calc(100% + 4px); width: min(26rem, calc(100% - 1.5rem)); max-height: min(21rem, var(--kart-yer)); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border-radius: 1.5rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; transform-origin: 1.5rem 100%; }
-  .bahis-satir { width: 100%; min-width: 0; min-height: 48px; padding: 6px 10px; display: flex; align-items: center; gap: .625rem; text-align: left; border-radius: .75rem; color: var(--yazi); transition: background var(--sure-hizli) var(--egri-cikis); }
+  .bahis-satir { width: 100%; min-width: 0; min-height: 48px; padding: 6px 10px; display: flex; align-items: center; gap: .625rem; text-align: left; border-radius: .75rem; color: var(--yazi); }
   .bahis-satir:first-child { border-top-left-radius: 1.125rem; border-top-right-radius: 1.125rem; }
   .bahis-satir:last-child { border-bottom-left-radius: 1.125rem; border-bottom-right-radius: 1.125rem; }
   .bahis-satir.secili, .bahis-satir:active { background: var(--ton); color: var(--ton-ustu); }
@@ -660,7 +689,7 @@
   .bahis-satir.secili .bahis-alt, .bahis-satir:active .bahis-alt { color: inherit; opacity: .82; }
   .ek { left: .75rem; width: max-content; min-width: 15.5rem; max-width: calc(100% - 1.5rem); max-height: var(--kart-yer); overflow-y: auto; padding: 8px; border-radius: 1.75rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; transform-origin: 1.6rem 100%; }
   .emoji { right: .75rem; width: min(26rem, calc(100% - 1.5rem)); height: min(22rem, var(--kart-yer)); border-radius: 1.75rem; display: flex; flex-direction: column; overflow: hidden; transform-origin: calc(100% - 2rem) 100%; }
-  .ek-satir { position: relative; overflow: hidden; min-height: 3.75rem; padding: .5rem 1rem .5rem .625rem; display: flex; align-items: center; gap: .875rem; text-align: left; border-radius: .375rem; background: var(--yuzey-2); transition: background var(--sure-hizli) linear; }
+  .ek-satir { position: relative; overflow: hidden; min-height: 3.75rem; padding: .5rem 1rem .5rem .625rem; display: flex; align-items: center; gap: .875rem; text-align: left; border-radius: .375rem; background: var(--yuzey-2); }
   .ek-satir:first-child { border-top-left-radius: 1.25rem; border-top-right-radius: 1.25rem; }
   .ek-satir:last-child { border-bottom-left-radius: 1.25rem; border-bottom-right-radius: 1.25rem; }
   .ek-simge { flex: none; width: 2.75rem; height: 2.75rem; border-radius: 1rem; display: inline-flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--r) 22%, transparent); color: var(--r); }

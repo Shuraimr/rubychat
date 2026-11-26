@@ -9,8 +9,11 @@ import {
   bildirimBekleyenOda,
   bildirimIzniDurumu,
   bildirimIzniIste,
+  masaustuArkaPlan,
   uygulamaArkaPlanda,
 } from "./api/komutlar";
+import { tercihler } from "./durum/tercihler.svelte";
+import { masaustuLinux } from "./pano";
 import { uygulamaIciBildirim } from "./api/olaylar";
 import type { BildirimIzni, UygulamaIciBildirim } from "./api/tipler";
 
@@ -79,7 +82,13 @@ export async function bildirimIzniAc(): Promise<BildirimIzni> {
 // ---- Background connection (Android foreground service, BaglantiServisi.kt): without a push server the sync must stay alive itself ----
 // ---- Arka plan bağlantısı (Android ön plan servisi, BaglantiServisi.kt): anlık bildirim sunucusu olmadan eşitleme kendisi canlı kalmalı ----
 const arkaKopru = () => (window as unknown as { RubyArkaPlan?: { ayarla(acik: boolean): void; pilMuaf(): boolean; pilAyari(): void } }).RubyArkaPlan;
-export const arkaPlanVar = () => !!arkaKopru();
-export const arkaPlanAyarla = (acik: boolean) => arkaKopru()?.ayarla(acik);
+export const arkaPlanVar = () => !!arkaKopru() || masaustuLinux;
+// Desktop: the window's close button hides it while this is on (src-tauri/src/masaustu_linux.rs); autostart comes with it.
+// Masaüstü: bu açıkken pencerenin kapatma düğmesi gizler (src-tauri/src/masaustu_linux.rs); otomatik başlatma onunla gelir.
+export const arkaPlanAyarla = (acik: boolean) => {
+  const k = arkaKopru();
+  if (k) k.ayarla(acik);
+  else if (masaustuLinux) void masaustuArkaPlan(acik, acik && tercihler.d.acilistaBaslat).catch(() => {});
+};
 export const pilMuafMi = () => arkaKopru()?.pilMuaf() ?? true;
 export const pilAyariAc = () => arkaKopru()?.pilAyari();

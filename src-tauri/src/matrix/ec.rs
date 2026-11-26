@@ -464,6 +464,14 @@ pub async fn sun(app: &AppHandle, istek: Request<Vec<u8>>) -> Response<Vec<u8>> 
     yanit(200, &varlik.mime_type, bayt)
 }
 
+/// Set by the in-app camera window (KameraCekim.svelte) while it is open. · Uygulama içi kamera penceresi (KameraCekim.svelte) açıkken kurulu.
+static KAMERA_PENCERESI: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[tauri::command]
+pub fn kamera_penceresi(acik: bool) {
+    KAMERA_PENCERESI.store(acik, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Linux only: WebKitGTK ships WebRTC / media capture OFF and denies `getUserMedia` unless the app answers the permission request.
 /// Yalnızca Linux: WebKitGTK WebRTC / medya yakalamayı KAPALI getirir ve uygulama izin isteğini yanıtlamazsa `getUserMedia`yı reddeder.
 #[cfg(target_os = "linux")]
@@ -488,18 +496,25 @@ pub fn linux_medya_ac(app: &AppHandle) {
             ayar.set_javascript_can_access_clipboard(true);
         }
         // Microphone / camera / screen capture requests. The signal does not tell us the requesting origin, and other frames
-        // (link previews) can be loaded too, so they are allowed only while an Element Call widget is open: it is the only part
-        // of the app that captures from the webview on Linux (the app's own calls run natively).
+        // (link previews) can be loaded too, so microphone / audio+video requests are allowed only while an Element Call widget is
+        // open; video-only requests are also allowed for the desktop in-app photo capture (KameraCekim.svelte).
         // Mikrofon / kamera / ekran yakalama istekleri. Sinyal isteyen kaynağı söylemez ve başka çerçeveler (bağlantı önizlemeleri)
-        // de yüklenebilir; bu yüzden yalnızca bir Element Call widget'ı açıkken izin verilir: Linux'ta webview'den yakalayan tek
-        // parça odur (uygulamanın kendi aramaları yerel yürür).
+        // de yüklenebilir; bu yüzden mikrofon / ses+video isteklerine yalnızca Element Call widget'ı açıkken izin verilir;
+        // yalnızca kamera istekleri masaüstü uygulama içi fotoğraf çekimi (KameraCekim.svelte) için de açılır.
         wv.connect_permission_request(|_, istek| {
             if istek.is::<UserMediaPermissionRequest>() {
                 let ec_acik = !oturumlar().lock().map(|o| o.is_empty()).unwrap_or(true);
-                if ec_acik {
+                // Camera-only, and only while the in-app camera window says it is open: otherwise any embedded frame
+                // (a YouTube preview, say) could get the camera without asking.
+                // Yalnızca kamera, ve yalnızca uygulama içi kamera penceresi açık olduğunu söylerken: yoksa gömülü herhangi bir
+                // çerçeve (ör. YouTube önizlemesi) kamerayı sormadan alabilirdi.
+                let yalniz_kamera = KAMERA_PENCERESI.load(std::sync::atomic::Ordering::SeqCst)
+                    && istek.property::<bool>("is-for-video-device")
+                    && !istek.property::<bool>("is-for-audio-device");
+                if ec_acik || yalniz_kamera {
                     istek.allow();
                 } else {
-                    tracing::warn!("Element Call açık değilken gelen medya izni reddedildi");
+                    tracing::warn!("Element Call açık değilken gelen ses/medya izni reddedildi");
                     istek.deny();
                 }
                 true

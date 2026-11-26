@@ -42,6 +42,13 @@ fn hesabi_kaydet(app: &AppHandle, ben: &Ben) {
     }
 }
 
+/// Async version of `hesabi_kaydet` so async commands do not block Tokio when writing `hesaplar.json`.
+/// `hesabi_kaydet`'in async sürümü; async komutlar `hesaplar.json` yazarken Tokio'yu bloklamasın.
+async fn hesabi_kaydet_async(app: &AppHandle, ben: Ben) {
+    let app = app.clone();
+    let _ = tokio::task::spawn_blocking(move || hesabi_kaydet(&app, &ben)).await;
+}
+
 /// Stores the client, starts syncing and the token watcher. Called after login, after restore and (with `parkli`) on return to an account.
 /// İstemciyi saklar, eşitlemeyi ve belirteç izleyiciyi başlatır. Girişten, geri yüklemeden ve (`parkli` ile) hesaba dönüşte çağrılır.
 async fn oturumu_baslat(app: &AppHandle, durum: &AppState, client: matrix_sdk::Client, parkli: &mut Option<ParkliOturum>) -> Sonuc<()> {
@@ -144,7 +151,7 @@ pub async fn hesap_degistir(app: AppHandle, durum: State<'_, AppState>, id: Opti
     if let Some(p) = oturumu_birak(&durum).await {
         durum.parklar.lock().await.insert(eski, p);
     }
-    h.yaz(&kok)
+    h.yaz_async(kok).await
 }
 
 #[tauri::command]
@@ -158,7 +165,7 @@ pub async fn giris(app: AppHandle, durum: State<'_, AppState>, istek: GirisIsteg
     // A phone login still waiting would otherwise go on asking the server. · Yoksa bekleyen telefonla giriş sunucuya sormayı sürdürürdü.
     cihaz_giris::iptal();
     oturumu_baslat(&app, &durum, client, &mut None).await?;
-    hesabi_kaydet(&app, &ben);
+    hesabi_kaydet_async(&app, ben.clone()).await;
     Ok(ben)
 }
 
@@ -173,6 +180,10 @@ pub async fn cihaz_girisi_baslat(sunucu: String) -> Sonuc<cihaz_giris::CihazKodu
 pub async fn cihaz_girisi_bekle(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<Ben> {
     let onay = cihaz_giris::bekle().await?;
     let _kilit = durum.kilit.lock().await;
+    // Cancelled (or restarted) while we waited for the lock: do not sign the person in. · Kilidi beklerken iptal edildi (ya da yeniden başlatıldı): kişiyi içeri alma.
+    if !cihaz_giris::hala_gecerli(&onay) {
+        return Err(Hata::Diger("iptal".into()));
+    }
     // A password login may have won meanwhile: its data must not be wiped. · Bu arada şifreyle girilmiş olabilir: onun verisi silinmemeli.
     if durum.oturum.read().await.is_some() {
         return Err(Hata::Diger("iptal".into()));
@@ -183,7 +194,7 @@ pub async fn cihaz_girisi_bekle(app: AppHandle, durum: State<'_, AppState>) -> S
     let veri = veri_dizini(&app)?;
     let (client, ben) = cihaz_giris::bitir(&veri, onay).await?;
     oturumu_baslat(&app, &durum, client, &mut None).await?;
-    hesabi_kaydet(&app, &ben);
+    hesabi_kaydet_async(&app, ben.clone()).await;
     Ok(ben)
 }
 
@@ -195,7 +206,20 @@ pub fn cihaz_girisi_iptal() {
 static ILK_GERI_YUKLEME_YAPILDI: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[tauri::command]
-pub async fn oturumu_geri_yukle(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<Option<Ben>> {
+pub async fn oturumu_geri_yukle(app: AppHandle) -> Sonuc<Option<Ben>> {
+    geri_yukle(app).await
+}
+
+/// The restore itself. The desktop also starts it from `setup`, before the page has even loaded (that alone took ~3.5 s), so the
+/// page's own call usually finds the session already running and only reports who we are.
+/// Geri yüklemenin kendisi. Masaüstü bunu sayfa daha yüklenmeden `setup`'tan da başlatır (yalnızca o ~3,5 sn sürüyordu); sayfanın
+/// kendi çağrısı çoğu zaman oturumu zaten çalışır bulur ve yalnızca kim olduğumuzu bildirir.
+pub async fn geri_yukle(app: AppHandle) -> Sonuc<Option<Ben>> {
+    let durum = app.state::<AppState>();
+    // Commands that come meanwhile wait for this (see AppState::client); the guard ends that on every return.
+    // Bu arada gelen komutlar bunu bekler (bkz. AppState::client); bekçi her dönüşte bunu bitirir.
+    let _bekci = durum.geri_yukleme_basladi();
+    let bas = std::time::Instant::now();
     let _kilit = durum.kilit.lock().await;
     if durum.oturum.read().await.is_some() {
         // Already running (e.g. the page was reloaded in dev): just report who we are.
@@ -229,7 +253,14 @@ pub async fn oturumu_geri_yukle(app: AppHandle, durum: State<'_, AppState>) -> S
     }
     match oturum::geri_yukle(&veri).await? {
         Some((client, ben)) => {
+            let yuklendi = bas.elapsed();
             oturumu_baslat(&app, &durum, client, &mut None).await?;
+            tracing::info!(
+                "açılış: geri yükleme isteği süreç başlangıcından {} ms sonra; oturum {} ms, eşitleme başladı {} ms",
+                crate::calisma_suresi_ms() - bas.elapsed().as_millis(),
+                yuklendi.as_millis(),
+                bas.elapsed().as_millis()
+            );
             hesabi_kaydet(&app, &ben);
             Ok(Some(ben))
         }
@@ -257,7 +288,7 @@ pub async fn cikis(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<()> {
     }
     let mut h = Hesaplar::oku(&kok);
     h.aktifi_sil();
-    h.yaz(&kok)
+    h.yaz_async(kok).await
 }
 
 #[tauri::command]
@@ -266,7 +297,7 @@ pub async fn ben(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<Ben> {
     // Ağ beklemesinden önce not edilir: bu arada hesap değişirse bu yanıt ötekinin kaydına yazılmamalı.
     let aktif_bas = Hesaplar::oku(&kok_dizin(&app)?).aktif;
     let client = durum.client().await?;
-    let mut ben = oturum::ben_olustur(&client, &veri_dizini(&app)?);
+    let mut ben = oturum::ben_olustur_async(&client, veri_dizini(&app)?).await;
     // Display name needs the network; a short timeout keeps the screen responsive when offline.
     // Görünen ad ağ ister; kısa zaman aşımı, çevrimdışıyken ekranın takılmasını önler.
     // Name and avatar are fetched together; the avatar falls back to the SDK's cached value when offline.
@@ -281,7 +312,7 @@ pub async fn ben(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<Ben> {
     };
     ben.avatar_mxc = avatar.map(|a| a.to_string());
     if Hesaplar::oku(&kok_dizin(&app)?).aktif == aktif_bas && durum.client().await.is_ok_and(|c| c.user_id() == client.user_id()) {
-        hesabi_kaydet(&app, &ben);
+        hesabi_kaydet_async(&app, ben.clone()).await;
     }
     Ok(ben)
 }
@@ -448,12 +479,12 @@ pub fn medya_yetenekleri() -> MedyaYetenekleri {
 /// Önbellek dosyasına bir base64 parçası ekler; `kimlik: null` yenisini başlatır. Dosya kimliğini döndürür.
 #[tauri::command]
 pub async fn medya_parca_yaz(app: AppHandle, kimlik: Option<String>, uzanti: String, veri: String) -> Sonuc<String> {
-    medya::parca_yaz(&app, kimlik, &uzanti, &veri).await
+    medya::parca_yaz(&app, kimlik, &uzanti, veri).await
 }
 
 #[tauri::command]
-pub fn medya_temizle(app: AppHandle, kimlikler: Vec<String>) {
-    medya::temizle(&app, &kimlikler);
+pub async fn medya_temizle(app: AppHandle, kimlikler: Vec<String>) {
+    medya::temizle_async(&app, kimlikler).await;
 }
 
 #[tauri::command]

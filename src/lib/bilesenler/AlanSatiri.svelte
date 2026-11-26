@@ -54,10 +54,9 @@
 </div>
 
 <style>
-  .satir { display: flex; align-items: center; gap: 8px; padding-right: 16px; }
+  .satir { content-visibility: auto; contain-intrinsic-size: auto var(--liste-satir-boy, 4.5rem); contain: layout style; display: flex; align-items: center; gap: 8px; padding-right: 16px; }
   .govde {
-    flex: 1; min-width: 0; min-height: 72px; padding: 8px 8px 8px 16px; display: flex; align-items: center; gap: 12px; text-align: left;
-    transition: background var(--sure-hizli) var(--egri-cikis);
+    flex: 1; min-width: 0; min-height: var(--liste-satir-boy, 4.5rem); padding: var(--liste-satir-py, .5rem) .5rem var(--liste-satir-py, .5rem) var(--liste-satir-px, 1rem); display: flex; align-items: center; gap: var(--liste-satir-ara, .75rem); text-align: left;
   }
   .govde:disabled { cursor: default; }
   .acilabilir .govde:active { background: var(--yuzey-2); }

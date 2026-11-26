@@ -265,7 +265,7 @@
 <style>
   .aciklama { font-size: .875rem; line-height: 1.43; color: var(--yazi-2); }
   /* Option card: icon, title, one line of help (design section 12a) · Seçenek kartı: simge, başlık, bir satır yardım (tasarım bölüm 12a) */
-  .secenek { width: 100%; min-height: 64px; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 12px; text-align: left; background: var(--yuzey-2); border: 1px solid var(--kenar-ince); transition: background var(--sure-hizli) var(--egri-cikis); }
+  .secenek { width: 100%; min-height: 64px; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 12px; text-align: left; background: var(--yuzey-2); border: 1px solid var(--kenar-ince); }
   .secenek:active { background: var(--yuzey-3); }
   .secenek:disabled { opacity: .38; }
   .secenek.one-cikan { background: var(--ton); color: var(--ton-ustu); border-color: transparent; }

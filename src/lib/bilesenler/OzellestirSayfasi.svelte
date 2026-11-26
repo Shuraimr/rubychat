@@ -85,13 +85,13 @@
 </AltSayfa>
 
 <style>
-  .onizleme { position: relative; overflow: hidden; isolation: isolate; min-height: 11rem; display: grid; align-content: end; gap: .5rem; padding: 1rem; border-radius: 1.5rem; border: 1px solid var(--kenar-ince); transition: background var(--sure-orta) var(--egri-cikis); }
+  .onizleme { position: relative; overflow: hidden; isolation: isolate; min-height: 11rem; display: grid; align-content: end; gap: var(--grup-aralik, .5rem); padding: 1rem; border-radius: 1.5rem; border: 1px solid var(--kenar-ince); }
   .o-gelen, .o-giden { position: relative; z-index: 1; max-width: 78%; padding: var(--balon-dolgu); border-radius: var(--balon-r); }
   .o-gelen { background: var(--gelen-dolgu); justify-self: start; border-bottom-left-radius: .375rem; }
   .o-giden { background: var(--giden-dolgu); justify-self: end; border-bottom-right-radius: .375rem; }
   h3 { font-family: var(--yazi-tipi); font-size: .875rem; font-weight: 600; color: var(--vurgu); margin-bottom: .5rem; }
   .karolar { display: grid; grid-template-columns: repeat(auto-fill, minmax(4rem, 1fr)); gap: .5rem; }
-  .karo { position: relative; aspect-ratio: 3 / 4; border-radius: 1rem; border: 1px solid var(--kenar); display: inline-flex; align-items: center; justify-content: center; color: var(--yazi); outline: 2px solid transparent; outline-offset: 2px; transition: outline-color var(--sure-orta) var(--egri-cikis), border-radius var(--sure-orta) var(--egri-cikis); }
+  .karo { position: relative; aspect-ratio: 3 / 4; border-radius: 1rem; border: 1px solid var(--kenar); display: inline-flex; align-items: center; justify-content: center; color: var(--yazi); outline: 2px solid transparent; outline-offset: 2px; transition: transform var(--sure-hizli) var(--egri-cikis); }
   .karo.aktif { outline-color: var(--vurgu); border-radius: 1.5rem; }
   .foto { background: var(--ton); color: var(--ton-ustu); border-color: transparent; cursor: pointer; }
   .foto input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }

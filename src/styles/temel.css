@@ -40,7 +40,7 @@ a { color: var(--vurgu); }
 .simge-dugme {
   width: 2.75rem; min-width: 44px; height: 2.75rem; min-height: 44px; border-radius: 50%; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
-  color: var(--yazi); transition: background var(--sure-hizli) var(--egri-cikis), opacity var(--sure-hizli) var(--egri-cikis);
+  color: var(--yazi); transition: opacity var(--sure-hizli) var(--egri-cikis);
 }
 .simge-dugme:disabled { opacity: .38; }
 @media (hover: hover) { .simge-dugme:not(:disabled):hover { background: var(--yuzey-3); } }
@@ -53,7 +53,7 @@ a { color: var(--vurgu); }
 .buton {
   white-space: nowrap; min-height: 3rem; width: 100%; padding: .5rem 1.25rem; border-radius: 1.5rem; font-weight: 600; font-size: .9375rem; line-height: 1.3; text-align: center; overflow-wrap: anywhere;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  transition: opacity var(--sure-hizli) var(--egri-cikis), background var(--sure-hizli) var(--egri-cikis);
+  transition: opacity var(--sure-hizli) var(--egri-cikis);
 }
 .buton.birincil { background: var(--vurgu); color: var(--vurgu-ustu); }
 .buton.tonlu { background: var(--ton); color: var(--ton-ustu); }
@@ -64,12 +64,15 @@ a { color: var(--vurgu); }
 .buton.tehlike { background: var(--hata); color: var(--zemin); }
 .buton.kirmizi { color: var(--hata); }
 .buton:disabled { opacity: .38; }
-/* Loading = spinner + text; width stays the same (no jump) · Yükleniyor = dönen + metin; genişlik sabit kalır (zıplamaz) */
+/* Loading = spinner + text; width stays the same (no jump); stopped in reduced motion so 0ms never jitters. */
+/* Yükleniyor = dönen + metin; genişlik sabit kalır (zıplamaz); azaltılmış harekette durur, 0ms titremez. */
 .yuklenme {
   width: 18px; height: 18px; border-radius: 50%; flex: none;
   border: 2px solid currentColor; border-right-color: transparent;
   animation: don calc(900ms * var(--hareket)) linear infinite;
 }
+@media (prefers-reduced-motion: reduce) { .yuklenme { animation: none; } }
+:root[data-az-animasyon] .yuklenme { animation: none; }
 @keyframes don { to { transform: rotate(360deg); } }
 
 /* ---- Inputs (design section 3): 52px field, label above, focus = 2px accent border, error = red border + reason ---- */
@@ -79,7 +82,6 @@ a { color: var(--vurgu); }
 .alan-kutu {
   min-height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 1rem; border-radius: 1rem;
   background: var(--yuzey-2); border: 1px solid transparent; color: var(--yazi-2);
-  transition: border-color var(--sure-hizli) var(--egri-cikis);
 }
 .alan-kutu:focus-within { border-color: var(--vurgu); box-shadow: 0 0 0 1px var(--vurgu); }
 .alan-kutu.hatali { border-color: var(--hata); box-shadow: 0 0 0 1px var(--hata); }
@@ -109,14 +111,13 @@ a { color: var(--vurgu); }
 
 .gorunmez-etiket { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
-/* Ripple targets and press feedback live in lib/dokunma.ts; these rules only make the ripple clip to the row. */
-/* Dalga hedefleri ve basma geri bildirimi lib/dokunma.ts'te; bu kurallar yalnızca dalganın satıra kırpılmasını sağlar. */
+/* Ripple targets and press feedback live in lib/dokunma.ts; these rules clip the ripple and apply the press state layer without animating box-shadow. */
+/* Dalga hedefleri ve basma geri bildirimi lib/dokunma.ts'te; bu kurallar dalgayı kırpar ve box-shadow'u canlandırmadan basma katmanını uygular. */
 [data-dalga] { position: relative; overflow: hidden; }
-/* Skeleton shimmer: a light band sweeps across; only shown after a 400ms wait (see screens). --hareket 0 = still. */
-/* İskelet parıltısı: açık bir bant süpürür; yalnızca 400ms beklemeden sonra gösterilir (ekranlara bak). --hareket 0 = durağan. */
-.parilti { position: relative; overflow: hidden; background: var(--yuzey-2); }
-.parilti::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--yazi) 8%, transparent), transparent); transform: translateX(-100%); animation: parilti calc(1400ms * var(--hareket)) ease-in-out infinite; }
-@keyframes parilti { to { transform: translateX(100%); } }
+[data-basili] { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--yazi) 8%, transparent); }
+/* Calm tonal skeleton placeholder (no gradient sweep or idle loop); shown only after a 400ms wait. */
+/* Sakin tonlu iskelet yer tutucu (gradyan taraması ya da boşta döngü yok); yalnızca 400ms beklemeden sonra gösterilir. */
+.parilti { background: var(--yuzey-2); }
 /* Inline / block code and mxids use the monospace family (Maple Mono by default). · Satır içi / blok kod ve mxid'ler tek aralıklı aileyi kullanır (varsayılan Maple Mono). */
 code, kbd, pre, .mono { font-family: var(--mono-tipi); }
 
@@ -134,7 +135,7 @@ code, kbd, pre, .mono { font-family: var(--mono-tipi); }
 /* One tile with free content · Serbest içerikli tek karo */
 .ay-kart.govde { gap: .75rem; padding: 1rem; border-radius: 1.5rem; background: var(--yuzey-2); }
 .ay-kart > .ay-not { padding: 1rem; }
-.ay-satir { display: flex; align-items: center; gap: 1rem; min-height: 4.25rem; padding: .625rem 1rem; text-align: left; width: 100%; color: var(--yazi); transition: background var(--sure-hizli) var(--egri-cikis); }
+.ay-satir { display: flex; align-items: center; gap: 1rem; min-height: 4.25rem; padding: .625rem 1rem; text-align: left; width: 100%; color: var(--yazi); }
 .ay-satir > .ay-metin { flex: 1; min-width: 0; display: grid; gap: .125rem; }
 .ay-satir > .ay-metin strong { font-size: 1rem; font-weight: 500; line-height: 1.3; }
 .ay-satir > .ay-metin span { font-size: .8125rem; line-height: 1.35; color: var(--yazi-2); }
@@ -148,13 +149,12 @@ code, kbd, pre, .mono { font-family: var(--mono-tipi); }
 .ay-secici { padding: .75rem; }
 
 /* Popover card (attach menu, emoji picker, "Yeni"): stays in the page, so opening is only opacity + transform and can be reversed half-way.
-   Açılır kart (ek menüsü, emoji seçici, "Yeni"): sayfada hazır durur; açılmak yalnızca opaklık + dönüşümdür ve yarıda geri alınabilir. */
-/* Never `visibility: hidden`: the layer would be thrown away and painted again at every opening (that was the hitch). Closed cards stay
-   in GPU memory at opacity 0 and are inert. · Hiç `visibility: hidden` değil: katman atılıp her açılışta yeniden boyanırdı (takılma buydu). Kapalı
-   kartlar GPU belleğinde opaklık 0 ile durur ve etkisizdir. */
-.acilir { pointer-events: none; will-change: transform, opacity; opacity: 0; transform: translate3d(0, 6px, 0) scale(.95); transition: opacity var(--sure-cikis) linear, transform var(--sure-cikis) var(--egri-cikis); background: var(--yuzey-3); border-radius: 1.25rem; box-shadow: var(--kat-2); }
+   No permanent will-change: closed cards must not pin idle GPU layers.
+   Açılır kart (ek menüsü, emoji seçici, "Yeni"): sayfada hazır durur; açılmak yalnızca opaklık + dönüşümdür ve yarıda geri alınabilir.
+   Kalıcı will-change yok: kapalı kartlar boşta GPU katmanı tutmamalı. */
+.acilir { contain: layout style; pointer-events: none; opacity: 0; transform: translate3d(0, 6px, 0) scale(.95); transition: opacity var(--sure-cikis) linear, transform var(--sure-cikis) var(--egri-cikis); background: var(--yuzey-3); border-radius: 1.25rem; box-shadow: var(--kat-2); }
 .acilir.acik { pointer-events: auto; opacity: 1; transform: none; transition: opacity var(--sure-hizli) linear, transform var(--sure-orta) var(--egri-ac); }
-.acilir-satir { width: 100%; min-height: 3rem; padding: .375rem .875rem; display: flex; align-items: center; gap: .875rem; border-radius: .875rem; text-align: left; font-size: .9375rem; line-height: 1.3; font-weight: 500; color: var(--yazi); transition: background var(--sure-hizli) linear; }
+.acilir-satir { width: 100%; min-height: 3rem; padding: .375rem .875rem; display: flex; align-items: center; gap: .875rem; border-radius: .875rem; text-align: left; font-size: .9375rem; line-height: 1.3; font-weight: 500; color: var(--yazi); }
 .acilir-satir:active { background: var(--yuzey-2); }
 .acilir-satir > svg { flex: none; color: var(--yazi-2); }
 .acilir-satir > span { min-width: 0; overflow-wrap: anywhere; }

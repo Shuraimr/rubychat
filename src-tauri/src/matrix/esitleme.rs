@@ -43,17 +43,36 @@ fn durum_yayinla(app: &AppHandle, durum: EsitlemeDurumuAdi, mesaj: Option<String
     let _ = app.emit(OLAY_DURUM, d);
 }
 
+/// Rooms whose latest event the SDK already tracks; emptied with the session (`durdur`). · SDK'nın son olayını zaten izlediği odalar; oturumla boşalır (`durdur`).
+static DINLENEN: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+/// The first list of this run is timed (startup measurement). · Bu çalıştırmanın ilk listesi zamanlanır (açılış ölçümü).
+static ILK_YAYIN: std::sync::Once = std::sync::Once::new();
+
 pub async fn odalari_yayinla(app: &AppHandle, client: &Client) {
     let liste = odalar::liste(client).await;
-    // Ask the SDK to track the newest rooms' latest events so previews fill in (best effort).
-    // SDK'dan en yeni odaların son olaylarını izlemesini iste; önizlemeler dolsun (elinden geleni yapar).
-    let son_olaylar = client.latest_events().await;
-    for oda in liste.iter().filter(|o| !o.davet).take(50) {
-        if let Ok(id) = matrix_sdk::ruma::RoomId::parse(&oda.id) {
-            let _ = son_olaylar.listen_to_room(&id).await;
+    // Ask the SDK to track the newest rooms' latest events so previews fill in (best effort). Only rooms not asked before:
+    // this runs after every sync burst, and asking again for the same 50 rooms each time was wasted work.
+    // SDK'dan en yeni odaların son olaylarını izlemesini iste; önizlemeler dolsun (elinden geleni yapar). Yalnızca daha önce
+    // istenmemiş odalar: bu her eşitleme dalgasından sonra çalışır, aynı 50 odayı her seferinde yeniden istemek boşa işti.
+    let yeni: Vec<String> = {
+        let mut d = DINLENEN.lock().unwrap_or_else(|e| e.into_inner());
+        let d = d.get_or_insert_with(Default::default);
+        liste.iter().filter(|o| !o.davet).take(50).filter(|o| d.insert(o.id.clone())).map(|o| o.id.clone()).collect()
+    };
+    ILK_YAYIN.call_once(|| info!("açılış: ilk oda listesi ({} oda) süreç başlangıcından {} ms sonra", liste.len(), crate::calisma_suresi_ms()));
+    let _ = app.emit(OLAY_ODALAR, &liste);
+    // After the list is out, not before: the first time, each room takes a store read here (measured: ~3.4 s for 38 rooms at startup).
+    // Liste yollandıktan sonra, önce değil: ilk seferde her oda burada bir depo okuması alır (ölçüldü: açılışta 38 oda için ~3,4 sn).
+    if !yeni.is_empty() {
+        let son_olaylar = client.latest_events().await;
+        for id in yeni {
+            if let Ok(id) = matrix_sdk::ruma::RoomId::parse(&id) {
+                let _ = son_olaylar.listen_to_room(&id).await;
+            }
         }
     }
-    let _ = app.emit(OLAY_ODALAR, liste);
+    #[cfg(target_os = "linux")]
+    crate::masaustu_linux::tepsi_okunmamis(liste.iter().filter(|o| !o.davet && !o.alan && o.okunmamis > 0).count());
 }
 
 /// Starts syncing. Returns the `SyncService` (sliding-sync mode) and the background tasks to abort on logout.
@@ -186,8 +205,19 @@ fn liste_yayincisi(app: AppHandle, client: Client) -> JoinHandle<()> {
                     if matches!(r, Err(tokio::sync::broadcast::error::RecvError::Closed)) { break; }
                 }
             }
+            // Let the burst finish, then swallow everything that queued up meanwhile: one list for the whole burst, not one per
+            // update 200 ms apart (a sync touching 20 rooms used to mean 20 rebuilds over 4 seconds).
+            // Dalga bitsin, sonra bu arada biriken her şeyi yut: her güncellemeye 200 ms arayla bir liste değil, bütün dalgaya bir
+            // liste (20 odaya dokunan bir eşitleme 4 saniye boyunca 20 yeniden kurma demekti).
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            loop {
+                match bildirimler.try_recv() {
+                    Ok(_) | Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {}
+                    Err(_) => break,
+                }
+            }
+            while let Some(Some(_)) = futures_util::FutureExt::now_or_never(oda_akisi.next()) {}
             odalari_yayinla(&app, &client).await;
-            tokio::time::sleep(Duration::from_millis(200)).await;
         }
     })
 }
@@ -195,6 +225,7 @@ fn liste_yayincisi(app: AppHandle, client: Client) -> JoinHandle<()> {
 /// Stops everything started by `baslat`.
 /// `baslat`ın başlattığı her şeyi durdurur.
 pub async fn durdur(servis: Option<Arc<SyncService>>, gorevler: Vec<JoinHandle<()>>) {
+    *DINLENEN.lock().unwrap_or_else(|e| e.into_inner()) = None;
     for g in gorevler {
         g.abort();
     }

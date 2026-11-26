@@ -47,6 +47,26 @@
   --mono-tipi: "Maple Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   /* Root text scale (Görünüm › Yazı boyutu) · Kök yazı ölçeği (Görünüm › Yazı boyutu) */
   --yazi-olcegi: 1;
+  /* Desktop-only chat area scale (Görünüm › Sohbet boyutu); leaves the rest of the app untouched */
+  /* Yalnızca masaüstünde sohbet alanı ölçeği (Görünüm › Sohbet boyutu); uygulamanın geri kalanını etkilemez */
+  --sohbet-olcek: 1;
+  /* Chat & list density defaults (Varsayılan); overridden by data-yogunluk="rahat" / "kompakt" below */
+  /* Sohbet ve liste yoğunluğu varsayılanları (Varsayılan); aşağıda data-yogunluk="rahat" / "kompakt" ile değişir */
+  --balon-dolgu: .5em .75em;
+  --balon-r: 1.25em;
+  --balon-aralik: 2px;
+  --grup-aralik: .5em;
+  --sohbet-satir-yukseklik: 1.45;
+  --sohbet-avatar: 2em;
+  --sohbet-yatay-dolgu: .75rem;
+  --liste-satir-boy: 4.5rem;
+  --liste-satir-py: .5rem;
+  --liste-satir-px: 1rem;
+  --liste-satir-ara: 1rem;
+  --liste-avatar: 3.25rem;
+  --serit-en: 68px;
+  --serit-oda-boy: 56px;
+  --serit-avatar: 44px;
   /* Height of fixed bottom bars, measured at runtime by the app (toasts sit above it) */
   /* Ekranın altına sabitlenen çubukların yüksekliği; uygulama ölçer (bildirimler bunun üstünde durur) */
   --alt-yer: 0px;
@@ -122,6 +142,42 @@
 /* ---- Yazı boyutu ---- */
 :root[data-boyut="kucuk"] { --yazi-olcegi: .875; }
 :root[data-boyut="buyuk"] { --yazi-olcegi: 1.125; }
+
+/* ---- Chat & list density (Görünüm › Sohbet yoğunluğu): consistent heights, avatars and gaps while keeping >=44px touch targets ---- */
+/* ---- Sohbet ve liste yoğunluğu (Görünüm › Sohbet yoğunluğu): >=44px dokunma alanını koruyarak tutarlı yükseklik, avatar ve boşluklar ---- */
+:root[data-yogunluk="rahat"] {
+  --balon-dolgu: .625em .9375em;
+  --balon-r: 1.375em;
+  --balon-aralik: 3px;
+  --grup-aralik: .875em;
+  --sohbet-satir-yukseklik: 1.5;
+  --sohbet-avatar: 2.25em;
+  --sohbet-yatay-dolgu: 1rem;
+  --liste-satir-boy: 5rem;
+  --liste-satir-py: .625rem;
+  --liste-satir-px: 1rem;
+  --liste-satir-ara: 1rem;
+  --liste-avatar: 3.5rem;
+  --serit-oda-boy: 58px;
+  --serit-avatar: 46px;
+}
+:root[data-yogunluk="kompakt"] {
+  --balon-dolgu: .3125em .625em;
+  --balon-r: 1em;
+  --balon-aralik: 1px;
+  --grup-aralik: .3125em;
+  --sohbet-satir-yukseklik: 1.34;
+  --sohbet-avatar: 1.625em;
+  --sohbet-yatay-dolgu: .5rem;
+  --liste-satir-boy: 3.5rem;
+  --liste-satir-py: .3125rem;
+  --liste-satir-px: .75rem;
+  --liste-satir-ara: .75rem;
+  --liste-avatar: 2.5rem;
+  --serit-en: 62px;
+  --serit-oda-boy: 48px;
+  --serit-avatar: 38px;
+}
 
 /* Reduced motion: every transition/animation uses the duration variables, so zeroing them here turns all motion off.
    Followed from the OS ("sistem") or forced by Görünüm › Animasyonları azalt (data-az-animasyon). */

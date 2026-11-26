@@ -23,7 +23,25 @@
     onkapat,
     aktifOlay = $bindable(null),
     sorgu = $bindable(""),
-  }: { odaId: string; onkapat: () => void; aktifOlay?: string | null; sorgu?: string } = $props();
+    vimKipi = false,
+    adimBagla,
+    durumDegis,
+    vurguDegis,
+  }: {
+    odaId: string;
+    onkapat: () => void;
+    aktifOlay?: string | null;
+    sorgu?: string;
+    /** Opened via Vim "/" or ":ara": Enter confirms and leaves focus for n/N · Vim "/" veya ":ara" ile açıldı: Enter onaylar ve n/N için odağı bırakır */
+    vimKipi?: boolean;
+    /** Exposes step/focus/close helpers to keyboard shortcuts · Klavye kısayollarına adımlama/odak/kapatma yardımcılarını verir */
+    adimBagla?: (api: { adim: (yon: -1 | 1) => string | null; odakla: () => void; kapat: () => void } | null) => void;
+    /** Reports match index/total for the mode indicator · Kip göstergesi için eşleşme sırası/toplamını bildirir */
+    durumDegis?: (d: { sira: number; toplam: number }) => void;
+    /** The words of the current results and the events they matched (the room highlights only those bubbles)
+     *  Güncel sonuçların kelimeleri ve eşleştikleri olaylar (oda yalnızca o balonları vurgular) */
+    vurguDegis?: (v: { sorgu: string; idler: Set<string> }) => void;
+  } = $props();
 
   const motor = new MesajAramasi();
   let alan: HTMLInputElement | undefined = $state();
@@ -37,9 +55,25 @@
 
   onMount(() => {
     katman = gezinme.katmanAc(() => onkapat());
-    queueMicrotask(() => alan?.focus());
+    adimBagla?.({
+      adim,
+      odakla: () => {
+        alan?.focus();
+        alan?.select();
+      },
+      kapat: () => {
+        if (katman) gezinme.katmanKapat(katman);
+        else onkapat();
+      },
+    });
+    // Prefilled ":ara text" starts ready for n/N; empty "/" or Ctrl+F focuses the input. · Ön dolgulu ":ara metin" n/N için hazır başlar; boş "/" veya Ctrl+F girdiyi odaklar.
+    if (!vimKipi || !sorgu.trim()) queueMicrotask(() => alan?.focus());
   });
   onDestroy(() => {
+    clearTimeout(atlaZamanlayici);
+    vurguDegis?.({ sorgu: "", idler: new Set() });
+    adimBagla?.(null);
+    durumDegis?.({ sira: 0, toplam: 0 });
     // Top one first, so each history entry can be removed. · Önce üstteki; her history girdisi silinebilsin.
     if (listeKatmani) gezinme.katmanBirak(listeKatmani);
     if (katman) gezinme.katmanBirak(katman);
@@ -48,7 +82,8 @@
     sorgu = "";
   });
 
-  $effect(() => motor.ara(sorgu, odaId));
+  // One room: ask for more than the global search does, so "3/17" counts the whole room. · Tek oda: genel aramadan çok iste; "3/17" bütün odayı saysın.
+  $effect(() => motor.ara(sorgu, odaId, 200));
 
   // Oldest first so ˄ goes back in time; start at the NEWEST match · En eski başta: ˄ geçmişe gider; EN YENİ eşleşmeden başla
   const eslesmeler = $derived.by(() => {
@@ -64,29 +99,53 @@
   const toplam = $derived(medyaKipi ? medyalar.length : eslesmeler.length);
   const gecerli = $derived([...sorgu.trim()].length >= EN_AZ_KARAKTER);
 
-  // New results: jump to the newest one · Yeni sonuçlar: en yenisine atla
+  // New results: jump to the newest one, but only once the typing settles. Every jump may load history and scroll the room, so jumping
+  // on each letter made the chat jerk around while typing; the count still updates at once. Enter / ˄ ˅ jump immediately.
+  // Yeni sonuçlar: en yenisine atla, ama yalnızca yazma durulunca. Her atlama geçmiş yükleyip odayı kaydırabilir; her harfte atlamak
+  // yazarken sohbeti sarsıyordu. Sayaç yine anında güncellenir. Enter / ˄ ˅ hemen atlar.
+  const ATLAMA_BEKLEME = 450;
+  let atlaZamanlayici: ReturnType<typeof setTimeout> | undefined;
   let sonAnahtar = "";
   $effect(() => {
     const anahtar = `${medyaKipi}|${kimden}|${motor.sorgu}|${eslesmeler.length}|${medyalar.length}`;
     if (anahtar === sonAnahtar) return;
     sonAnahtar = anahtar;
     sira = Math.max(0, toplam - 1);
-    git();
+    clearTimeout(atlaZamanlayici);
+    atlaZamanlayici = setTimeout(git, ATLAMA_BEKLEME);
   });
 
-  function git() {
+  // Only the matched bubbles highlight, with the words their results were found for. · Yalnızca eşleşen balonlar, sonuçlarının bulunduğu kelimelerle vurgulanır.
+  $effect(() => {
+    const idler = new Set<string>(medyaKipi ? [] : eslesmeler.map((s) => s.olayId));
+    vurguDegis?.({ sorgu: medyaKipi ? "" : motor.sorgu, idler });
+  });
+
+  $effect(() => {
+    durumDegis?.({ sira: toplam > 0 ? sira + 1 : 0, toplam });
+  });
+
+  function git(): string | null {
+    clearTimeout(atlaZamanlayici);
     const o = medyaKipi ? medyalar[sira]?.olayId : eslesmeler[sira]?.olayId;
     aktifOlay = o ?? null;
     if (o) atlama.git(odaId, o);
+    return o ?? null;
   }
-  function adim(yon: -1 | 1) {
-    if (!toplam) return;
+  function adim(yon: -1 | 1): string | null {
+    if (!toplam) return null;
     sira = (sira + yon + toplam) % toplam;
-    git();
+    return git();
   }
 
-  /** Enter = older match, Shift+Enter = newer (Ctrl+K / Ctrl+J too) · Enter = önceki eşleşme, Shift+Enter = sonraki (Ctrl+K / Ctrl+J de) */
+  /** Enter = confirm in Vim "/" mode (blur for n/N), or older match in Ctrl+F mode; Shift+Enter = newer (Ctrl+K / Ctrl+J too)
+   *  Enter = Vim "/" kipinde onaylar (n/N için odağı bırakır), Ctrl+F kipinde önceki eşleşme; Shift+Enter = sonraki (Ctrl+K / Ctrl+J de) */
   function tus(e: KeyboardEvent) {
+    if (vimKipi && e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.isComposing) {
+      e.preventDefault();
+      alan?.blur();
+      return;
+    }
     const k = e.key.toLowerCase();
     const yon = e.key === "Enter" && !e.isComposing ? (e.shiftKey ? 1 : -1) : e.ctrlKey && k === "k" ? -1 : e.ctrlKey && k === "j" ? 1 : 0;
     if (!yon) return;

@@ -815,3 +815,20 @@ pub struct EpostaAdresi {
     pub adres: String,
     pub dogrulandi: bool,
 }
+
+/// One recent message for the room-palette preview panel (built from the local event cache, no network).
+/// Oda paleti önizleme paneli için tek bir son mesaj (yerel olay önbelleğinden kurulur, ağa çıkmaz).
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OnizlemeMesaji {
+    pub olay_id: String,
+    pub gonderen: String,
+    pub gonderen_ad: String,
+    pub kendi: bool,
+    /// Milliseconds since the Unix epoch · Unix epoch'tan beri milisaniye
+    pub zaman: u64,
+    /// Short preview text (body, media kind label, or undecrypted note) · Kısa önizleme metni (gövde, medya tür etiketi ya da çözülemeyen şifreli notu)
+    pub metin: String,
+    /// "metin" | "medya" | "sifreli" · "metin" | "medya" | "sifreli"
+    pub tur: String,
+}

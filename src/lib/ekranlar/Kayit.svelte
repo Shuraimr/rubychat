@@ -21,7 +21,7 @@
   let { sunucu, onkapat }: { sunucu: string; onkapat: () => void } = $props();
 
   interface AndroidKopru {
-    kayitAc(url: string, baslik: string, zemin: string, yazi: string): void;
+    kayitAc(url: string, baslik: string, zemin: string, yazi: string): boolean;
     kayitKapat(): void;
   }
   const android = () => {
@@ -30,6 +30,9 @@
   };
 
   let adres = $state<string | null>(null);
+  // Typed by hand on the opened page when the server gave no ready-made link (RFC 8628 `verification_uri_complete` is optional).
+  // Sunucu hazır bağlantı vermediyse açılan sayfada elle yazılır (RFC 8628 `verification_uri_complete` isteğe bağlıdır).
+  let elleKod = $state<string | null>(null);
   let acik = $state(false);
   let hata = $state<Anahtar | null>(null);
   let bitti = false;
@@ -39,24 +42,28 @@
     const h = e as Hata;
     if (h.mesaj?.includes("desteklenmiyor")) return "kayit.desteksiz";
     if (h.mesaj === "ret") return "telefonla.ret";
-    if (h.mesaj === "sure") return "telefonla.sure";
+    if (h.mesaj === "sure") return "kayit.sure";
     return `hata.${h.tur ?? "diger"}` as Anahtar;
   }
 
-  async function sayfayiAc() {
-    if (!adres) return;
+  /** True when the page opened; false (and `hata` set) when it did not. · Sayfa açıldıysa true; açılmadıysa false (ve `hata` yazılır). */
+  async function sayfayiAc(): Promise<boolean> {
+    if (!adres) return false;
     try {
       const a = android();
       if (a) {
         const stil = getComputedStyle(document.documentElement);
-        a.kayitAc(adres, t("kayit.baslik"), stil.getPropertyValue("--yuzey-1").trim(), stil.getPropertyValue("--yazi").trim());
+        // The native side answers false when the address is not a usable https one. · Yerel taraf adres kullanılabilir bir https değilse false döner.
+        if (!a.kayitAc(adres, t("kayit.baslik"), stil.getPropertyValue("--yuzey-1").trim(), stil.getPropertyValue("--yazi").trim())) throw new Error("kayitAc false");
       } else {
         await kayitPenceresiAc(adres, t("kayit.pencere"));
       }
       acik = true;
+      return true;
     } catch (e) {
       console.error(e);
       hata = "kayit.acilamadi";
+      return false;
     }
   }
 
@@ -70,13 +77,26 @@
   async function basla() {
     const bu = ++tur;
     adres = null;
+    elleKod = null;
     hata = null;
     try {
       const k = await cihazGirisiBaslat(sunucu);
       if (bitti || bu !== tur) return;
       adres = k.adres;
-      await sayfayiAc();
+      elleKod = k.kodYazilir ? k.kod : null;
+      const acildi = await sayfayiAc();
+      // Left (or restarted) while the window was opening: close what just opened. · Pencere açılırken çıkıldı (ya da yeniden başlatıldı): yeni açılanı kapat.
+      if (bitti || bu !== tur) {
+        if (bitti) sayfayiKapat();
+        return;
+      }
+      if (!acildi) {
+        // Nothing to wait for: stop polling the server. · Beklenecek bir şey yok: sunucuyu yoklamayı bırak.
+        void cihazGirisiIptal().catch(() => {});
+        return;
+      }
       const ben = await cihazGirisiBekle();
+      if (bitti || bu !== tur) return;
       bitti = true;
       sayfayiKapat();
       sifreleme.girisSonrasiDogrula = true;
@@ -116,12 +136,13 @@
     {#if hata}
       <Maskot poz="hata" boyut={140} />
       <p role="alert">{t(hata)}</p>
-      {#if hata !== "kayit.desteksiz"}<button class="buton birincil buyuk" type="button" onclick={() => void basla()}>{t("telefonla.yeniKod")}</button>{/if}
+      {#if hata !== "kayit.desteksiz"}<button class="buton birincil buyuk" type="button" onclick={() => void basla()}>{t("eylem.tekrarDene")}</button>{/if}
     {:else}
       <Maskot poz={adres ? "selam" : "yukleniyor"} boyut={140} />
       <p class="durum" role="status">
         {#if !adres}<span class="yuklenme"></span>{t("kayit.hazirlaniyor")}{:else if acik}{t("kayit.acik")}{:else}{t("kayit.kapandi")}{/if}
       </p>
+      {#if elleKod}<p class="kod" role="status">{t("kayit.kod")} <strong>{elleKod}</strong></p>{/if}
       <p class="alt">{t("kayit.sunucu", { sunucu })}</p>
       {#if adres && !acik}<button class="buton birincil buyuk" type="button" onclick={() => void sayfayiAc()}>{t("kayit.ac")}</button>{/if}
     {/if}
@@ -136,6 +157,8 @@
   h1 { font-size: 1.25rem; font-weight: 600; }
   .merkez { display: grid; justify-items: center; gap: 1rem; padding: 1.5rem 0; text-align: center; }
   .durum { display: flex; align-items: center; justify-content: center; gap: .5rem; font-size: 1rem; line-height: 1.45; max-width: 34ch; }
+  .kod { font-size: .9375rem; line-height: 1.45; max-width: 34ch; }
+  .kod strong { font-family: var(--mono-tipi); font-size: 1.25rem; letter-spacing: .12em; }
   .alt { font-size: .8125rem; line-height: 1.45; color: var(--yazi-2); max-width: 38ch; }
   .buyuk { width: 100%; height: 56px; border-radius: 28px; font-size: 1rem; }
 </style>

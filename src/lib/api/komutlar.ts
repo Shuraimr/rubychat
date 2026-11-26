@@ -26,6 +26,7 @@ import type {
   MedyaYetenekleri,
   OdaBilgisi,
   OdaOzeti,
+  OnizlemeMesaji,
   OturumCihazi,
   HesapBilgisi,
   EpostaAdresi,
@@ -67,6 +68,8 @@ export const esitlemeDurumuAl = () => cagir<EsitlemeDurumu | null>("esitleme_dur
 export const odaSabitle = (odaId: string, sabit: boolean) => cagir<void>("oda_sabitle", { odaId, sabit });
 export const odayiAc = (odaId: string) => cagir<OdaBilgisi>("odayi_ac", { odaId });
 export const odayiKapat = (odaId: string) => cagir<void>("odayi_kapat", { odaId });
+/** Newest cached messages of a room for the palette preview (no network, no timeline) · Palet önizlemesi için odanın önbellekteki en yeni mesajları (ağ yok, çizelge yok) */
+export const odaOnizleme = (odaId: string, adet = 20) => cagir<OnizlemeMesaji[]>("oda_onizleme", { odaId, adet });
 /** Rooms to keep warm, best first; replaces the previous list, [] pauses · Sıcak tutulacak odalar, en iyi önce; öncekinin yerine geçer, [] duraklatır */
 export const odalariHazirla = (idler: string[]) => cagir<void>("odalari_hazirla", { idler });
 export const geriSayfala = (odaId: string) => cagir<void>("geri_sayfala", { odaId });
@@ -155,6 +158,11 @@ export const bildirimAyarlariniAc = () => cagir<void>("bildirim_ayarlarini_ac");
 /** The room a tapped notification wants opened at cold start (consumed once). · Dokunulan bildirimin soğuk açılışta açılmasını istediği oda (bir kez tüketilir). */
 export const bildirimBekleyenOda = () => cagir<string | null>("bildirim_bekleyen_oda");
 export const uygulamaArkaPlanda = (arkaPlanda: boolean) => cagir<void>("uygulama_arka_planda", { arkaPlanda });
+/** Desktop: closing the window hides it (`acik`), and start hidden at login (`acilista`). · Masaüstü: pencereyi kapatmak gizler, oturum açılınca gizli başla. */
+export const masaustuArkaPlan = (acik: boolean, acilista: boolean) => cagir<void>("masaustu_arka_plan", { acik, acilista });
+export const uygulamadanCik = () => cagir<void>("uygulamadan_cik");
+/** The webview may grant camera-only access while this is true (desktop camera window). · Bu true iken webview yalnızca kamera erişimi verebilir (masaüstü kamera penceresi). */
+export const kameraPenceresi = (acik: boolean) => cagir<void>("kamera_penceresi", { acik });
 
 // ---- Members and moderation · Üyeler ve yönetim ----
 export const uyeleriListele = (odaId: string) => cagir<Uye[]>("uyeleri_listele", { odaId });

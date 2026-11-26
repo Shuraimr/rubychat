@@ -9,6 +9,9 @@ mod gizli_depo;
 mod hata;
 #[cfg(target_os = "linux")]
 mod masaustu_linux;
+#[cfg(target_os = "linux")]
+mod tepsi_linux;
+mod arka_plan;
 mod kayit_penceresi;
 mod komutlar;
 mod matrix;
@@ -65,8 +68,15 @@ pub fn profil_eki() -> String {
     }
 }
 
+/// When the process started, for the startup measurements in the log. · Sürecin başladığı an; günlükteki açılış ölçümleri için.
+static BASLANGIC: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+pub fn calisma_suresi_ms() -> u128 {
+    BASLANGIC.get().map(|b| b.elapsed().as_millis()).unwrap_or(0)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    BASLANGIC.get_or_init(std::time::Instant::now);
     // libwebrtc prints its statistics with the locale's decimal separator: "0,5" (Turkish) aborts the process. GTK reads the locale from the
     // environment, so this comes before it and before any thread. LC_ALL would override LC_NUMERIC.
     // libwebrtc istatistiklerini yerel ayarın ondalık ayracıyla yazar: "0,5" (Türkçe) süreci düşürür. GTK yerel ayarı ortamdan okur; bu yüzden
@@ -105,7 +115,29 @@ pub fn run() {
             tauri::async_runtime::spawn(async move { yanitci.respond(matrix::ec::sun(&app, istek).await) });
         })
         .setup(|app| {
-            app.manage(durum::AppState::default());
+            let durum = durum::AppState::default();
+            // The UI restores the session as its first act; until then other commands wait for it (see AppState::client).
+            // Arayüz ilk iş oturumu geri yükler; o zamana dek öteki komutlar onu bekler (bkz. AppState::client).
+            durum.geri_yukleniyor.store(true, std::sync::atomic::Ordering::SeqCst);
+            app.manage(durum);
+            // Started by the autostart entry: hide the window before the main loop ever draws it.
+            // Otomatik başlatma kaydıyla açıldı: pencereyi ana döngü onu hiç çizmeden gizle.
+            #[cfg(target_os = "linux")]
+            if std::env::args().any(|a| a == masaustu_linux::GIZLI_BASLAT) {
+                masaustu_linux::pencereyi_gizle(app.handle());
+            }
+            // Desktop: restore the session while the webview is still starting. Android waits for the page (its keystore and TLS
+            // glue want the activity up first).
+            // Masaüstü: webview daha açılırken oturumu geri yükle. Android sayfayı bekler (keystore ve TLS bağları önce etkinliği ister).
+            #[cfg(target_os = "linux")]
+            {
+                let a = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = komutlar::geri_yukle(a).await {
+                        tracing::warn!("erken geri yükleme başarısız (sayfa yeniden deneyecek): {e}");
+                    }
+                });
+            }
             // Linux: WebKitGTK ships WebRTC / media capture off; Element Call needs them. · Linux: WebKitGTK WebRTC / medya yakalamayı kapalı getirir; Element Call'un ihtiyacı var.
             #[cfg(target_os = "linux")]
             {
@@ -114,7 +146,21 @@ pub fn run() {
             }
             Ok(())
         })
+        // Closing the main window hides it while "run in the background" is on (masaustu_linux.rs). · "Arka planda çalış" açıkken ana pencereyi kapatmak onu gizler.
+        .on_window_event(|pencere, olay| {
+            #[cfg(target_os = "linux")]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = olay {
+                if pencere.label() == "main" && masaustu_linux::arka_planda_kal() {
+                    api.prevent_close();
+                    masaustu_linux::pencereyi_gizle(pencere.app_handle());
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = (pencere, olay);
+        })
         .invoke_handler(tauri::generate_handler![
+            arka_plan::masaustu_arka_plan,
+            arka_plan::uygulamadan_cik,
             komutlar::giris,
             komutlar::oturumu_geri_yukle,
             komutlar::cikis,
@@ -176,6 +222,7 @@ pub fn run() {
             matrix::uyeler::oda_olustur,
             matrix::uyeler::oda_ayril,
             matrix::onyukle::odalari_hazirla,
+            matrix::onizleme::oda_onizleme,
             matrix::istekler::istekleri_al,
             matrix::istekler::davet_kabul,
             matrix::istekler::davet_reddet,
@@ -211,6 +258,7 @@ pub fn run() {
             matrix::yerel_arama::yerel_arama_paylasimi_durdur,
             matrix::yerel_arama::yerel_arama_kare,
             matrix::ec::ec_ac,
+            matrix::ec::kamera_penceresi,
             matrix::ec::ec_gonder,
             matrix::ec::ec_kapat,
             matrix::ec::ec_aktif_aramalar,

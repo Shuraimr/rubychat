@@ -36,7 +36,8 @@
 
   const arama = new MesajAramasi();
   onMount(() => arama.durumuIzle());
-  $effect(() => arama.ara(sorgu, odaId));
+  // Inside one room the list holds the whole room's matches (same limit as the in-room counter). · Tek oda içinde liste odanın bütün eşleşmelerini tutar (oda içi sayaçla aynı sınır).
+  $effect(() => arama.ara(sorgu, odaId, odaId ? 200 : 50));
 
   const gorunen = $derived.by(() => {
     const k = kimden?.trim().toLocaleLowerCase("tr");
@@ -90,8 +91,8 @@
   .bos.hata { color: var(--hata); }
   ul { list-style: none; margin: 0; padding: 0; }
   .satir {
+    content-visibility: auto; contain-intrinsic-size: auto 4rem; contain: layout style;
     width: 100%; min-height: 64px; padding: 10px 16px; display: flex; align-items: center; gap: 12px; text-align: left;
-    transition: background var(--sure-hizli) var(--egri-cikis);
   }
   @media (hover: hover) { .satir:hover { background: var(--yuzey-1); } }
   .satir:active { background: var(--yuzey-2); }

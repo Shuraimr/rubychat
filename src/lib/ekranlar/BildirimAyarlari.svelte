@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
   import { onMount } from "svelte";
-  import { bildirimAyarlariniAc } from "../api/komutlar";
+  import { bildirimAyarlariniAc, uygulamadanCik } from "../api/komutlar";
   import type { BildirimIzni } from "../api/tipler";
   import Anahtar from "../bilesenler/Anahtar.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
@@ -63,12 +63,16 @@
       <section class="ay-bolum">
         <h2>{t("ayar.arkaPlan")}</h2>
         <div class="ay-kart">
-          <div class="ay-satir"><span class="ay-metin"><strong>{t("ayar.arkaPlanAcik")}</strong><span>{t("ayar.arkaPlanAlt")}</span></span><Anahtar acik={tercihler.d.arkaPlan} degis={(v) => { tercihler.yaz("arkaPlan", v); arkaPlanAyarla(v); }} etiket={t("ayar.arkaPlanAcik")} /></div>
+          <div class="ay-satir"><span class="ay-metin"><strong>{t("ayar.arkaPlanAcik")}</strong><span>{t(android ? "ayar.arkaPlanAlt" : "ayar.arkaPlanAltMasaustu")}</span></span><Anahtar acik={tercihler.d.arkaPlan} degis={(v) => { tercihler.yaz("arkaPlan", v); arkaPlanAyarla(v); }} etiket={t("ayar.arkaPlanAcik")} /></div>
+          {#if !android}
+            <div class="ay-satir"><span class="ay-metin"><strong>{t("ayar.acilistaBaslat")}</strong><span>{t("ayar.acilistaBaslatAlt")}</span></span><Anahtar acik={tercihler.d.acilistaBaslat} degis={(v) => { tercihler.yaz("acilistaBaslat", v); arkaPlanAyarla(tercihler.d.arkaPlan); }} etiket={t("ayar.acilistaBaslat")} kilitli={!tercihler.d.arkaPlan} /></div>
+            <button class="ay-satir dugme" onclick={() => void uygulamadanCik().catch(() => {})}><span class="ay-metin"><strong>{t("ayar.uygulamadanCik")}</strong></span><Ikon ad="cikis" boyut={20} /></button>
+          {/if}
           {#if tercihler.d.arkaPlan && !pilMuaf}
             <button class="ay-satir dugme" data-dalga onclick={pilAyariAc}><span class="ay-metin"><strong>{t("ayar.pil")}</strong><span>{t("ayar.pilAlt")}</span></span><Ikon ad="sagOk" boyut={20} /></button>
           {/if}
         </div>
-        <p class="ay-not">{t("ayar.arkaPlanNot")}</p>
+        <p class="ay-not">{t(android ? "ayar.arkaPlanNot" : "ayar.arkaPlanNotMasaustu")}</p>
       </section>
     {/if}
 

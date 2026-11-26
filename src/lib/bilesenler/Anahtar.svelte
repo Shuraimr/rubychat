@@ -15,11 +15,11 @@
 <style>
   .anahtar { flex: none; width: 52px; height: 48px; display: inline-flex; align-items: center; justify-content: center; border-radius: 24px; }
   .anahtar:disabled { opacity: .38; }
-  .ray { position: relative; width: 52px; height: 32px; border-radius: 16px; background: var(--yuzey-3); border: 2px solid var(--kenar); transition: background var(--sure-orta) var(--egri-cikis), border-color var(--sure-orta) var(--egri-cikis); }
-  /* Material 3: the thumb grows when on and while pressed · Material 3: top açıkken ve basılıyken büyür */
-  .top { position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 12px; background: var(--yazi-2); transform: scale(.67); transition: transform var(--sure-yavas) var(--egri-cikis), background var(--sure-orta) var(--egri-cikis); }
+  .ray { position: relative; width: 52px; height: 32px; border-radius: 16px; background: var(--yuzey-3); border: 2px solid var(--kenar); }
+  /* Material 3: the thumb glides via transform only (compositor-only) · Material 3: top yalnızca transform ile kayar (yalnızca birleştirici) */
+  .top { position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 12px; background: var(--yazi-2); transform: scale(.67); transition: transform var(--sure-orta) var(--egri-ac); }
   .acik .ray { background: var(--vurgu); border-color: var(--vurgu); }
-  .acik .top { background: var(--vurgu-ustu); transform: translateX(20px); }
-  .anahtar:active .top { transform: scale(1.1); }
-  .acik:active .top { transform: translateX(20px) scale(1.1); }
+  .acik .top { background: var(--vurgu-ustu); transform: translate3d(20px, 0, 0); }
+  .anahtar:active .top { transform: scale(1.08); }
+  .acik:active .top { transform: translate3d(20px, 0, 0) scale(1.08); }
 </style>

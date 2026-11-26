@@ -161,7 +161,7 @@ pub async fn mesaj_ilet(durum: State<'_, AppState>, kaynak_oda_id: String, olay_
             use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
             let params = MediaRequestParameters { source: kaynak, format: MediaFormat::File };
             let veri = client.media().get_media_content(&params, true).await.map_err(|e| Hata::Matrix(e.to_string()))?;
-            crate::matrix::kuyruk::boyut_denetle(&client, veri.len()).await?;
+            crate::matrix::kuyruk::boyut_denetle(&client, veri.len() as u64).await?;
             let tur: mime::Mime = tur.and_then(|m| m.parse().ok()).unwrap_or(mime::APPLICATION_OCTET_STREAM);
             hedef
                 .send_queue()

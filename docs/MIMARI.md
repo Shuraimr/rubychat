@@ -319,3 +319,62 @@ Element Call webview'u yerine Android'de de aynı motor çalışır (`yerel-aram
 - **Odaları keşfet** (`OdaKesfet.svelte`, eski "Adresle odaya katıl"ın yerine): sunucunun herkese açık oda dizini (`kesif::odalari_kesfet`),
   arama, Hepsi/Odalar/Alanlar, sunucu seçimi (benimki, matrix.org, yazılan). Katıl = `alana_katil` (via = dizinin sunucusu), kapı çalınan oda →
   katılma isteği, zaten üyesi olunan oda → aç. Alanlar boşken "Alan keşfet".
+
+## Masaüstünde arka planda çalışma ve hızlı açılış (2026-11-26)
+
+- **Arka plan (Linux):** Ayarlar › Bildirimler › "Arka planda çalış" açıkken (varsayılan) pencereyi kapatmak yalnızca gizler
+  (`lib.rs` `on_window_event` → `masaustu_linux::pencereyi_gizle`); süreç eşitlemeye ve sistem bildirimi göstermeye devam eder.
+  Gizlenince `AppState.arka_planda` doğrudan true olur (bildirim kararı sayfanın görünürlük olayını beklemez). Açık olduğu
+  bilgisi masaüstü arka plan portalına (`org.freedesktop.portal.Background.RequestBackground`) verilir; GNOME rubychat'i
+  "arka plan uygulamaları"nda gösterir, oradan da kapatılabilir. Yeniden açmak: uygulama simgesi (ikinci kopya ilkini
+  gösterir, `ilk_kopya_mi`) ya da bildirime dokunmak. Gerçek çıkış: Ctrl+Q ya da ayarlardaki "rubychat'ten çık"
+  (`uygulamadan_cik`). Giriş ekranındayken (oturum yok) kapatma gerçekten kapatır.
+- **Oturum açılınca başlat:** aynı portal isteğinin `autostart` seçeneği; komut `rubychat --arka-planda`, pencere `setup`'ta
+  ana döngü çizmeden gizlenir. Tepsi simgesi için aşağıdaki "Tepsi ve yeniden açılma" bölümüne bak.
+- **Hızlı açılış:** arayüz son girişli hesabı (`rubychat.sonBen`) ve oda listesinin ilk 80 satırını (`rubychat.odaOnbellek`,
+  mesaj önizlemeleri ALINMAZ: Matrix deposu şifreli, localStorage değil) saklar ve açılışta hemen bunlarla çizer. Arka uç
+  bu sırada oturumu geri yükler; o arada gelen komutlar `AppState::client` içinde geri yüklemeyi bekler (en çok 60 sn,
+  `geri_yukleniyor` + `geri_yukleme_bitti`), `OturumYok` ile düşmez. Geri yükleme başarısız olursa giriş ekranına dönülür
+  ve önbellek silinir. Odadaki mesajlar zaten SDK olay önbelleğinden (sqlite) gelir.
+- **Erken geri yükleme (Linux):** `setup` oturumu webview açılırken başlatır (`komutlar::geri_yukle`); sayfanın kendi
+  `oturumu_geri_yukle` çağrısı çoğu zaman oturumu çalışır bulur. Ölçüm (2026-11-26, 38 oda): sayfanın ilk çağrısı süreç
+  başlangıcından ~3,6 sn sonra geliyordu; geri yükleme 0,9 sn, eşitlemenin başlaması +1,8 sn. Android sayfayı bekler.
+  `listen_to_room` artık liste yayınlandıktan SONRA çağrılır (ilk listeyi geciktiriyordu).
+- **Ölçüm:** günlükte `açılış:` satırları (geri yükleme isteğinin süreç başlangıcından gecikmesi, oturum ve eşitleme süresi,
+  ilk oda listesi).
+- **Oda listesi yayını:** bir eşitleme dalgasındaki bütün güncellemeler tek yayına toplanır (eskiden her biri 200 ms arayla
+  ayrı yayın); `listen_to_room` yalnızca yeni odalar için; ön uçta liste `$state.raw`. Alan grafiği yalnızca oda kümesi ya
+  da alan adı/avatarı değişince istenir. Emoji paneli her oda açılışında değil, yazma alanı odak alınca boşta kurulur.
+
+## Tepsi, yeniden açılma, kaydırma, arama ve akıcılık (2026-11-26)
+
+- **Yeniden açılma (Linux):** ikinci kopya artık yayın sinyali değil, ilk kopyanın iyi bilinen adına (`dev.rubyyard.rubychat`)
+  doğrudan `dev.rubyyard.rubychat.Pencere.Goster` yöntem çağrısı yapar: Flatpak'ın xdg-dbus-proxy'si başka benzersiz addan gelen
+  yayın sinyallerini düşürüyordu, pencere bu yüzden geri gelmiyordu. Aynı nesnede (`/dev/rubyyard/rubychat`)
+  `org.freedesktop.Application` (Activate/Open/ActivateAction) da var. Pencere ana iş parçacığında gösterilir (`present()` ile).
+- **Tepsi simgesi (Linux, `tepsi_linux.rs`):** yeni crate yok; StatusNotifierItem (`/StatusNotifierItem`) + com.canonical.dbusmenu
+  (`/MenuBar`: "rubychat'i göster", "Çık") gio ile elle dışa aktarılır, `org.kde.StatusNotifierWatcher`'a nesne yoluyla kaydolunur
+  (izleyici sonradan başlarsa NameOwnerChanged ile yeniden). Simge PNG'den (`include_bytes!`) ARGB32 pixmap olarak gider (Flatpak'ta
+  simge teması adı çubuğa ulaşmayabilir). Sol tık: göster/gizle; okunmamış oda varsa durum NeedsAttention, ipucunda sayı. Yalnızca
+  oturum açık ve "Arka planda çalış" açıkken görünür (kapalıyken Passive). Flatpak izni: `--talk-name=org.kde.StatusNotifierWatcher`.
+  GNOME'da eklentisiz tepsi yok; KDE, Waybar vb. gösterir.
+- **Kaydırma kararlılığı (`Oda.svelte`, `zaman.rs`):** WebKitGTK'de CSS `overflow-anchor` yok; içerikteki ResizeObserver ilk görünür
+  satırı kare boyanmadan yerine koyar (görünümün üstünde büyüyen görsel, ilk kez boyanan `content-visibility` satırı, eski sayfa).
+  Chromium'da (Android) bunu tarayıcı yapar, elle çapa kapalı (`CSS.supports("overflow-anchor","auto")`). "Eski mesajlar yükleniyor"
+  göstergesi listenin içinde değil üstünde (eskiden her sayfada içeriği itiyordu). Eski sayfa tepeye ~3 ekran kala istenir; arka uç
+  sayfa başına 60 olay ister, tek uçuşta tek istek (kilit), sayfalama sürerken ara yayınlar duraklatılır ve sonunda tek birleşik yayın
+  gider (`YayinDuraklat`, `yayin_iste`). Olay önbelleği sayfayı çizelgeye kendi görevinde verdiği için `geri_sayfala` öğelerin
+  artmasını kısa süre bekler (yoksa gereksiz ek sayfalar çekiyordu).
+- **Yapısal paylaşım (`src/lib/paylas.ts`):** arka uç oda listesini ve zaman çizelgesini her değişiklikte bütün olarak yollar;
+  içeriği değişmeyen öğeler eski nesnelerini korur (JSON imzası), hiçbir şey değişmediyse eski dizinin kendisi döner. Satır nesneleri
+  de (`gunler`) yeniden kullanılır. Böylece bir okundu bilgisi ya da tek tepki bütün balonları/satırları yeniden çizmez.
+- **Sayfalayıcı:** yandaki sayfalarda yalnızca `.yuklenme` durdurulur; eski `[inert] *` kuralı her kaydırmanın başında ve sonunda
+  bütün sayfayı yeniden stillendiriyordu.
+- **Klavye açıkken kayma (Android, `klavye.ts`):** WebView yalnızca görsel viewport'u küçültür; parmağın altındaki hiçbir kutunun
+  kaydıramadığı dikey sürükleme (emoji sekmeleri, başlık, yazma çubuğu) o viewport'u kaydırıp bütün arayüzü yukarı itiyordu. Klavye
+  açıkken (ve yalnızca o sırada: pasif olmayan dinleyici kaydırmayı yavaşlatır) böyle sürüklemeler iptal edilir; viewport yine de
+  kayarsa `#uygulama` onu izler (`translate`, yalnızca gerektiğinde).
+- **Mesaj araması:** dizinde artık her sözcük önek olarak eşleşir (Türkçe ekler: "kitap okudu" → "kitaplarını okuduk"); bitmiş son
+  sözcük (sonda boşluk) ve tek harfli sözcükler tam eşleşir. Oda içi arama: sayaç anında, sohbetin atlaması yazma durulunca (450 ms)
+  ya da Enter / ˄ ˅ ile; yalnızca eşleşen balonlar vurgulanır (eskiden arama açıkken BÜTÜN biçimli mesajlar düz metne dönüyordu);
+  vurgu Türkçe harf katlamasını izler (`katlamaDeseni`); oda içi sonuç sınırı 200.

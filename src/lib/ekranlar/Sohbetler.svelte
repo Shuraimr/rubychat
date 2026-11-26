@@ -17,6 +17,7 @@
   import Ikon from "../bilesenler/Ikon.svelte";
   import KlasorSekmeleri, { type Sekme } from "../bilesenler/KlasorSekmeleri.svelte";
   import { tercihler } from "../durum/tercihler.svelte";
+  import { klavye } from "../klavyeKisayol.svelte";
   import Maskot from "../bilesenler/Maskot.svelte";
   import SohbetSatiri from "../bilesenler/SohbetSatiri.svelte";
   import Sayfalayici from "../bilesenler/Sayfalayici.svelte";
@@ -50,6 +51,12 @@
   }
 
   let yeniAcik = $state(false);
+  // Opened by the Vim ":yeni" command · Vim ":yeni" komutuyla açılır
+  $effect(() => {
+    if (!klavye.yeniSohbetBekleyen) return;
+    klavye.yeniSohbetBekleyen = false;
+    yeniAcik = true;
+  });
 
   let digerSayfa = $state<"kesfet" | "grup" | "alan" | null>(null);
   // Long press on a row: pin it (quick switcher, top of the list) · Satıra uzun bas: sabitle (hızlı geçiş, listenin başı)
@@ -103,8 +110,8 @@
   });
   // Keep the top-level space list fresh (debounced). · Üst düzey alan listesini taze tut (bekletmeli).
   $effect(() => {
-    odalar.liste;
-    const z = setTimeout(() => void alanlar.ustYenile(), 250);
+    const l = odalar.liste;
+    const z = setTimeout(() => alanlar.listeDegisti(l), 250);
     return () => clearTimeout(z);
   });
 
@@ -190,8 +197,8 @@
                   <BosDurum maskot="arama" boyut={96} baslik={t("sohbetler.sonucYok")} />
                 {/if}
               {:else}
-                {#each satirlar as oda, i (oda.id)}
-                  <SohbetSatiri {oda} sira={i} secili={gezinme.genis && gezinme.acikOdaId === oda.id} taslak={odalar.taslaklar[oda.id] ?? ""} sec={() => (oda.davet ? istekler.ac() : gezinme.odaAc(oda.id))} uzun={(x, y) => odaMenusu(oda, x, y)} />
+                {#each satirlar as oda (oda.id)}
+                  <SohbetSatiri {oda} secili={gezinme.genis && gezinme.acikOdaId === oda.id} taslak={odalar.taslaklar[oda.id] ?? ""} sec={() => (oda.davet ? istekler.ac() : gezinme.odaAc(oda.id))} uzun={(x, y) => odaMenusu(oda, x, y)} />
                 {/each}
               {/if}
               <!-- Room for the search pill + button · Arama hapı + düğme için yer -->
@@ -262,7 +269,10 @@
   .izin-metin { flex: 1; min-width: 0; display: grid; gap: 2px; font-size: .875rem; }
   .izin-metin small { color: var(--yazi-2); font-size: .8125rem; }
   .izin-ac { flex: none; min-width: 3.5rem; min-height: 2.75rem; padding: 0 1rem; border-radius: 1.375rem; background: var(--vurgu); color: var(--vurgu-ustu); font-weight: 600; }
-  .liste { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: var(--tepe-yer); scroll-padding: var(--tepe-yer) 0 var(--dock-yer, 96px); }
+  .liste { contain: layout style; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: var(--tepe-yer); scroll-padding: var(--tepe-yer) 0 var(--dock-yer, 96px); }
+  :global([data-yogunluk="kompakt"]) .ust { height: 3.75rem; padding: 0 .625rem 0 .75rem; }
+  :global([data-yogunluk="kompakt"]) .tepsi { margin: 0 10px 6px; }
+  :global([data-yogunluk="kompakt"]) .iskelet { min-height: var(--liste-satir-boy); padding: 0 .75rem; }
   .alt-bosluk { height: var(--dock-yer); }
   .istek-karti { width: calc(100% - 1.5rem); margin: 0 .75rem .5rem; min-height: 4rem; padding: .625rem 1rem; display: flex; align-items: center; gap: .75rem; text-align: left; background: var(--ton); color: var(--ton-ustu); border-radius: 1.5rem; }
   .istek-karti small { color: inherit; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

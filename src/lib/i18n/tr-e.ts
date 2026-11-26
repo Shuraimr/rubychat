@@ -120,6 +120,8 @@ export const trE = {
   "kayit.vazgec": "Vazgeç",
   "kayit.desteksiz": "Bu sunucu uygulama içinden kayıt açmıyor. Sunucunun kendi sitesinden kayıt olabilirsin.",
   "kayit.acilamadi": "Kayıt sayfası açılamadı.",
+  "kayit.kod": "Açılan sayfada bu kodu gir:",
+  "kayit.sure": "Kayıt süresi doldu. Yeniden dene.",
   "kesfet.baslik": "Odaları keşfet",
   "kesfet.araYer": "Oda ara ya da #adres:sunucu yaz",
   "kesfet.sunucu": "Sunucu",

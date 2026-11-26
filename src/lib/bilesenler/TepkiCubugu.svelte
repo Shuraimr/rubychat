@@ -21,7 +21,7 @@
 
 <style>
   .cubuk { display: flex; align-items: center; justify-content: space-between; gap: 2px; padding: 0 .25rem; min-height: 3.25rem; }
-  button { flex: 1 1 0; min-width: 2.25rem; max-width: 2.75rem; height: 2.75rem; border-radius: 1.375rem; display: inline-flex; align-items: center; justify-content: center; font-size: 1.5rem; line-height: 1; transition: background var(--sure-hizli) var(--egri-cikis), transform var(--sure-hizli) var(--egri-yay); }
+  button { flex: 1 1 0; min-width: 2.25rem; max-width: 2.75rem; height: 2.75rem; border-radius: 1.375rem; display: inline-flex; align-items: center; justify-content: center; font-size: 1.5rem; line-height: 1; transition: transform var(--sure-hizli) var(--egri-ac); }
   button:active { background: var(--yuzey-2); transform: scale(1.15); }
   .benim { background: var(--ton); }
   .daha { color: var(--yazi-2); background: var(--yuzey-2); }

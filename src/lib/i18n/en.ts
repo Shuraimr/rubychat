@@ -1,6 +1,10 @@
 // English UI strings. Same keys as tr.ts / tr-d.ts; {placeholders} must stay identical.
 // İngilizce arayüz metinleri. Anahtarlar tr.ts / tr-d.ts ile aynı; {yer tutucular} birebir kalmalı.
 import { enE } from "./en-e";
+import { enG } from "./en-g";
+import { enH } from "./en-h";
+import { enI } from "./en-i";
+import { enJ } from "./en-j";
 import type { Anahtar } from "./tr";
 
 export const en: Record<Anahtar, string> = {
@@ -728,6 +732,11 @@ export const en: Record<Anahtar, string> = {
   "ayar.arkaPlanAcik": "Run in background",
   "ayar.arkaPlanAlt": "While the app isn't closed, new messages also arrive when the screen is locked.",
   "ayar.arkaPlanNot": "Android shows a small, silent notification for this. If you swipe the app away from recents, the connection drops.",
+  "ayar.arkaPlanAltMasaustu": "Closing the window keeps rubychat in the background: messages sync, notifications arrive.",
+  "ayar.acilistaBaslat": "Start at login",
+  "ayar.acilistaBaslatAlt": "Starts in the background without a window when you turn on the computer.",
+  "ayar.arkaPlanNotMasaustu": "To quit completely, press Ctrl+Q or the button below. On GNOME you can also quit it from the background apps list.",
+  "ayar.uygulamadanCik": "Quit rubychat",
   "ayar.pil": "Remove battery restriction",
   "ayar.pilAlt": "Otherwise notifications may be delayed when the phone idles for long.",
   "ustBildirim.yeni": "New message",
@@ -853,4 +862,8 @@ export const en: Record<Anahtar, string> = {
   "cikartmaYap.eklendi": "Added to the sticker pack.",
   "cikartmaYap.hata": "Couldn't add the sticker.",
   ...enE,
+  ...enG,
+  ...enH,
+  ...enI,
+  ...enJ,
 };

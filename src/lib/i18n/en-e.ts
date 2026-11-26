@@ -120,6 +120,8 @@ export const enE = {
   "kayit.vazgec": "Cancel",
   "kayit.desteksiz": "This server does not offer sign-up from apps. You can register on the server's own website.",
   "kayit.acilamadi": "The sign-up page could not be opened.",
+  "kayit.kod": "Enter this code on the page that opened:",
+  "kayit.sure": "The sign-up time ran out. Try again.",
   "kesfet.baslik": "Explore rooms",
   "kesfet.araYer": "Search rooms or type #address:server",
   "kesfet.sunucu": "Server",

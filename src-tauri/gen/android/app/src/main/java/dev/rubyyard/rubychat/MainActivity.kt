@@ -265,7 +265,7 @@ class BaglantiKoprusu(private val etkinlik: MainActivity) {
 
   /** In-app sign-up page (KayitPenceresi). · Uygulama içi kayıt sayfası (KayitPenceresi). */
   @JavascriptInterface
-  fun kayitAc(url: String, baslik: String, zemin: String, yazi: String) = KayitPenceresi.ac(etkinlik, url, baslik, zemin, yazi)
+  fun kayitAc(url: String, baslik: String, zemin: String, yazi: String): Boolean = KayitPenceresi.ac(etkinlik, url, baslik, zemin, yazi)
 
   @JavascriptInterface
   fun kayitKapat() = KayitPenceresi.kapat(etkinlik)
@@ -374,6 +374,8 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onDestroy() {
+    // A sign-up dialog must not outlive its activity (WindowLeaked + leaking this activity). · Kayıt penceresi etkinliğinden uzun yaşamamalı (WindowLeaked + etkinlik sızıntısı).
+    KayitPenceresi.kapat(this)
     super.onDestroy()
     if (aktif === this) aktif = null
   }

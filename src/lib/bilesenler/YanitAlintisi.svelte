@@ -25,10 +25,10 @@
 
 <style>
   .alinti {
-    display: grid; gap: 1px; width: 100%; min-height: 44px; margin: 0 0 4px; padding: 4px 8px; text-align: left; border-radius: 8px;
+    display: grid; gap: 1px; width: 100%; min-height: max(2.5em, 40px); margin: 0 0 .25em; padding: .25em .5em; text-align: left; border-radius: .5em;
     background: color-mix(in srgb, currentColor 10%, transparent); border-left: 3px solid var(--vurgu);
   }
-  .ad { font-size: .75rem; font-weight: 600; color: var(--vurgu); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .metin { font-size: .8125rem; line-height: 1.35; opacity: .85; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .ad { font-size: .75em; font-weight: 600; color: var(--vurgu); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .metin { font-size: .8125em; line-height: 1.35; opacity: .85; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
   .soluk { font-style: italic; opacity: .65; }
 </style>

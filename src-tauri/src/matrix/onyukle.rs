@@ -24,10 +24,10 @@ pub const OLAY_HAZIR: &str = "zaman-hazir";
 /// Warm timelines kept in memory · Bellekte tutulan sıcak çizelge sayısı
 const EN_COK: usize = 8;
 /// A long scrolled-back timeline is cheaper to rebuild than to send whole · Uzun geri kaydırılmış çizelgeyi yeniden kurmak bütününü yollamaktan ucuz
-const EN_COK_OGE: usize = 150;
-const SAYFA: u16 = 30;
-/// Enough to fill any phone screen twice · Her telefon ekranını iki kez doldurmaya yeter
-const YETER: usize = 25;
+const EN_COK_OGE: usize = 240;
+const SAYFA: u16 = 50;
+/// Enough to fill the viewport plus a comfortable scroll-up buffer · Görünümü ve rahat bir yukarı kaydırma tamponunu doldurmaya yeter
+const YETER: usize = 40;
 
 static IZIN: Semaphore = Semaphore::const_new(2);
 static NESIL: AtomicU64 = AtomicU64::new(0);

@@ -210,20 +210,20 @@ pub fn webrtc_baslat() {
     }
 }
 
-/// Opens the player (AudioTrack, 48 kHz stereo, voice call use). · Çaları açar (AudioTrack, 48 kHz stereo, sesli arama kullanımı).
-pub fn arama_sesi_cal_ac() -> Result<(), String> {
-    let acildi = calistir("AramaSesi", |env, ctx, s| env.call_static_method(s, "calAc", "(Landroid/content/Context;)Z", &[JValue::Object(ctx)])?.z())?;
-    if acildi { Ok(()) } else { Err("AudioTrack açılamadı".into()) }
+/// Opens the player (AudioTrack, 48 kHz stereo, voice call use); returns its id (generation). · Çaları açar (AudioTrack, 48 kHz stereo, sesli arama kullanımı); kimliğini (kuşağını) döndürür.
+pub fn arama_sesi_cal_ac() -> Result<i32, String> {
+    let id = calistir("AramaSesi", |env, ctx, s| env.call_static_method(s, "calAc", "(Landroid/content/Context;)I", &[JValue::Object(ctx)])?.i())?;
+    if id > 0 { Ok(id) } else { Err("AudioTrack açılamadı".into()) }
 }
 
-/// Stops the player; a write that waits returns. · Çaları durdurur; bekleyen yazma döner.
-pub fn arama_sesi_cal_kapat() {
-    let _ = calistir("AramaSesi", |env, _, s| env.call_static_method(s, "calKapat", "()V", &[]).map(|_| ()));
+/// Stops the player with this id (a newer one is left alone); a write that waits returns. · Bu kimlikli çaları durdurur (daha yeniye dokunmaz); bekleyen yazma döner.
+pub fn arama_sesi_cal_kapat(id: i32) {
+    let _ = calistir("AramaSesi", |env, _, s| env.call_static_method(s, "calKapat", "(I)V", &[JValue::Int(id)]).map(|_| ()));
 }
 
 /// Writes `sonraki()` (10 ms interleaved stereo) until `dur`; each write blocks until the device took it.
 /// `dur` gelene dek `sonraki()`yi (10 ms iç içe stereo) yazar; her yazma cihaz alana dek bekler.
-pub fn arama_sesi_cal_dongusu(dur: &std::sync::atomic::AtomicBool, mut sonraki: impl FnMut() -> Vec<i16>) -> Result<(), String> {
+pub fn arama_sesi_cal_dongusu(id: i32, dur: &std::sync::atomic::AtomicBool, mut sonraki: impl FnMut() -> Vec<i16>) -> Result<(), String> {
     use std::sync::atomic::Ordering::Relaxed;
     calistir("AramaSesi", |env, _, s| {
         let mut dizi = None;
@@ -236,7 +236,7 @@ pub fn arama_sesi_cal_dongusu(dur: &std::sync::atomic::AtomicBool, mut sonraki: 
             }
             let d = dizi.as_ref().expect("dizi");
             env.set_short_array_region(d, 0, &kare)?;
-            let n = env.call_static_method(s, "yaz", "([SI)I", &[JValue::Object(d), JValue::Int(boy as i32)])?.i()?;
+            let n = env.call_static_method(s, "yaz", "(I[SI)I", &[JValue::Int(id), JValue::Object(d), JValue::Int(boy as i32)])?.i()?;
             if n < 0 && !dur.load(Relaxed) {
                 return Ok(Err(format!("AudioTrack.write {n}")));
             }
@@ -249,34 +249,43 @@ pub fn arama_sesi_cal_dongusu(dur: &std::sync::atomic::AtomicBool, mut sonraki: 
 /// `al` until `dur` or `al` says false. Closes it at the end.
 /// Mikrofonu açar (AudioRecord, sesli iletişim kaynağı: telefonun kendi yankı gidericisi) ve `dur` ya da `al` false diyene dek `kare`
 /// örneklik mono blokları `al`a verir. Sonunda kapatır.
-pub fn arama_sesi_kayit_dongusu(dur: &std::sync::atomic::AtomicBool, kare: usize, al: &mut impl FnMut(Vec<i16>) -> bool) -> Result<(), String> {
-    use std::sync::atomic::Ordering::Relaxed;
+pub fn arama_sesi_kayit_dongusu(dur: &std::sync::atomic::AtomicBool, id_yuvasi: &std::sync::atomic::AtomicI32, kare: usize, al: &mut impl FnMut(Vec<i16>) -> bool) -> Result<(), String> {
+    use std::sync::atomic::Ordering::{Relaxed, SeqCst};
     let sonuc = calistir("AramaSesi", |env, ctx, s| {
-        if !env.call_static_method(s, "kayitAc", "(Landroid/content/Context;)Z", &[JValue::Object(ctx)])?.z()? {
+        let id = env.call_static_method(s, "kayitAc", "(Landroid/content/Context;)I", &[JValue::Object(ctx)])?.i()?;
+        if id <= 0 {
             return Ok(Err("AudioRecord açılamadı (izin?)".to_owned()));
         }
+        // Published so the owner (`Kayit::drop`) can close exactly this microphone and wake the waiting read.
+        // Yayınlanır ki sahibi (`Kayit::drop`) tam bu mikrofonu kapatıp bekleyen okumayı uyandırabilsin.
+        id_yuvasi.store(id, SeqCst);
         let dizi = env.new_short_array(kare as i32)?;
         let mut v = vec![0i16; kare];
-        while !dur.load(Relaxed) {
-            let n = env.call_static_method(s, "oku", "([SI)I", &[JValue::Object(&dizi), JValue::Int(kare as i32)])?.i()?;
-            if n < 0 {
-                return Ok(if dur.load(Relaxed) { Ok(()) } else { Err(format!("AudioRecord.read {n}")) });
+        let sonuc: jni::errors::Result<Result<(), String>> = (|| {
+            while !dur.load(Relaxed) {
+                let n = env.call_static_method(s, "oku", "(I[SI)I", &[JValue::Int(id), JValue::Object(&dizi), JValue::Int(kare as i32)])?.i()?;
+                if n < 0 {
+                    return Ok(if dur.load(Relaxed) { Ok(()) } else { Err(format!("AudioRecord.read {n}")) });
+                }
+                if n as usize != kare {
+                    continue;
+                }
+                env.get_short_array_region(&dizi, 0, &mut v)?;
+                if !al(v.clone()) {
+                    dur.store(true, Relaxed);
+                }
             }
-            if n as usize != kare {
-                continue;
-            }
-            env.get_short_array_region(&dizi, 0, &mut v)?;
-            if !al(v.clone()) {
-                dur.store(true, Relaxed);
-            }
-        }
-        Ok(Ok(()))
+            Ok(Ok(()))
+        })();
+        // Closed here whatever happened, but only this loop's own microphone. · Ne olursa olsun burada kapanır, ama yalnızca bu döngünün kendi mikrofonu.
+        id_yuvasi.compare_exchange(id, 0, SeqCst, SeqCst).ok();
+        let _ = env.call_static_method(s, "kayitKapat", "(I)V", &[JValue::Int(id)]);
+        sonuc
     });
-    arama_sesi_kayit_kapat();
     sonuc?
 }
 
-/// Stops the microphone; a read that waits returns. · Mikrofonu durdurur; bekleyen okuma döner.
-pub fn arama_sesi_kayit_kapat() {
-    let _ = calistir("AramaSesi", |env, _, s| env.call_static_method(s, "kayitKapat", "()V", &[]).map(|_| ()));
+/// Stops the microphone with this id; a read that waits returns. · Bu kimlikli mikrofonu durdurur; bekleyen okuma döner.
+pub fn arama_sesi_kayit_kapat(id: i32) {
+    let _ = calistir("AramaSesi", |env, _, s| env.call_static_method(s, "kayitKapat", "(I)V", &[JValue::Int(id)]).map(|_| ()));
 }

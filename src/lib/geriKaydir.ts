@@ -2,7 +2,7 @@
 // either flies out (far enough or fast enough) or springs back. Horizontal scrollers under the finger keep their own swipe.
 // Her yerden sağa kaydırınca geri: sayfa parmağı birebir izler, alttaki sayfa (`altta`) -%25'ten birlikte gelir; bırakınca ya (yeterince
 // uzak ya da hızlıysa) çıkar ya da geri yaylanır. Parmağın altındaki yatay kaydırılabilir öğeler kendi kaydırmasını korur.
-import { hareketVar } from "./hareket";
+import { egri, hareketVar } from "./hareket";
 import { titret } from "./dokunma";
 import { cikisiAtla } from "./gecis";
 
@@ -38,8 +38,10 @@ export function geriKaydir(node: HTMLElement, secenek: Secenek) {
   const temizle = () => {
     node.style.removeProperty("transform");
     node.style.removeProperty("transition");
+    node.style.removeProperty("will-change");
     ustte?.style.removeProperty("transform");
     ustte?.style.removeProperty("transition");
+    ustte?.style.removeProperty("will-change");
     ustte = null;
   };
 
@@ -65,7 +67,11 @@ export function geriKaydir(node: HTMLElement, secenek: Secenek) {
       suruyor = true;
       ustte = ayar.altta?.() ?? null;
       node.style.transition = "none";
-      if (ustte) ustte.style.transition = "none";
+      node.style.willChange = "transform";
+      if (ustte) {
+        ustte.style.transition = "none";
+        ustte.style.willChange = "transform";
+      }
       // The rest of the gesture is ours, wherever the finger goes. · Hareketin kalanı bizim, parmak nereye giderse gitsin.
       try {
         node.setPointerCapture(id);
@@ -93,7 +99,7 @@ export function geriKaydir(node: HTMLElement, secenek: Secenek) {
       return;
     }
     const sure = cik ? Math.max(120, Math.min(260, (w - dx) / Math.max(hiz, 1.2))) : 260;
-    node.style.transition = `transform ${sure}ms cubic-bezier(.2,.8,.2,1)`;
+    node.style.transition = `transform ${sure}ms ${egri("--egri-cikis")}`;
     if (ustte) ustte.style.transition = node.style.transition;
     yaz(cik ? w : 0);
     if (cik) titret(8);

@@ -11,6 +11,7 @@
    - Bulunduğun sayfaya dokunmak başa kaydırır; uzun basmak = hızlı eylemler.
 -->
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { hareketVar } from "../hareket";
   import { ec } from "../arama-ec/ec.svelte";
   import EcCubuk from "../arama-ec/EcCubuk.svelte";
@@ -83,6 +84,11 @@
       yeniAcik = false;
     });
   }
+  // Rotating to landscape removes the dock while the menu is open: its layer must not stay on the stack (back would do nothing).
+  // Menü açıkken yatay konuma dönmek dock'u kaldırır: katmanı yığında kalmamalı (geri tuşu boşa giderdi).
+  onDestroy(() => {
+    if (katman) gezinme.katmanBirak(katman);
+  });
   function yeniKapat() {
     if (katman) gezinme.katmanKapat(katman);
   }
@@ -222,29 +228,32 @@
   /* px on purpose: five columns must fit 320px at any text size · Bilerek px: beş sütun her yazı boyutunda 320px'e sığmalı */
   .dock { touch-action: none; position: relative; height: 64px; padding: 0 6px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .iz { position: absolute; inset: 0 6px; pointer-events: none; }
-  .gosterge { position: absolute; left: 0; top: 14px; width: 20%; height: 36px; display: flex; justify-content: center; will-change: transform; }
+  .gosterge { position: absolute; left: 0; top: 14px; width: 20%; height: 36px; display: flex; justify-content: center; }
   .hap { width: min(60px, 100%); height: 36px; border-radius: 18px; background: var(--ton); }
-  .oge { position: relative; min-width: 0; display: flex; align-items: center; justify-content: center; color: var(--yazi-2); -webkit-tap-highlight-color: transparent; transition: color var(--sure-orta) var(--egri-cikis); }
+  .oge { position: relative; min-width: 0; display: flex; align-items: center; justify-content: center; color: var(--yazi-2); -webkit-tap-highlight-color: transparent; }
   /* Material state layer: the same pill as the indicator, only while pressed · Material durum katmanı: göstergeyle aynı hap, yalnızca basılıyken */
   .oge::before { content: ""; position: absolute; left: 50%; top: 14px; width: min(60px, 100%); height: 36px; border-radius: 18px; transform: translateX(-50%) scaleX(.6); background: currentColor; opacity: 0; transition: opacity var(--sure-yavas) var(--egri-cikis), transform var(--sure-yavas) var(--egri-cikis); }
-  .oge:active::before { opacity: .12; transform: translateX(-50%); transition-duration: 60ms, var(--sure-orta); }
+  .oge:active::before { opacity: .12; transform: translateX(-50%); transition-duration: calc(60ms * var(--hareket)), var(--sure-orta); }
   .simge { position: relative; display: inline-flex; align-items: center; }
   .simge :global(svg) { width: 28px !important; height: 28px !important; }
   .yuz :global(.avatar) { width: 30px !important; height: 30px !important; font-size: 13px !important; }
   .sayac { font-size: 11px !important; }
   .aktif { color: var(--ton-ustu); }
   .yeni::before { display: none; }
-  .fab { position: relative; overflow: hidden; width: 52px; height: 48px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; background: var(--vurgu); color: var(--vurgu-ustu); transition: border-radius var(--sure-yavas) var(--egri-cikis); }
+  .fab { position: relative; overflow: hidden; width: 52px; height: 48px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; background: var(--vurgu); color: var(--vurgu-ustu); }
   .fab::after { content: ""; position: absolute; inset: 0; background: currentColor; opacity: 0; transition: opacity var(--sure-orta) var(--egri-cikis); }
-  .yeni:active .fab::after { opacity: .14; transition-duration: 60ms; }
+  .yeni:active .fab::after { opacity: .14; transition-duration: calc(60ms * var(--hareket)); }
   .acik .fab { border-radius: 24px; }
   .fab :global(svg) { width: 28px !important; height: 28px !important; }
-  .cevir { display: inline-flex; transition: transform var(--sure-yavas) var(--egri-cikis); }
+  .cevir { display: inline-flex; transition: transform var(--sure-yavas) var(--egri-ac); }
   .acik .cevir { transform: rotate(135deg); }
   .sayac { position: absolute; left: 16px; top: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: var(--vurgu); color: var(--vurgu-ustu); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; animation: pop var(--sure-pop) var(--egri-cikis); }
   @keyframes pop { from { transform: scale(.4); } }
-  .yuz { display: inline-flex; border-radius: 10px; box-shadow: 0 0 0 2px transparent; transition: box-shadow var(--sure-orta) var(--egri-cikis); }
-  .aktif .yuz { box-shadow: 0 0 0 2px var(--vurgu); }
+  /* Active profile ring fades with opacity on a pseudo-element instead of animating box-shadow. */
+  /* Etkin profil halkası box-shadow canlandırmak yerine sözde öğede opaklıkla belirir. */
+  .yuz { position: relative; display: inline-flex; border-radius: 10px; }
+  .yuz::after { content: ""; position: absolute; inset: -2px; border-radius: 12px; border: 2px solid var(--vurgu); opacity: 0; pointer-events: none; transition: opacity var(--sure-orta) var(--egri-cikis); }
+  .aktif .yuz::after { opacity: 1; }
   .nokta { position: absolute; right: -4px; top: -3px; width: 8px; height: 8px; border-radius: 4px; background: var(--bekliyor); border: 2px solid var(--yuzey-1); }
   .yeni-menu { position: absolute; left: 50%; bottom: calc(100% + 6px); width: min(15rem, calc(100vw - 48px)); margin-left: calc(min(15rem, 100vw - 48px) / -2); max-height: calc(var(--gorunen-yukseklik, 100vh) - 140px); overflow-y: auto; padding: 6px; transform-origin: 50% 100%; }
 </style>

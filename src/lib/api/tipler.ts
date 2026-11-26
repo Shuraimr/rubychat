@@ -581,3 +581,17 @@ export interface KesifSayfasi {
   sonraki: string | null;
   sunucu: string;
 }
+
+export type OnizlemeTuru = "metin" | "medya" | "sifreli";
+
+/** One recent cached message for the room-palette preview panel (onizleme.rs) · Oda paleti önizleme paneli için önbellekteki tek son mesaj */
+export interface OnizlemeMesaji {
+  olayId: string;
+  gonderen: string;
+  gonderenAd: string;
+  kendi: boolean;
+  /** milliseconds since epoch · epoch'tan beri milisaniye */
+  zaman: number;
+  metin: string;
+  tur: OnizlemeTuru;
+}

@@ -143,7 +143,7 @@
   .alt { font-size: .9375rem; color: var(--yazi-2); }
   /* Floating label: the label sits inside the box and floats up when the field has text or focus (placeholder=" " trick). */
   /* Kayan etiket: etiket kutunun içinde durur; alan doluyken ya da odaktayken yukarı kayar (placeholder=" " hilesi). */
-  .yuzen { position: relative; display: block; border-radius: 16px; background: var(--yuzey-2); border: 1px solid transparent; transition: border-color var(--sure-hizli) var(--egri-cikis); }
+  .yuzen { position: relative; display: block; border-radius: 16px; background: var(--yuzey-2); border: 1px solid transparent; }
   .yuzen:focus-within { border-color: var(--vurgu); }
   .yuzen.hatali { border-color: var(--hata); }
   .yuzen input { width: 100%; height: 56px; padding: 22px 76px 6px 16px; background: none; border: 0; outline: none; color: var(--yazi); font-size: 1rem; }

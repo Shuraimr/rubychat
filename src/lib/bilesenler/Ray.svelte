@@ -58,13 +58,16 @@
   .ray {
     width: max(72px, 4.5rem); flex: none; display: flex; flex-direction: column; justify-content: space-between; align-items: center; gap: 8px;
     padding: 12px 0 calc(12px + env(safe-area-inset-bottom)); background: var(--yuzey-1); border-right: 1px solid var(--kenar-ince);
+    overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
   }
-  .ray.kompakt { width: calc(64px + env(safe-area-inset-left)); padding-left: env(safe-area-inset-left); padding-top: calc(8px + env(safe-area-inset-top)); }
-  .ust, .alt { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .ray::-webkit-scrollbar { display: none; }
+  .ray.kompakt { width: calc(64px + env(safe-area-inset-left)); padding-left: env(safe-area-inset-left); padding-top: calc(8px + env(safe-area-inset-top)); gap: 4px; }
+  .ust, .alt { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; }
   .oge { width: 64px; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--yazi-2); }
+  .kompakt .oge { min-height: 44px; }
   .hap { position: relative; width: 56px; height: 32px; display: inline-flex; align-items: center; justify-content: center; }
   .kompakt .hap { height: 44px; }
-  .zemin-hap { position: absolute; inset: 0; border-radius: 16px; background: var(--ton); opacity: 0; transform: scaleX(.5); transition: transform var(--sure-orta) var(--egri-cikis), opacity var(--sure-orta) var(--egri-cikis); }
+  .zemin-hap { position: absolute; inset: 0; border-radius: 16px; background: var(--ton); opacity: 0; transform: scaleX(.5); transition: transform var(--sure-orta) var(--egri-ac), opacity var(--sure-orta) var(--egri-cikis); }
   .kompakt .zemin-hap { border-radius: 12px; inset: 0 8px; }
   .aktif .zemin-hap { opacity: 1; transform: scaleX(1); }
   @media (hover: hover) { .oge:not(.aktif):hover .zemin-hap { opacity: 1; transform: scaleX(1); background: var(--yuzey-3); } }
@@ -74,7 +77,7 @@
   .sayac { position: absolute; top: -2px; right: 4px; min-width: 18px; height: 18px; padding: 0 5px; font-size: .6875rem; border: 2px solid var(--yuzey-1); box-sizing: content-box; }
   .kompakt .sayac { right: 8px; }
   .nokta { position: absolute; top: 2px; right: 10px; width: 8px; height: 8px; border-radius: 4px; background: var(--vurgu); border: 2px solid var(--yuzey-1); box-sizing: content-box; }
-  .etiket { font-size: .75rem; line-height: 1.33; max-width: 100%; text-align: center; overflow-wrap: anywhere; }
+  .etiket { font-size: .75rem; line-height: 1.33; max-width: calc(100% - 4px); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .aktif { color: var(--yazi); }
   .aktif .etiket { font-weight: 600; }
 </style>

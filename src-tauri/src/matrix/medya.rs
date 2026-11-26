@@ -194,10 +194,10 @@ pub fn cikartma_esle(app: &AppHandle, s: &matrix_sdk::ruma::events::sticker::Sti
 // istek yakalamasında düşer) ve iki platformda aynı kodu istiyoruz. Webview dosyayı dilimler (çağrı başına 1,5 MB); 200 MB'lık
 // video bellekte iki kez durmaz.
 
-pub fn gecici_dizin(app: &AppHandle) -> Sonuc<PathBuf> {
-    let d = app.path().app_cache_dir()?.join("medya-giden");
-    std::fs::create_dir_all(&d)?;
-    Ok(d)
+/// Cache folder path without touching the filesystem (creation happens inside `spawn_blocking` only when writing).
+/// Dosya sistemine dokunmadan önbellek klasör yolu (oluşturma yalnızca yazarken `spawn_blocking` içinde yapılır).
+fn gecici_dizin_yolu(app: &AppHandle) -> Sonuc<PathBuf> {
+    Ok(app.path().app_cache_dir()?.join("medya-giden"))
 }
 
 /// Only plain file names: nothing from the UI may point outside the cache folder. · Yalnızca düz dosya adları: arayüzden gelen hiçbir şey önbellek klasörünün dışını gösteremez.
@@ -209,15 +209,12 @@ pub fn dosya_yolu(app: &AppHandle, kimlik: &str) -> Sonuc<PathBuf> {
     if !temiz_kimlik(kimlik) {
         return Err(Hata::Diger("geçersiz dosya kimliği".into()));
     }
-    Ok(gecici_dizin(app)?.join(kimlik))
+    Ok(gecici_dizin_yolu(app)?.join(kimlik))
 }
 
 /// Appends one base64 chunk. `kimlik: None` starts a new file (and sweeps cache files older than a day); returns the file id.
 /// Bir base64 parçası ekler. `kimlik: None` yeni dosya başlatır (ve bir günden eski önbellek dosyalarını süpürür); dosya kimliğini döndürür.
-pub async fn parca_yaz(app: &AppHandle, kimlik: Option<String>, uzanti: &str, veri: &str) -> Sonuc<String> {
-    let baytlar = base64::engine::general_purpose::STANDARD
-        .decode(veri)
-        .map_err(|e| Hata::Diger(format!("base64: {e}")))?;
+pub async fn parca_yaz(app: &AppHandle, kimlik: Option<String>, uzanti: &str, veri: String) -> Sonuc<String> {
     let yeni = kimlik.is_none();
     let kimlik = match kimlik {
         Some(k) => k,
@@ -227,9 +224,15 @@ pub async fn parca_yaz(app: &AppHandle, kimlik: Option<String>, uzanti: &str, ve
         }
     };
     let yol = dosya_yolu(app, &kimlik)?;
+    // Base64 decode (up to ~2 MB) + folder creation + sweep + file append all run on the blocking pool so Tokio workers stay free.
+    // Base64 çözme (~2 MB'a kadar) + klasör oluşturma + süpürme + dosyaya ekleme Tokio işçilerini boş tutmak için blocking havuzunda çalışır.
     tokio::task::spawn_blocking(move || -> Sonuc<()> {
-        if yeni {
-            if let Some(dizin) = yol.parent() {
+        let baytlar = base64::engine::general_purpose::STANDARD
+            .decode(&veri)
+            .map_err(|e| Hata::Diger(format!("base64: {e}")))?;
+        if let Some(dizin) = yol.parent() {
+            std::fs::create_dir_all(dizin)?;
+            if yeni {
                 supur(dizin);
             }
         }
@@ -258,12 +261,19 @@ fn supur(dizin: &std::path::Path) {
     }
 }
 
-pub fn temizle(app: &AppHandle, kimlikler: &[String]) {
-    for k in kimlikler {
-        if let Ok(y) = dosya_yolu(app, k) {
+/// Deletes prepared temporary files on the blocking pool so async callers never block Tokio on `remove_file`.
+/// Hazırlanan geçici dosyaları blocking havuzunda siler; async çağıranlar `remove_file` sırasında Tokio'yu bloklamasın.
+pub async fn temizle_async(app: &AppHandle, kimlikler: Vec<String>) {
+    let yollar: Vec<PathBuf> = kimlikler.iter().filter_map(|k| dosya_yolu(app, k).ok()).collect();
+    if yollar.is_empty() {
+        return;
+    }
+    let _ = tokio::task::spawn_blocking(move || {
+        for y in yollar {
             let _ = std::fs::remove_file(y);
         }
-    }
+    })
+    .await;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -297,9 +307,9 @@ pub async fn gonder(app: &AppHandle, durum: &AppState, client: &Client, istek: M
     // server rejects would hold up the whole room. The prepared files go too, nothing will send them.
     // Burada, diskteki boyuttan geri çevir (çok büyük dosyayı belleğe okuduktan sonra değil): kuyruğa girince, sunucunun
     // reddettiği dosya bütün odayı bekletirdi. Hazırlanan dosyalar da silinir, onları gönderecek bir şey yok.
-    let disk_boyutu = tokio::fs::metadata(&yol).await?.len() as usize;
+    let disk_boyutu = tokio::fs::metadata(&yol).await?.len();
     if let Err(e) = crate::matrix::kuyruk::boyut_denetle(client, disk_boyutu).await {
-        temizle(app, &sil);
+        temizle_async(app, sil).await;
         return Err(e);
     }
     let baytlar = tokio::fs::read(&yol).await?;
@@ -321,7 +331,8 @@ pub async fn gonder(app: &AppHandle, durum: &AppState, client: &Client, istek: M
     // Küçük resim (resimlere de konur: balon önce onu gösterir, tam resim dokununca yüklenir).
     let kucuk = match (&istek.kucuk_kimlik, istek.kucuk_genislik, istek.kucuk_yukseklik) {
         (Some(k), Some(kg), Some(ky)) => {
-            let veri = std::fs::read(dosya_yolu(app, k)?)?;
+            let kucuk_yol = dosya_yolu(app, k)?;
+            let veri = tokio::fs::read(&kucuk_yol).await?;
             let boyut = UInt::new(veri.len() as u64).unwrap_or_default();
             Some(Thumbnail {
                 content_type: istek.kucuk_mime.as_deref().and_then(|m| m.parse().ok()).unwrap_or(mime::IMAGE_JPEG),
@@ -338,7 +349,7 @@ pub async fn gonder(app: &AppHandle, durum: &AppState, client: &Client, istek: M
     let kaynak = AttachmentSource::Data { bytes: baytlar, filename: dosya_adi_temizle(&istek.dosya_adi) };
     zaman.send_attachment(kaynak, mime, ayar).use_send_queue().await?;
     // The SDK keeps its own copy in the media cache, ours can go. · SDK kendi kopyasını medya önbelleğinde tutar, bizimki silinebilir.
-    temizle(app, &sil);
+    temizle_async(app, sil).await;
     Ok(())
 }
 
@@ -366,7 +377,13 @@ pub async fn video_sikistir(app: &AppHandle, istek: VideoSikistirIstegi) -> Sonu
     let cikti = dosya_yolu(app, &cikti_kimlik)?;
     let (g, c) = (girdi.to_string_lossy().into_owned(), cikti.to_string_lossy().into_owned());
     let (yuk, bit, bas, son, ses) = (istek.yukseklik as i32, istek.bitrate_bps as i32, istek.basla_ms as i64, istek.bitis_ms as i64, istek.sessiz);
-    let is = tokio::task::spawn_blocking(move || android_jni::video_sikistir(&g, &c, yuk, bit, bas, son, ses));
+    let cikti_dizin = cikti.parent().map(std::path::Path::to_path_buf);
+    let is = tokio::task::spawn_blocking(move || {
+        if let Some(d) = cikti_dizin {
+            let _ = std::fs::create_dir_all(d);
+        }
+        android_jni::video_sikistir(&g, &c, yuk, bit, bas, son, ses)
+    });
 
     // Poll the Kotlin side for progress while the blocking call runs. · Bloklayan çağrı sürerken ilerlemeyi Kotlin'den sorgula.
     tokio::pin!(is);
@@ -387,7 +404,7 @@ pub async fn video_sikistir(app: &AppHandle, istek: VideoSikistirIstegi) -> Sonu
     let parcalar: Vec<&str> = metin.split(';').collect();
     match parcalar[..] {
         ["ok", w, h, sure] => {
-            let boyut = std::fs::metadata(&cikti)?.len();
+            let boyut = tokio::fs::metadata(&cikti).await?.len();
             info!("video sıkıştırıldı: {boyut} bayt");
             Ok(VideoSonucu {
                 kimlik: cikti_kimlik,
@@ -398,7 +415,7 @@ pub async fn video_sikistir(app: &AppHandle, istek: VideoSikistirIstegi) -> Sonu
             })
         }
         _ => {
-            let _ = std::fs::remove_file(&cikti);
+            let _ = tokio::fs::remove_file(&cikti).await;
             warn!("video sıkıştırma başarısız: {metin}");
             Err(Hata::Diger(format!("video sıkıştırılamadı: {}", parcalar.get(1).copied().unwrap_or("bilinmeyen"))))
         }
@@ -427,11 +444,21 @@ pub async fn kaydet_telefona(app: &AppHandle, durum: &AppState, kaynak_id: &str)
     let ad = dosya_adi_temizle(&kayit.dosya_adi);
     if cfg!(target_os = "android") {
         let mime = kayit.mime.unwrap_or_else(|| "application/octet-stream".into());
-        let gecici = gecici_dizin(app)?.join(format!("{:016x}-kayit", rand::random::<u64>()));
-        std::fs::write(&gecici, &baytlar)?;
-        let (g, a) = (gecici.to_string_lossy().into_owned(), ad.clone());
-        let sonuc = tokio::task::spawn_blocking(move || android_jni::medya_kaydet(&g, &a, &mime)).await.map_err(|e| Hata::Diger(e.to_string()))?;
-        let _ = std::fs::remove_file(&gecici);
+        let gecici_kok = gecici_dizin_yolu(app)?;
+        let gecici = gecici_kok.join(format!("{:016x}-kayit", rand::random::<u64>()));
+        let ad_kopya = ad.clone();
+        // Writing the temp file, passing it through JNI MediaStore and deleting it all run on the blocking pool.
+        // Geçici dosyayı yazma, JNI MediaStore ile kaydetme ve silme işlerinin tümü blocking havuzunda çalışır.
+        let sonuc = tokio::task::spawn_blocking(move || -> Sonuc<Result<String, String>> {
+            std::fs::create_dir_all(&gecici_kok)?;
+            std::fs::write(&gecici, &baytlar)?;
+            let g = gecici.to_string_lossy().into_owned();
+            let r = android_jni::medya_kaydet(&g, &ad_kopya, &mime);
+            let _ = std::fs::remove_file(&gecici);
+            Ok(r)
+        })
+        .await
+        .map_err(|e| Hata::Diger(e.to_string()))??;
         match sonuc {
             Ok(h) if h.is_empty() => Ok(ad),
             Ok(h) => Err(Hata::Depolama(h)),
@@ -439,16 +466,27 @@ pub async fn kaydet_telefona(app: &AppHandle, durum: &AppState, kaynak_id: &str)
         }
     } else {
         let dizin = app.path().download_dir()?;
-        std::fs::create_dir_all(&dizin)?;
-        let mut hedef = dizin.join(&ad);
-        // Never overwrite: "foto.webp" → "foto (2).webp" · Asla üzerine yazma: "foto.webp" → "foto (2).webp"
-        let mut n = 2;
-        while hedef.exists() {
-            let (govde, uz) = ad.rsplit_once('.').map(|(a, b)| (a.to_owned(), format!(".{b}"))).unwrap_or((ad.clone(), String::new()));
-            hedef = dizin.join(format!("{govde} ({n}){uz}"));
-            n += 1;
-        }
-        std::fs::write(&hedef, &baytlar)?;
-        Ok(hedef.to_string_lossy().into_owned())
+        tokio::task::spawn_blocking(move || -> Sonuc<String> {
+            std::fs::create_dir_all(&dizin)?;
+            let mut hedef = dizin.join(&ad);
+            // Never overwrite: "foto.webp" → "foto (2).webp" · Asla üzerine yazma: "foto.webp" → "foto (2).webp"
+            let mut n = 2;
+            loop {
+                match std::fs::OpenOptions::new().write(true).create_new(true).open(&hedef) {
+                    Ok(mut f) => {
+                        f.write_all(&baytlar)?;
+                        return Ok(hedef.to_string_lossy().into_owned());
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        let (govde, uz) = ad.rsplit_once('.').map(|(a, b)| (a.to_owned(), format!(".{b}"))).unwrap_or((ad.clone(), String::new()));
+                        hedef = dizin.join(format!("{govde} ({n}){uz}"));
+                        n += 1;
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        })
+        .await
+        .map_err(|e| Hata::Diger(e.to_string()))?
     }
 }

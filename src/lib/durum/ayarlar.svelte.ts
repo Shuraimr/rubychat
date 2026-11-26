@@ -12,6 +12,11 @@ export type VurguAdi = "safir" | "zumrut" | "kehribar" | "ametist" | "yakut" | "
 export type YaziTipi = "inter" | "sistem" | "atkinson" | "maple";
 export type YaziBoyutu = "kucuk" | "normal" | "buyuk";
 export type AzAnimasyon = "sistem" | "acik";
+export type Yogunluk = "rahat" | "varsayilan" | "kompakt";
+
+export const SOHBET_OLCEK_MIN = 0.8;
+export const SOHBET_OLCEK_MAKS = 1.5;
+export const SOHBET_OLCEK_ADIM = 0.05;
 
 interface Gorunum {
   tema: Tema;
@@ -21,9 +26,28 @@ interface Gorunum {
   yaziTipi: YaziTipi;
   yaziBoyutu: YaziBoyutu;
   azAnimasyon: AzAnimasyon;
+  yogunluk: Yogunluk;
+  /** Desktop-only scale for the chat area (0.8 .. 1.5), independent of global text size · Yalnızca masaüstünde sohbet alanı ölçeği (0.8 .. 1.5), genel yazı boyutundan bağımsız */
+  sohbetOlcek: number;
 }
 
-const VARSAYILAN: Gorunum = { tema: "sistem", amoled: false, vurgu: "safir", ozelRenk: "#9DB4FF", yaziTipi: "inter", yaziBoyutu: "normal", azAnimasyon: "sistem" };
+const VARSAYILAN: Gorunum = {
+  tema: "sistem",
+  amoled: false,
+  vurgu: "safir",
+  ozelRenk: "#9DB4FF",
+  yaziTipi: "inter",
+  yaziBoyutu: "normal",
+  azAnimasyon: "sistem",
+  yogunluk: "varsayilan",
+  sohbetOlcek: 1,
+};
+
+/** Clamp and snap the desktop chat scale to 5% steps between 80% and 150%. · Masaüstü sohbet ölçeğini %80–%150 arasında %5 adımlara yuvarlar. */
+function olcekSinirla(v: number): number {
+  const sinirli = Math.min(SOHBET_OLCEK_MAKS, Math.max(SOHBET_OLCEK_MIN, v));
+  return Math.round(sinirli * 20) / 20;
+}
 
 function oku(): boolean {
   try {
@@ -45,6 +69,8 @@ function gorunumOku(): Gorunum {
     if (["inter", "sistem", "atkinson", "maple"].includes(ham.yaziTipi as string)) g.yaziTipi = ham.yaziTipi as YaziTipi;
     if (ham.yaziBoyutu === "kucuk" || ham.yaziBoyutu === "normal" || ham.yaziBoyutu === "buyuk") g.yaziBoyutu = ham.yaziBoyutu;
     if (ham.azAnimasyon === "sistem" || ham.azAnimasyon === "acik") g.azAnimasyon = ham.azAnimasyon;
+    if (ham.yogunluk === "rahat" || ham.yogunluk === "varsayilan" || ham.yogunluk === "kompakt") g.yogunluk = ham.yogunluk;
+    if (typeof ham.sohbetOlcek === "number" && Number.isFinite(ham.sohbetOlcek)) g.sohbetOlcek = olcekSinirla(ham.sohbetOlcek);
   } catch {
     /* blocked or corrupt storage: defaults · depolama engelli ya da bozuk: varsayılanlar */
   }
@@ -72,6 +98,8 @@ class Ayarlar {
   yaziTipi = $state<YaziTipi>(VARSAYILAN.yaziTipi);
   yaziBoyutu = $state<YaziBoyutu>(VARSAYILAN.yaziBoyutu);
   azAnimasyon = $state<AzAnimasyon>(VARSAYILAN.azAnimasyon);
+  yogunluk = $state<Yogunluk>(VARSAYILAN.yogunluk);
+  sohbetOlcek = $state<number>(VARSAYILAN.sohbetOlcek);
 
   constructor() {
     const g = gorunumOku();
@@ -82,6 +110,8 @@ class Ayarlar {
     this.yaziTipi = g.yaziTipi;
     this.yaziBoyutu = g.yaziBoyutu;
     this.azAnimasyon = g.azAnimasyon;
+    this.yogunluk = g.yogunluk;
+    this.sohbetOlcek = g.sohbetOlcek;
   }
 
   gurultuYaz(deger: boolean) {
@@ -97,12 +127,37 @@ class Ayarlar {
   gorunumYaz<K extends keyof Gorunum>(anahtar: K, deger: Gorunum[K]) {
     (this as unknown as Gorunum)[anahtar] = deger;
     try {
-      const g: Gorunum = { tema: this.tema, amoled: this.amoled, vurgu: this.vurgu, ozelRenk: this.ozelRenk, yaziTipi: this.yaziTipi, yaziBoyutu: this.yaziBoyutu, azAnimasyon: this.azAnimasyon };
+      const g: Gorunum = {
+        tema: this.tema,
+        amoled: this.amoled,
+        vurgu: this.vurgu,
+        ozelRenk: this.ozelRenk,
+        yaziTipi: this.yaziTipi,
+        yaziBoyutu: this.yaziBoyutu,
+        azAnimasyon: this.azAnimasyon,
+        yogunluk: this.yogunluk,
+        sohbetOlcek: this.sohbetOlcek,
+      };
       localStorage.setItem(GORUNUM_ANAHTARI, JSON.stringify(g));
     } catch {
       /* not persisted; still applies for this session · saklanamadı; bu oturum için yine geçerli */
     }
     this.uygula();
+  }
+
+  /** Set the desktop-only chat scale (clamped to 80%–150%, 5% steps). · Yalnızca masaüstü sohbet ölçeğini ayarla (%80–%150 arası, %5 adımlar). */
+  sohbetOlcekYaz(deger: number) {
+    this.gorunumYaz("sohbetOlcek", olcekSinirla(deger));
+  }
+
+  /** Step the desktop-only chat scale up or down. · Masaüstü sohbet ölçeğini bir adım büyüt ya da küçült. */
+  sohbetOlcekAdim(yon: -1 | 1, adim = 0.1) {
+    this.sohbetOlcekYaz(this.sohbetOlcek + yon * adim);
+  }
+
+  /** Reset the desktop-only chat scale to 100%. · Masaüstü sohbet ölçeğini %100'e sıfırla. */
+  sohbetOlcekSifirla() {
+    this.gorunumYaz("sohbetOlcek", 1);
   }
 
   /** Write the options as attributes / variables on <html>; CSS does the rest. · Seçenekleri <html> üzerine öznitelik / değişken olarak yaz; gerisini CSS yapar. */
@@ -120,6 +175,12 @@ class Ayarlar {
     ayarla("data-font", this.yaziTipi === "inter" ? null : this.yaziTipi);
     ayarla("data-boyut", this.yaziBoyutu === "normal" ? null : this.yaziBoyutu);
     ayarla("data-az-animasyon", this.azAnimasyon === "acik" ? "" : null);
+    ayarla("data-yogunluk", this.yogunluk === "varsayilan" ? null : this.yogunluk);
+    // Desktop-only chat zoom: phones always stay at 1 so a phone layout is never scaled unexpectedly.
+    // Yalnızca masaüstü sohbet ölçeği: telefonlarda hep 1 kalır, böylece mobil yerleşim beklenmedik şekilde büyümez.
+    const masaustu = window.matchMedia("(any-hover: hover) and (any-pointer: fine)").matches;
+    if (masaustu && this.sohbetOlcek !== 1) kok.style.setProperty("--sohbet-olcek", String(this.sohbetOlcek));
+    else kok.style.removeProperty("--sohbet-olcek");
     const ozel = ["--vurgu", "--vurgu-ustu", "--ton", "--ton-ustu"];
     if (this.vurgu === "ozel") {
       // Custom colour: tones are derived from it with color-mix, the text colour is picked by luminance.

@@ -86,6 +86,11 @@ class Gezinme {
         }
         kapanan++;
       }
+      // We closed layers and now rest on an entry whose layer is gone (a sheet that closed while a newer layer was already stacked on
+      // top of it leaves such an orphan): one press must not need a second one that shows nothing, so step over it with our own back().
+      // Katman(lar) kapattık ve şimdi katmanı artık olmayan bir girdide duruyoruz (üstüne yeni katman binmişken kapanan bir sayfa
+      // böyle yetim girdi bırakır): bir basış, hiçbir şey göstermeyen ikinci bir basışa muhtaç olmamalı; kendi back()'imizle atla.
+      if (kapanan > 0 && simdi > 0 && !this.#katmanlar.some((k) => k.id === simdi)) this.#geri();
       // We landed on the entry of a layer that already closed while it was not on top (its entry could not be removed then).
       // Such a press would do nothing visible: close the top layer instead, or go on back when none is open.
       // Üstte değilken kapanmış bir katmanın girdisine düştük (o zaman girdisi silinemezdi). Böyle bir basış görünür hiçbir

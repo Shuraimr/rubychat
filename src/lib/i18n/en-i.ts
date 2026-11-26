@@ -1,0 +1,21 @@
+// Medya gönderme ve kamera · Media sending and camera
+export const enI = {
+  "kamera.baslik": "Camera",
+  "kamera.cek": "Take photo",
+  "kamera.yenidenCek": "Retake",
+  "kamera.kullan": "Use photo",
+  "kamera.sec": "Choose camera",
+  "kamera.ad": "Camera {n}",
+  "kamera.hazirlaniyor": "Starting camera…",
+  "kamera.izinYokBaslik": "Camera permission denied",
+  "kamera.izinYokMetin": "Allow camera access in your system or app settings to take a photo.",
+  "kamera.yokBaslik": "No camera found",
+  "kamera.yokMetin": "No usable camera was detected on this device.",
+  "kamera.mesgulBaslik": "Camera is busy",
+  "kamera.mesgulMetin": "The camera may be in use by another app. Close it and try again.",
+  "kamera.hataBaslik": "Couldn't open camera",
+  "kamera.hataMetin": "Something went wrong while starting the camera.",
+  "kamera.cekimHatasi": "Couldn't take photo.",
+  "kamera.ipucu": "Space or Enter: capture · Esc: close",
+  "kamera.onizlemeIpucu": "Enter: use photo · Esc: close",
+};

@@ -8,12 +8,15 @@
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
 use eyeball_im::{Vector, VectorDiff};
-use futures_util::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     room::edit::EditedContent,
     ruma::{
@@ -40,6 +43,7 @@ use matrix_sdk_ui::timeline::{
     TimelineEventItemId, TimelineItem, TimelineItemContent, VirtualTimelineItem,
 };
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::{mpsc, oneshot};
 use tracing::warn;
 
 use crate::{
@@ -54,6 +58,35 @@ use crate::{
 
 pub const OLAY_ZAMAN: &str = "zaman-guncellendi";
 pub const OLAY_YAZIYOR: &str = "yaziyor-guncellendi";
+
+/// Events requested per backward pagination call (large enough to stay ahead of fast scrolling without stalling).
+/// Her geri sayfalama çağrısında istenen olay sayısı (hızlı kaydırmanın önünde kalacak kadar büyük, takılmayacak kadar ölçülü).
+const SAYFA_BOYU: u16 = 60;
+/// Minimum items targeted right after opening a room so the viewport and top buffer start full.
+/// Oda açıldıktan hemen sonra hedeflenen en az öğe sayısı; görünüm ve üst tampon dolu başlasın.
+const ILK_HEDEF: usize = 40;
+/// Extra backward pages `geri_sayfala` may fetch in one call when a page holds only filtered/aggregated events.
+/// Bir sayfa yalnızca süzülen/toplanan olayları içerdiğinde `geri_sayfala`'nın tek çağrıda deneyebileceği en fazla sayfa.
+const BOS_SAYFA_DENEME: usize = 3;
+
+/// Pauses intermediate diff publishes while `geri_sayfala` or `olaya_git` paginates, always restoring on drop.
+/// `geri_sayfala` ya da `olaya_git` sayfalarken ara fark yayınlarını duraklatır; drop'ta her zaman geri açar.
+struct YayinDuraklat(Arc<AtomicBool>);
+
+impl YayinDuraklat {
+    fn baslat(bayrak: &Arc<AtomicBool>) -> Self {
+        bayrak.store(true, Ordering::SeqCst);
+        Self(bayrak.clone())
+    }
+}
+
+impl Drop for YayinDuraklat {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+type YayinIstegi = (bool, oneshot::Sender<()>);
 
 /// Everything `esle` needs besides the item itself, resolved once per publish (async lookups cannot run inside the sync mapper).
 /// `esle`nin öğenin kendisi dışında ihtiyaç duyduğu her şey; yayın başına bir kez çözülür (async sorgular eşleyicinin içinde çalışamaz).
@@ -81,7 +114,11 @@ pub async fn kisi_bilgisi(room: &Room, id: &UserId) -> KisiBilgisi {
     KisiBilgisi { id: id.to_string(), ad, avatar_mxc: uye.as_ref().and_then(|m| m.avatar_url().map(|a| a.to_string())) }
 }
 
-async fn baglam_kur(room: &Room, ogeler: &Vector<Arc<TimelineItem>>) -> Baglam {
+async fn baglam_kur(
+    room: &Room,
+    ogeler: &Vector<Arc<TimelineItem>>,
+    mut onbellek: Option<&mut HashMap<OwnedUserId, KisiBilgisi>>,
+) -> Baglam {
     let ben = room.own_user_id().to_owned();
     // Power levels decide which "Sil" / "Sabitle" actions are offered; the server stays the real judge.
     // Yetki düzeyleri hangi "Sil" / "Sabitle" eylemlerinin sunulacağını belirler; gerçek hakem yine sunucudur.
@@ -110,8 +147,15 @@ async fn baglam_kur(room: &Room, ogeler: &Vector<Arc<TimelineItem>>) -> Baglam {
     }
     let mut profiller = HashMap::new();
     for id in idler {
-        let k = kisi_bilgisi(room, &id).await;
-        profiller.insert(id, k);
+        if let Some(k) = onbellek.as_deref().and_then(|m| m.get(&id)).cloned() {
+            profiller.insert(id, k);
+        } else {
+            let k = kisi_bilgisi(room, &id).await;
+            if let Some(m) = onbellek.as_deref_mut() {
+                m.insert(id.clone(), k.clone());
+            }
+            profiller.insert(id, k);
+        }
     }
     Baglam { ben, profiller, kendini_silebilir: kendini, baskasini_silebilir: baskasini, sabitleyebilir: sabitle, sabitler, okuyucu_goster }
 }
@@ -385,27 +429,51 @@ fn esle(app: &AppHandle, oge: &TimelineItem, b: &Baglam) -> Option<ZamanOgesi> {
 
 /// Maps the whole item list and emits it. Async because the context (power levels, member names) comes from the store.
 /// Bütün öğe listesini eşler ve yayınlar. Async: bağlam (yetki düzeyleri, üye adları) depodan gelir.
-async fn yayinla(app: &AppHandle, room: &Room, ogeler: &Vector<Arc<TimelineItem>>, ek_basa_ulasildi: bool) {
-    let g = guncelleme_kur(app, room, ogeler, ek_basa_ulasildi).await;
+async fn yayinla(
+    app: &AppHandle,
+    room: &Room,
+    ogeler: &Vector<Arc<TimelineItem>>,
+    ek_basa_ulasildi: bool,
+    onbellek: Option<&mut HashMap<OwnedUserId, KisiBilgisi>>,
+) {
+    let g = guncelleme_kur(app, room, ogeler, ek_basa_ulasildi, onbellek).await;
     let _ = app.emit(OLAY_ZAMAN, g);
 }
 
 /// A preloaded room for the UI's memory: its header and its newest items. · Arayüz belleği için ön yüklenmiş oda: başlığı ve en yeni öğeleri.
 pub async fn hazir_kur(app: &AppHandle, room: &Room, zaman: &matrix_sdk_ui::Timeline) -> ZamanHazir {
     let ogeler = zaman.items().await;
-    let mut g = guncelleme_kur(app, room, &ogeler, false).await;
+    let mut g = guncelleme_kur(app, room, &ogeler, false, None).await;
     let fazla = g.ogeler.len().saturating_sub(40);
     g.ogeler.drain(..fazla);
     ZamanHazir { bilgi: bilgi_kur(room).await, zaman: g }
 }
 
-async fn guncelleme_kur(app: &AppHandle, room: &Room, ogeler: &Vector<Arc<TimelineItem>>, ek_basa_ulasildi: bool) -> ZamanGuncelleme {
+async fn guncelleme_kur(
+    app: &AppHandle,
+    room: &Room,
+    ogeler: &Vector<Arc<TimelineItem>>,
+    ek_basa_ulasildi: bool,
+    onbellek: Option<&mut HashMap<OwnedUserId, KisiBilgisi>>,
+) -> ZamanGuncelleme {
     let basa = ek_basa_ulasildi || ogeler.iter().any(|o| matches!(o.as_virtual(), Some(VirtualTimelineItem::TimelineStart)));
-    let baglam = baglam_kur(room, ogeler).await;
+    let baglam = baglam_kur(room, ogeler, onbellek).await;
     let liste = ogeler.iter().filter_map(|o| esle(app, o, &baglam)).collect();
     let mut sabitler: Vec<String> = baglam.sabitler.iter().cloned().collect();
     sabitler.sort();
     ZamanGuncelleme { oda_id: room.room_id().to_string(), ogeler: liste, basa_ulasildi: basa, sabitler, sabitleyebilir: baglam.sabitleyebilir }
+}
+
+/// Counts timeline items that `esle` will render (messages, stickers, polls, calls, undecryptable, redacted).
+/// `esle`nin çizeceği zaman çizelgesi öğelerini sayar (mesaj, çıkartma, anket, arama, çözülemeyen, silinmiş).
+fn gorunur_sayisi(ogeler: &Vector<Arc<TimelineItem>>) -> usize {
+    ogeler
+        .iter()
+        .filter(|o| {
+            o.as_event()
+                .is_some_and(|e| matches!(e.content(), TimelineItemContent::CallInvite | TimelineItemContent::MsgLike(_)))
+        })
+        .count()
 }
 
 async fn bilgi_kur(room: &Room) -> OdaBilgisi {
@@ -487,21 +555,40 @@ pub async fn ac(app: AppHandle, durum: &AppState, client: &Client, oda_id: &str)
     let (yazan_koruma, mut yazan_rx) = room.subscribe_to_typing_notifications();
 
     let kilit = Arc::new(tokio::sync::Mutex::new(()));
-    let (app2, oda_id2, zaman2, room2, kilit2) = (app.clone(), oda_id.to_owned(), zaman.clone(), room.clone(), kilit.clone());
+    let yayin_duraklat = Arc::new(AtomicBool::new(false));
+    let (yayin_iste, mut yayin_rx) = mpsc::unbounded_channel::<YayinIstegi>();
+    let (app2, oda_id2, zaman2, room2, kilit2, duraklat2) = (
+        app.clone(),
+        oda_id.to_owned(),
+        zaman.clone(),
+        room.clone(),
+        kilit.clone(),
+        yayin_duraklat.clone(),
+    );
     let gorev = tokio::spawn(async move {
         let _yazan_koruma = yazan_koruma;
         let mut yazan_kapali = false;
+        let mut yayin_kapali = false;
         let mut istenen_yanitlar: HashSet<String> = HashSet::new();
+        let mut profil_onbellek: HashMap<OwnedUserId, KisiBilgisi> = HashMap::new();
         let mut liste = baslangic;
-        yayinla(&app2, &room2, &liste, false).await;
+        yayinla(&app2, &room2, &liste, false, Some(&mut profil_onbellek)).await;
         eksik_yanitlari_iste(&zaman2, &liste, &mut istenen_yanitlar);
-        // Load one page of history up front so a fresh room is not empty / nearly empty.
-        // Yeni açılan oda boş kalmasın diye en baştan bir sayfa geçmiş yükle.
-        if liste.len() < 20 {
-            match zaman2.paginate_backwards(30).await {
+        // Load one deeper page of history up front so a fresh room opens with a comfortable scroll-up buffer.
+        // Yeni açılan oda rahat bir yukarı kaydırma tamponuyla başlasın diye en baştan bir sayfa geçmiş yükle.
+        if liste.len() < ILK_HEDEF {
+            let _kilit = kilit2.lock().await;
+            let ilk_len = liste.len();
+            match zaman2.paginate_backwards(SAYFA_BOYU).await {
                 Ok(basa) => {
-                    if basa {
-                        yayinla(&app2, &room2, &liste, true).await;
+                    while let Some(Some(farklar)) = akis.next().now_or_never() {
+                        for f in farklar {
+                            f.apply(&mut liste);
+                        }
+                    }
+                    if basa || liste.len() != ilk_len {
+                        yayinla(&app2, &room2, &liste, basa, Some(&mut profil_onbellek)).await;
+                        eksik_yanitlari_iste(&zaman2, &liste, &mut istenen_yanitlar);
                     }
                 }
                 Err(e) => warn!("ilk geri sayfalama başarısız: {e}"),
@@ -509,10 +596,22 @@ pub async fn ac(app: AppHandle, durum: &AppState, client: &Client, oda_id: &str)
         }
         let uyandir = app2.state::<AppState>().arama_degisti.clone();
         loop {
+            let mut akis_kapandi = false;
             tokio::select! {
                 farklar = akis.next() => {
-                    let Some(farklar) = farklar else { break };
-                    let sifirlandi = farklar.iter().any(|f| matches!(f, VectorDiff::Clear | VectorDiff::Reset { .. }));
+                    let Some(mut tum_farklar) = farklar else { break };
+                    // Drain any diff batches already queued so rapid bursts coalesce into a single IPC emit.
+                    // Kuyrukta bekleyen fark gruplarını boşalt ki hızlı dalgalar tek IPC yayınında birleşsin.
+                    while let Some(sonraki) = akis.next().now_or_never() {
+                        match sonraki {
+                            Some(ek) => tum_farklar.extend(ek),
+                            None => {
+                                akis_kapandi = true;
+                                break;
+                            }
+                        }
+                    }
+                    let sifirlandi = tum_farklar.iter().any(|f| matches!(f, VectorDiff::Clear | VectorDiff::Reset { .. }));
                     let (eski_idler, en_eski) = if sifirlandi {
                         let mut idler: HashSet<OwnedEventId> = HashSet::new();
                         let mut ilk: Option<OwnedEventId> = None;
@@ -529,60 +628,102 @@ pub async fn ac(app: AppHandle, durum: &AppState, client: &Client, oda_id: &str)
                     } else {
                         (HashSet::new(), None)
                     };
-                    for f in farklar {
+                    for f in tum_farklar {
                         f.apply(&mut liste);
                     }
                     // When sliding sync drops a loaded timeline back to a tiny tail (Clear/Reset), refill up to the
                     // previous oldest event before publishing so the UI keeps its old list until restored.
+                    // Skip while an external pagination holds the lock (`try_lock`) so we can never deadlock.
                     // Sliding sync yüklü çizelgeyi küçük bir kuyruğa düşürünce (Clear/Reset), yayınlamadan önce
                     // önceki en eski olaya dek yeniden doldur ki arayüz geri yüklenene dek eski listeyi korusun.
-                    if let Some(eski_id) = en_eski.filter(|_| eski_idler.len() > 20) {
-                        if !olay_var_mi(&liste, &eski_id) {
-                            let _kilit = kilit2.lock().await;
-                            let bas = Instant::now();
-                            let mut basa_ulasildi = false;
-                            let mut akis_bitti = false;
-                            for _ in 0..20 {
-                                if olay_var_mi(&liste, &eski_id) || bas.elapsed() >= Duration::from_secs(10) {
-                                    break;
-                                }
-                                match zaman2.paginate_backwards(50).await {
-                                    Ok(basa) => {
-                                        while let Ok(sonraki) = tokio::time::timeout(Duration::from_millis(150), akis.next()).await {
-                                            match sonraki {
-                                                Some(yeni_farklar) => {
-                                                    for f in yeni_farklar {
-                                                        f.apply(&mut liste);
+                    // Dış sayfalama kilidi tutuyorken (`try_lock`) atla; kilitlenme olmasın.
+                    if !duraklat2.load(Ordering::SeqCst) {
+                        if let Some(eski_id) = en_eski.filter(|_| eski_idler.len() > 20) {
+                            if !olay_var_mi(&liste, &eski_id) {
+                                if let Ok(_kilit) = kilit2.try_lock() {
+                                    let bas = Instant::now();
+                                    let mut basa_ulasildi = false;
+                                    let mut akis_bitti = akis_kapandi;
+                                    for _ in 0..20 {
+                                        if akis_bitti || olay_var_mi(&liste, &eski_id) || bas.elapsed() >= Duration::from_secs(10) {
+                                            break;
+                                        }
+                                        match zaman2.paginate_backwards(50).await {
+                                            Ok(basa) => {
+                                                while let Ok(sonraki) = tokio::time::timeout(Duration::from_millis(150), akis.next()).await {
+                                                    match sonraki {
+                                                        Some(yeni_farklar) => {
+                                                            for f in yeni_farklar {
+                                                                f.apply(&mut liste);
+                                                            }
+                                                        }
+                                                        None => {
+                                                            akis_bitti = true;
+                                                            break;
+                                                        }
                                                     }
                                                 }
-                                                None => {
-                                                    akis_bitti = true;
+                                                if akis_bitti {
+                                                    break;
+                                                }
+                                                if basa {
+                                                    basa_ulasildi = true;
                                                     break;
                                                 }
                                             }
-                                        }
-                                        if akis_bitti {
-                                            break;
-                                        }
-                                        if basa {
-                                            basa_ulasildi = true;
-                                            break;
+                                            Err(e) => {
+                                                warn!("sıfırlama sonrası yeniden doldurma başarısız: {e}");
+                                                break;
+                                            }
                                         }
                                     }
-                                    Err(e) => {
-                                        warn!("sıfırlama sonrası yeniden doldurma başarısız: {e}");
+                                    if akis_bitti {
+                                        break;
+                                    }
+                                    yayinla(&app2, &room2, &liste, basa_ulasildi, Some(&mut profil_onbellek)).await;
+                                    eksik_yanitlari_iste(&zaman2, &liste, &mut istenen_yanitlar);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    // Suppress intermediate publishes while `geri_sayfala` / `olaya_git` is running; it requests one final publish.
+                    // `geri_sayfala` / `olaya_git` çalışırken ara yayınları bastır; sonunda tek bir birleşik yayın ister.
+                    if duraklat2.load(Ordering::SeqCst) {
+                        if akis_kapandi {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+                // Explicit single-publish request from `geri_sayfala`, `olaya_git`, or `yeniden_yayinla`.
+                // `geri_sayfala`, `olaya_git` ya da `yeniden_yayinla`'dan gelen tekil açık yayın isteği.
+                istek = yayin_rx.recv(), if !yayin_kapali => {
+                    match istek {
+                        Some((basa, bitti)) => {
+                            while let Some(sonraki) = akis.next().now_or_never() {
+                                match sonraki {
+                                    Some(ek) => {
+                                        for f in ek {
+                                            f.apply(&mut liste);
+                                        }
+                                    }
+                                    None => {
+                                        akis_kapandi = true;
                                         break;
                                     }
                                 }
                             }
-                            if akis_bitti {
+                            yayinla(&app2, &room2, &liste, basa, Some(&mut profil_onbellek)).await;
+                            eksik_yanitlari_iste(&zaman2, &liste, &mut istenen_yanitlar);
+                            let _ = bitti.send(());
+                            if akis_kapandi {
                                 break;
                             }
-                            yayinla(&app2, &room2, &liste, basa_ulasildi).await;
-                            eksik_yanitlari_iste(&zaman2, &liste, &mut istenen_yanitlar);
-                            continue;
                         }
+                        None => yayin_kapali = true,
                     }
+                    continue;
                 }
                 // A call outcome arrived: re-map so the call line updates. · Arama sonucu geldi: satır güncellensin diye yeniden eşle.
                 _ = uyandir.notified() => {}
@@ -603,11 +744,21 @@ pub async fn ac(app: AppHandle, durum: &AppState, client: &Client, oda_id: &str)
                     continue;
                 }
             }
-            yayinla(&app2, &room2, &liste, false).await;
+            yayinla(&app2, &room2, &liste, false, Some(&mut profil_onbellek)).await;
             eksik_yanitlari_iste(&zaman2, &liste, &mut istenen_yanitlar);
+            if akis_kapandi {
+                break;
+            }
         }
     });
-    if let Some(o) = durum.zamanlar.lock().await.insert(id, AcikZaman { zaman, gorev, kilit }) {
+    // Abort and discard if the session closed or switched while `room.timeline()` was running.
+    // `room.timeline()` sürerken oturum kapandıysa ya da hesap değiştiyse görevi durdur ve bırak.
+    let ayni_oturum = durum.oturum.read().await.as_ref().is_some_and(|o| o.client.user_id() == client.user_id());
+    if !ayni_oturum {
+        gorev.abort();
+        return Err(Hata::OturumYok);
+    }
+    if let Some(o) = durum.zamanlar.lock().await.insert(id, AcikZaman { zaman, gorev, kilit, yayin_duraklat, yayin_iste }) {
         // The same room was opened twice at once: the newer one wins. · Aynı oda aynı anda iki kez açıldı: yenisi kalır.
         o.gorev.abort();
     }
@@ -632,33 +783,77 @@ pub async fn hepsini_kapat(durum: &AppState) {
     }
 }
 
-/// Clones the open room's timeline and refill lock, releasing the map lock before any await on the refill lock.
-/// Açık odanın çizelgesini ve doldurma kilidini kopyalar; doldurma kilidini beklemeden önce harita kilidini bırakır.
-async fn zaman_ve_kilit_bul(durum: &AppState, oda_id: &str) -> Sonuc<(Arc<matrix_sdk_ui::Timeline>, Arc<tokio::sync::Mutex<()>>)> {
+/// Clones the open room's timeline handles, releasing the map lock before any await on the pagination lock.
+/// Açık odanın çizelge tutamaçlarını kopyalar; sayfalama kilidini beklemeden önce harita kilidini bırakır.
+async fn zaman_kaydi_bul(
+    durum: &AppState,
+    oda_id: &str,
+) -> Sonuc<(Arc<matrix_sdk_ui::Timeline>, Arc<tokio::sync::Mutex<()>>, Arc<AtomicBool>, mpsc::UnboundedSender<YayinIstegi>)> {
     let id = RoomId::parse(oda_id)?;
     durum
         .zamanlar
         .lock()
         .await
         .get(&id)
-        .map(|a| (a.zaman.clone(), a.kilit.clone()))
+        .map(|a| (a.zaman.clone(), a.kilit.clone(), a.yayin_duraklat.clone(), a.yayin_iste.clone()))
         .ok_or(Hata::OdaBulunamadi)
 }
 
 async fn zaman_bul(durum: &AppState, oda_id: &str) -> Sonuc<Arc<matrix_sdk_ui::Timeline>> {
-    zaman_ve_kilit_bul(durum, oda_id).await.map(|(z, _)| z)
+    zaman_kaydi_bul(durum, oda_id).await.map(|(z, _, _, _)| z)
 }
 
-/// Loads older messages. Results arrive through the normal diff stream; we also push an explicit update so the UI
-/// can stop its "loading" spinner even when no new item appeared (start of history).
-/// Eski mesajları yükler. Sonuç normal fark akışıyla gelir; ayrıca açıkça güncelleme göndeririz ki yeni öğe
-/// gelmese bile (geçmişin başı) arayüz "yükleniyor" göstergesini kapatabilsin.
+/// Asks the single publisher task to drain diffs and emit once, waiting until the emit completes.
+/// Tek yayıncı görevden farkları boşaltıp bir kez yayınlamasını ister ve yayın bitene dek bekler.
+async fn yayin_istegi_gonder(
+    app: &AppHandle,
+    zaman: &Arc<matrix_sdk_ui::Timeline>,
+    yayin_iste: &mpsc::UnboundedSender<YayinIstegi>,
+    basa: bool,
+) {
+    let (tx, rx) = oneshot::channel();
+    if yayin_iste.send((basa, tx)).is_ok() && rx.await.is_ok() {
+        return;
+    }
+    // Fallback if the diff task already exited · Fark görevi zaten çıktıysa yedek
+    let ogeler = zaman.items().await;
+    yayinla(app, zaman.room(), &ogeler, basa, None).await;
+}
+
+/// Loads older messages (`Timeline::paginate_backwards` reads from the room's local event cache first, then hits the network).
+/// Intermediate diff publishes are paused so the UI receives one coalesced list update right before this command resolves.
+/// Eski mesajları yükler (`Timeline::paginate_backwards` önce odanın yerel olay önbelleğinden okur, sonra ağa çıkar).
+/// Ara fark yayınları duraklatılır; böylece arayüz bu komut dönmeden hemen önce tek birleşik liste güncellemesi alır.
 pub async fn geri_sayfala(app: AppHandle, durum: &AppState, oda_id: &str) -> Sonuc<()> {
-    let (zaman, kilit) = zaman_ve_kilit_bul(durum, oda_id).await?;
+    let (zaman, kilit, duraklat, yayin_iste) = zaman_kaydi_bul(durum, oda_id).await?;
     let _kilit = kilit.lock().await;
-    let basa = zaman.paginate_backwards(30).await?;
-    let (ogeler, _) = zaman.subscribe().await;
-    yayinla(&app, zaman.room(), &ogeler, basa).await;
+    let _durak = YayinDuraklat::baslat(&duraklat);
+    let bas = Instant::now();
+    let onceki_gorunur = gorunur_sayisi(&zaman.items().await);
+    let mut basa = false;
+    for _ in 0..BOS_SAYFA_DENEME {
+        basa = zaman.paginate_backwards(SAYFA_BOYU).await?;
+        if basa {
+            break;
+        }
+        // The event cache hands the page to the timeline on its own task, so the items may grow a moment after the call
+        // returns: wait briefly for them instead of fetching more pages that were not needed.
+        // Olay önbelleği sayfayı çizelgeye kendi görevinde verir; öğeler çağrı döndükten biraz sonra artabilir: gereksiz yeni
+        // sayfalar çekmek yerine kısa bir süre onları bekle.
+        let mut buyudu = false;
+        for _ in 0..12 {
+            if gorunur_sayisi(&zaman.items().await) > onceki_gorunur {
+                buyudu = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        if buyudu || bas.elapsed() >= Duration::from_secs(4) {
+            break;
+        }
+    }
+    yayin_istegi_gonder(&app, &zaman, &yayin_iste, basa).await;
+    drop(_durak);
     Ok(())
 }
 
@@ -676,25 +871,32 @@ const OLAYA_GIT_SAYFA_BOYU: u16 = 50;
 /// Odaklı zaman çizelgesi (`TimelineFocus::Event`) yerine seçildi: arayüz, fark görevi ve buradaki her komut oda başına TEK
 /// canlı çizelge varsayar; ikinci geçici çizelge hepsine dokunmayı gerektirirdi.
 pub async fn olaya_git(app: AppHandle, durum: &AppState, oda_id: &str, olay_id: &str) -> Sonuc<bool> {
-    let (zaman, kilit) = zaman_ve_kilit_bul(durum, oda_id).await?;
+    let (zaman, kilit, duraklat, yayin_iste) = zaman_kaydi_bul(durum, oda_id).await?;
     let _kilit = kilit.lock().await;
+    let _durak = YayinDuraklat::baslat(&duraklat);
     let var_mi = |ogeler: &Vector<Arc<TimelineItem>>| ogeler.iter().any(|o| o.as_event().and_then(|e| e.event_id()).is_some_and(|e| e.as_str() == olay_id));
+    let mut basa = false;
+    let mut bulundu = false;
     for _ in 0..OLAYA_GIT_SAYFA {
-        let (ogeler, _) = zaman.subscribe().await;
+        let ogeler = zaman.items().await;
         if var_mi(&ogeler) {
-            yayinla(&app, zaman.room(), &ogeler, false).await;
-            return Ok(true);
+            bulundu = true;
+            break;
         }
-        let basa = zaman.paginate_backwards(OLAYA_GIT_SAYFA_BOYU).await?;
+        basa = zaman.paginate_backwards(OLAYA_GIT_SAYFA_BOYU).await?;
         if basa {
-            let (ogeler, _) = zaman.subscribe().await;
-            yayinla(&app, zaman.room(), &ogeler, true).await;
-            return Ok(var_mi(&ogeler));
+            let ogeler = zaman.items().await;
+            bulundu = var_mi(&ogeler);
+            break;
         }
     }
-    let (ogeler, _) = zaman.subscribe().await;
-    yayinla(&app, zaman.room(), &ogeler, false).await;
-    Ok(var_mi(&ogeler))
+    if !bulundu && !basa {
+        let ogeler = zaman.items().await;
+        bulundu = var_mi(&ogeler);
+    }
+    yayin_istegi_gonder(&app, &zaman, &yayin_iste, basa).await;
+    drop(_durak);
+    Ok(bulundu)
 }
 
 /// Builds a text message: with `html` it carries a `formatted_body` (`org.matrix.custom.html`), `metin` is the plain fallback.
@@ -1022,10 +1224,9 @@ pub async fn tepki_degistir(durum: &AppState, oda_id: &str, olay_id: &str, anaht
 /// Re-sends the current item list (after a state change the timeline does not report itself, e.g. pins).
 /// Geçerli öğe listesini yeniden yollar (çizelgenin kendiliğinden bildirmediği durum değişikliklerinden sonra, ör. sabitler).
 pub async fn yeniden_yayinla(app: AppHandle, durum: &AppState, oda_id: &str) -> Sonuc<()> {
-    let (zaman, kilit) = zaman_ve_kilit_bul(durum, oda_id).await?;
+    let (zaman, kilit, _, yayin_iste) = zaman_kaydi_bul(durum, oda_id).await?;
     let _kilit = kilit.lock().await;
-    let (ogeler, _) = zaman.subscribe().await;
-    yayinla(&app, zaman.room(), &ogeler, false).await;
+    yayin_istegi_gonder(&app, &zaman, &yayin_iste, false).await;
     Ok(())
 }
 

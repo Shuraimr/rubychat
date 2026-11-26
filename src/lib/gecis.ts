@@ -12,15 +12,30 @@ export function cikisiAtla() {
   setTimeout(() => (cikisAtla = false), 100);
 }
 
+/**
+ * Run a compositor-only WAAPI animation and promote `will-change` strictly for its lifetime so idle elements hold no GPU layers.
+ * Yalnızca birleştiricide çalışan bir WAAPI animasyonu oynatır; `will-change` yalnızca animasyon süresince tutulur, boşta GPU katmanı bırakmaz.
+ */
+function oynat(node: Element, kareler: Keyframe[], secenek: KeyframeAnimationOptions, ipucu: string) {
+  const el = node as HTMLElement;
+  el.style.willChange = ipucu;
+  const temizle = () => {
+    if (el.style.willChange === ipucu) el.style.removeProperty("will-change");
+  };
+  const a = node.animate(kareler, secenek);
+  a.onfinish = temizle;
+  a.oncancel = temizle;
+}
+
 function kay(giris: boolean) {
   return (node: Element) => {
     const sure = !giris && cikisAtla ? 0 : sureMs("--sure-ekran");
     const egri = egriOku("--egri-ac");
     if (sure > 0) {
-      const uzak = { transform: "translateX(100%)" };
-      const yakin = { transform: "translateX(0)" };
+      const uzak = { transform: "translate3d(100%, 0, 0)" };
+      const yakin = { transform: "translate3d(0, 0, 0)" };
       // transform only: no layout work, 60 fps · yalnızca transform: düzen hesabı yok, 60 fps
-      node.animate(giris ? [uzak, yakin] : [yakin, uzak], { duration: sure, easing: egri, fill: giris ? "backwards" : "forwards" });
+      oynat(node, giris ? [uzak, yakin] : [yakin, uzak], { duration: sure, easing: egri, fill: giris ? "backwards" : "forwards" }, "transform");
     }
     // Tell Svelte how long to keep the node alive · Svelte'e düğümü ne kadar canlı tutacağını bildir
     return { duration: sure };
@@ -38,9 +53,9 @@ function sayfa(giris: boolean) {
     const sure = sureMs("--sure-sayfa");
     const egri = egriOku(giris ? "--egri-sayfa" : "--egri-giris");
     if (sure > 0) {
-      const asagi = { transform: "translateY(100%)" };
-      const yukari = { transform: "translateY(0)" };
-      node.animate(giris ? [asagi, yukari] : [yukari, asagi], { duration: giris ? sure : sure * 0.65, easing: egri, fill: giris ? "backwards" : "forwards" });
+      const asagi = { transform: "translate3d(0, 100%, 0)" };
+      const yukari = { transform: "translate3d(0, 0, 0)" };
+      oynat(node, giris ? [asagi, yukari] : [yukari, asagi], { duration: giris ? sure : sure * 0.65, easing: egri, fill: giris ? "backwards" : "forwards" }, "transform");
     }
     return { duration: giris ? sure : sure * 0.65 };
   };
@@ -52,7 +67,7 @@ export const sayfaCik = sayfa(false);
 function sol(giris: boolean, sureAdi: string) {
   return (node: Element) => {
     const sure = sureMs(sureAdi);
-    if (sure > 0) node.animate(giris ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }], { duration: sure, easing: "linear", fill: giris ? "backwards" : "forwards" });
+    if (sure > 0) oynat(node, giris ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }], { duration: sure, easing: "linear", fill: giris ? "backwards" : "forwards" }, "opacity");
     return { duration: sure };
   };
 }
@@ -61,27 +76,27 @@ export const perdeCik = sol(false, "--sure-cikis");
 
 /** Snackbar: rises and grows from the bottom edge; closing fades. · Snackbar: alt kenardan yükselip büyür; kapanırken solar. */
 export function bildirimGir(node: Element) {
-  const sure = (sureMs("--sure-bildirim")) * 1.4;
-  if (sure > 0) node.animate([{ transform: "translateY(24px) scale(.9)", opacity: 0 }, { opacity: 1, offset: 0.5 }, { transform: "none", opacity: 1 }], { duration: sure, easing: egriOku("--egri-vurgulu"), fill: "backwards" });
+  const sure = sureMs("--sure-bildirim") * 1.4;
+  if (sure > 0) oynat(node, [{ transform: "translate3d(0, 24px, 0) scale(.92)", opacity: 0 }, { opacity: 1, offset: 0.5 }, { transform: "none", opacity: 1 }], { duration: sure, easing: egriOku("--egri-vurgulu"), fill: "backwards" }, "transform, opacity");
   return { duration: sure };
 }
 export function bildirimCik(node: Element) {
   const sure = sureMs("--sure-bildirim-cik");
-  if (sure > 0) node.animate([{ opacity: 1 }, { opacity: 0 }], { duration: sure, easing: "linear", fill: "forwards" });
+  if (sure > 0) oynat(node, [{ opacity: 1 }, { opacity: 0 }], { duration: sure, easing: "linear", fill: "forwards" }, "opacity");
   return { duration: sure };
 }
 
 /** In-app message banner: drops from behind the top edge with a soft spring and goes back up. · Uygulama içi mesaj şeridi: üst kenarın arkasından yumuşak yayla iner, yukarı geri çıkar. */
 export function ustGir(node: Element) {
   const sure = sureMs("--sure-sayfa");
-  if (sure > 0) node.animate([{ transform: "translateY(-130%)" }, { transform: "none" }], { duration: sure, easing: egriOku("--egri-sayfa"), fill: "backwards" });
+  if (sure > 0) oynat(node, [{ transform: "translate3d(0, -130%, 0)" }, { transform: "none" }], { duration: sure, easing: egriOku("--egri-sayfa"), fill: "backwards" }, "transform");
   return { duration: sure };
 }
 export function ustCik(node: Element) {
-  const sure = (sureMs("--sure-orta")) * 1.2;
+  const sure = sureMs("--sure-orta") * 1.2;
   // Starts where the finger left it. · Parmağın bıraktığı yerden başlar.
   const bas = getComputedStyle(node).transform;
-  if (sure > 0) node.animate([{ transform: bas === "none" ? "translateY(0)" : bas }, { transform: "translateY(-130%)", opacity: 0.4 }], { duration: sure, easing: egriOku("--egri-giris"), fill: "forwards" });
+  if (sure > 0) oynat(node, [{ transform: bas === "none" ? "translate3d(0, 0, 0)" : bas }, { transform: "translate3d(0, -130%, 0)", opacity: 0.4 }], { duration: sure, easing: egriOku("--egri-giris"), fill: "forwards" }, "transform, opacity");
   return { duration: sure };
 }
 
@@ -97,7 +112,7 @@ function menu(giris: boolean) {
     if (sure > 0) {
       const kapali = { opacity: 0, scale: giris ? "0.94" : "0.97" };
       const acik = { opacity: 1, scale: "1" };
-      node.animate(giris ? [kapali, { opacity: 1, offset: 0.6 }, acik] : [acik, kapali], { duration: sure, easing: giris ? egriOku("--egri-ac") : "linear", fill: giris ? "backwards" : "forwards" });
+      oynat(node, giris ? [kapali, { opacity: 1, offset: 0.6 }, acik] : [acik, kapali], { duration: sure, easing: giris ? egriOku("--egri-ac") : "linear", fill: giris ? "backwards" : "forwards" }, "transform, opacity");
     }
     return { duration: sure };
   };
@@ -108,6 +123,6 @@ export const menuCik = menu(false);
 /** Splash → app: fades while growing a touch, as if walking through it · Açılış → uygulama: hafifçe büyüyerek solar, içinden geçer gibi */
 export function acilisCik(node: Element) {
   const sure = sureMs("--sure-sayfa");
-  if (sure > 0) node.animate([{ opacity: 1, scale: "1" }, { opacity: 0, scale: "1.04" }], { duration: sure, easing: egriOku("--egri-cikis"), fill: "forwards" });
+  if (sure > 0) oynat(node, [{ opacity: 1, scale: "1" }, { opacity: 0, scale: "1.04" }], { duration: sure, easing: egriOku("--egri-cikis"), fill: "forwards" }, "transform, opacity");
   return { duration: sure };
 }

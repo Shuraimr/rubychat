@@ -1,22 +1,36 @@
 <!--
-  Thin one-line shortcut hint strip floating right above the composer while a message is selected.
+  Thin one-line shortcut hint + Vim mode strip floating right above the composer while a message is selected.
   Outside normal flow so it never shifts the message list, never wraps (extra items clip), uses only CSS tokens and a short fade.
-  Mesaj seçiliyken yazma alanının hemen üstünde yüzen ince tek satırlık kısayol ipucu şeridi.
+  Mesaj seçiliyken yazma alanının hemen üstünde yüzen ince tek satırlık kısayol ipucu + Vim kip şeridi.
   Normal akışın dışındadır (mesaj listesini hiç kaydırmaz), asla satır kırmaz (fazlası kırpılır), yalnızca renk değişkenleri ve kısa solma kullanır.
 -->
 <script lang="ts">
   import type { ZamanOgesi } from "../api/tipler";
   import { sureMs } from "../hareket";
   import { t } from "../i18n";
-  import { mesajKomutlari, type Komut } from "../klavyeKisayol.svelte";
+  import { klavye, mesajKomutlari, type Komut } from "../klavyeKisayol.svelte";
 
   let { oge }: { oge: ZamanOgesi } = $props();
 
   const ogeler = $derived(mesajKomutlari(oge));
+  const normalde = $derived(klavye.kip === "normal");
+  const gorunur = $derived(ogeler.length > 0 && !klavye.komutAcik);
+
+  // Tell KlavyeDurum when this strip is visible so it does not render a second mode pill. · İkinci bir kip hapı çizilmesin diye bu şeridin görünürlüğünü KlavyeDurum'a bildir.
+  $effect(() => {
+    klavye.ipucuGorunur = gorunur;
+    return () => {
+      klavye.ipucuGorunur = false;
+    };
+  });
 
   function etiket(k: Komut): string {
     if (k.id === "sabitle") return t(oge.sabit ? "klavye.iSabitKaldir" : "klavye.iSabitle");
     return t(k.ipucuEtiket ?? k.etiket);
+  }
+
+  function tusMetni(k: Komut): string {
+    return normalde && k.vimKey ? k.vimKey : k.key;
   }
 
   /** Short opacity-only fade using --sure-hizli (0ms under reduced motion). · --sure-hizli ile yalnızca kısa opaklık solması (azaltılmış harekette 0ms). */
@@ -37,10 +51,16 @@
   const cik = sol(false);
 </script>
 
-{#if ogeler.length > 0}
+{#if gorunur}
   <div class="ipucu" aria-hidden="true" in:gir out:cik>
+    {#if normalde}
+      <span class="kip">{t("klavye.kipNormal")}</span>
+    {/if}
+    {#if klavye.sayac || klavye.bekleyen}
+      <span class="bekleyen">{klavye.sayac}{klavye.bekleyen ? `${klavye.bekleyen}…` : ""}</span>
+    {/if}
     {#each ogeler as k (k.id)}
-      <span class="oge"><kbd>{k.key}</kbd><span>{etiket(k)}</span></span>
+      <span class="oge"><kbd>{tusMetni(k)}</kbd><span>{etiket(k)}</span></span>
     {/each}
     <span class="oge"><kbd>Esc</kbd><span>{t("klavye.iSecimBirak")}</span></span>
   </div>
@@ -56,12 +76,12 @@
     right: .75rem;
     bottom: calc(100% + 4px);
     height: 1.75rem;
-    padding: 0 .625rem;
+    padding: 0 .625rem 0 .375rem;
     border-radius: .75rem;
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
-    gap: .625rem;
+    gap: .5rem;
     overflow: hidden;
     white-space: nowrap;
     pointer-events: none;
@@ -71,6 +91,30 @@
     font-size: .75rem;
     line-height: 1;
     box-shadow: var(--kat-1);
+  }
+  .kip {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    height: 1.25rem;
+    padding: 0 .4375rem;
+    border-radius: .4375rem;
+    background: var(--ton);
+    color: var(--ton-ustu);
+    font-family: var(--mono-tipi);
+    font-size: .6875rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+  }
+  .bekleyen {
+    flex: none;
+    padding: .125rem .375rem;
+    border-radius: .375rem;
+    background: var(--yuzey-3);
+    color: var(--vurgu);
+    font-family: var(--mono-tipi);
+    font-size: .75rem;
+    font-weight: 700;
   }
   .oge {
     flex: none;

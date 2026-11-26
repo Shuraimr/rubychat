@@ -41,10 +41,12 @@ install -Dm644 src-tauri/icons/128x128@2x.png "$F/share/icons/hicolor/256x256/ap
 install -Dm644 src-tauri/icons/icon.png "$F/share/icons/hicolor/512x512/apps/$KIMLIK.png"
 flatpak build "$D/app" desktop-file-validate /app/share/applications/$KIMLIK.desktop
 
-# secrets = the login keys in the system keyring; xdg-download = "save media"; pulseaudio = calls.
-# secrets = sistem anahtarlığındaki giriş anahtarları; xdg-download = "medyayı kaydet"; pulseaudio = aramalar.
+# secrets = the login keys in the system keyring; xdg-download = "save media"; pulseaudio = calls;
+# StatusNotifierWatcher = system tray icon while running in the background.
+# secrets = sistem anahtarlığındaki giriş anahtarları; xdg-download = "medyayı kaydet"; pulseaudio = aramalar;
+# StatusNotifierWatcher = arka planda çalışırken sistem tepsisi simgesi.
 flatpak build-finish "$D/app" --command=rubychat --share=network --share=ipc --socket=wayland --socket=fallback-x11 \
-  --socket=pulseaudio --device=dri --talk-name=org.freedesktop.secrets --filesystem=xdg-download
+  --socket=pulseaudio --device=dri --talk-name=org.freedesktop.secrets --talk-name=org.kde.StatusNotifierWatcher --filesystem=xdg-download
 flatpak build-export --disable-sandbox "$D/depo" "$D/app" beta
 flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo "$D/depo" "$CIKTI" $KIMLIK beta
 ls -la "$CIKTI"

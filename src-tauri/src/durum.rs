@@ -30,12 +30,14 @@ pub struct ParkliOturum {
     pub kalici: Vec<JoinHandle<()>>,
 }
 
-/// One open room: its timeline, the diff-forwarding task and a lock held while refilling after a reset.
-/// Açık bir oda: zaman çizelgesi, değişiklikleri ileten görev ve sıfırlama sonrası doldurma sırasında tutulan kilit.
+/// One open room: its timeline, the diff-forwarding task, pagination lock, publish-pause flag and explicit publish channel.
+/// Açık bir oda: zaman çizelgesi, değişiklikleri ileten görev, sayfalama kilidi, yayın duraklatma bayrağı ve açık yayın kanalı.
 pub struct AcikZaman {
     pub zaman: Arc<Timeline>,
     pub gorev: JoinHandle<()>,
     pub kilit: Arc<Mutex<()>>,
+    pub yayin_duraklat: Arc<std::sync::atomic::AtomicBool>,
+    pub yayin_iste: tokio::sync::mpsc::UnboundedSender<(bool, tokio::sync::oneshot::Sender<()>)>,
 }
 
 /// What we have seen of one call's life, used to label the timeline line ("3 dk", "Cevapsız"...).
@@ -137,12 +139,44 @@ pub struct AppState {
     /// Serializes login / restore / logout so they cannot race each other.
     /// Giriş / geri yükleme / çıkışın birbiriyle yarışmaması için sıraya dizer.
     pub kilit: Mutex<()>,
+    /// True while a saved session is being restored. The UI opens on the last account at once (oturum.svelte.ts), so its first
+    /// commands may come before the client exists: they wait for the restore instead of failing with `OturumYok`.
+    /// Kayıtlı oturum geri yüklenirken true. Arayüz son hesapla hemen açılır (oturum.svelte.ts); ilk komutları istemci oluşmadan
+    /// gelebilir: `OturumYok` ile düşmek yerine geri yüklemeyi beklerler.
+    pub geri_yukleniyor: std::sync::atomic::AtomicBool,
+    pub geri_yukleme_bitti: tokio::sync::Notify,
 }
 
 impl AppState {
     /// A cheap clone of the current client, or `OturumYok`. Never hold the lock across awaits on the network.
     /// Mevcut istemcinin ucuz bir kopyası ya da `OturumYok`. Ağ beklerken kilidi tutma.
     pub async fn client(&self) -> Result<Client, crate::hata::Hata> {
-        self.oturum.read().await.as_ref().map(|o| o.client.clone()).ok_or(crate::hata::Hata::OturumYok)
+        loop {
+            // Created before the checks, so a restore that ends in between still wakes it. · Denetimlerden önce oluşturulur; arada biten geri yükleme de uyandırır.
+            let bekle = self.geri_yukleme_bitti.notified();
+            if let Some(c) = self.oturum.read().await.as_ref().map(|o| o.client.clone()) {
+                return Ok(c);
+            }
+            if !self.geri_yukleniyor.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(crate::hata::Hata::OturumYok);
+            }
+            if tokio::time::timeout(std::time::Duration::from_secs(60), bekle).await.is_err() {
+                return Err(crate::hata::Hata::OturumYok);
+            }
+        }
+    }
+
+    /// Marks a restore as running until the returned guard is dropped (on every return path). · Dönen bekçi bırakılana dek (her dönüş yolunda) geri yüklemeyi sürüyor sayar.
+    pub fn geri_yukleme_basladi(&self) -> GeriYuklemeBekcisi<'_> {
+        self.geri_yukleniyor.store(true, std::sync::atomic::Ordering::SeqCst);
+        GeriYuklemeBekcisi(self)
+    }
+}
+
+pub struct GeriYuklemeBekcisi<'a>(&'a AppState);
+impl Drop for GeriYuklemeBekcisi<'_> {
+    fn drop(&mut self) {
+        self.0.geri_yukleniyor.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.0.geri_yukleme_bitti.notify_waiters();
     }
 }

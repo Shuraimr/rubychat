@@ -1,0 +1,21 @@
+// Medya gönderme ve kamera · Media sending and camera
+export const trI = {
+  "kamera.baslik": "Kamera",
+  "kamera.cek": "Fotoğraf çek",
+  "kamera.yenidenCek": "Yeniden çek",
+  "kamera.kullan": "Kullan",
+  "kamera.sec": "Kamera seç",
+  "kamera.ad": "Kamera {n}",
+  "kamera.hazirlaniyor": "Kamera açılıyor…",
+  "kamera.izinYokBaslik": "Kamera izni verilmedi",
+  "kamera.izinYokMetin": "Fotoğraf çekmek için sistem veya uygulama ayarlarından kameraya izin ver.",
+  "kamera.yokBaslik": "Kamera bulunamadı",
+  "kamera.yokMetin": "Bu cihazda kullanılabilir bir kamera algılanmadı.",
+  "kamera.mesgulBaslik": "Kamera kullanımda",
+  "kamera.mesgulMetin": "Kamera başka bir uygulama tarafından kullanılıyor olabilir. Kapatıp yeniden dene.",
+  "kamera.hataBaslik": "Kamera açılamadı",
+  "kamera.hataMetin": "Kamera başlatılırken bir sorun oluştu.",
+  "kamera.cekimHatasi": "Fotoğraf çekilemedi.",
+  "kamera.ipucu": "Space veya Enter: çek · Esc: kapat",
+  "kamera.onizlemeIpucu": "Enter: kullan · Esc: kapat",
+} as const;

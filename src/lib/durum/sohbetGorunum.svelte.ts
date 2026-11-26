@@ -95,7 +95,8 @@ class SohbetGorunumu {
 }
 export const sohbetGorunumu = new SohbetGorunumu();
 
-/** CSS variables for a look; spread on the room container · Bir görünüm için CSS değişkenleri; oda kapsayıcısına verilir */
+/** CSS variables for a look; spread on the room container. Bubble geometry comes from density tokens in tokens.css so density and chat zoom compose cleanly. */
+/** Bir görünüm için CSS değişkenleri; oda kapsayıcısına verilir. Balon ölçüleri tokens.css yoğunluk değişkenlerinden gelir; yoğunluk ve sohbet ölçeği birlikte çalışır. */
 export function gorunumStili(g: OdaGorunumu): string {
-  return `--balon-r: 1.25rem; --balon-dolgu: .5rem .75rem; --balon-aralik: 2px; --sohbet-yazi: ${g.yazi}; --sohbet-zemin: ${ZEMIN_RENKLERI[g.zemin]};`;
+  return `--sohbet-yazi: ${g.yazi}; --sohbet-zemin: ${ZEMIN_RENKLERI[g.zemin]};`;
 }

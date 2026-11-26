@@ -1,15 +1,19 @@
-// Modeless Ctrl keyboard shortcuts: one command table drives both dispatch and help / settings / hint UI.
+// Desktop Vim + modeless Ctrl keyboard shortcuts: one command table drives dispatch, hint strip, help sheet and settings.
 // Ctrl+Space (room palette) and Ctrl+B (show / hide list) always work; the rest follow Ben › Klavye kısayolları.
-// Kipsiz Ctrl klavye kısayolları: tek komut tablosu hem çalıştırmayı hem yardım / ayar / ipucu arayüzünü sürer.
+// Normal-mode Vim keys never intercept text typed inside any input or composer; Esc leaves the composer into Normal mode.
+// Masaüstü Vim + kipsiz Ctrl klavye kısayolları: tek komut tablosu çalıştırmayı, ipucu şeridini, yardım sayfasını ve ayarları sürer.
 // Ctrl+Space (oda paleti) ve Ctrl+B (listeyi göster / gizle) hep çalışır; gerisi Ben › Klavye kısayolları'nı izler.
-import { tick, untrack } from "svelte";
+// Normal kip Vim tuşları yazma alanı veya girdilerdeki yazıyı asla yemez; Esc yazma alanından Normal kipe çıkar.
+import { mount, tick, unmount, untrack } from "svelte";
 import type { ZamanOgesi } from "./api/tipler";
+import KlavyeDurum from "./bilesenler/KlavyeDurum.svelte";
+import { bildirim } from "./durum/bildirim.svelte";
 import { duzen } from "./durum/duzen.svelte";
 import { gezinme } from "./durum/gezinme.svelte";
 import { odalar } from "./durum/odalar.svelte";
 import { oturum } from "./durum/oturum.svelte";
 import { tercihler } from "./durum/tercihler.svelte";
-import type { Anahtar } from "./i18n";
+import { t, type Anahtar } from "./i18n";
 import { gercekOlay, iletilebilir } from "./mesaj/eylemler";
 
 /** What the open room offers to the keyboard · Açık odanın klavyeye sundukları */
@@ -22,7 +26,11 @@ export interface OdaKlavye {
   enYeniId: () => string | null;
   aramaAcik: () => boolean;
   sabitleyebilir: () => boolean;
-  ara: () => void;
+  /** Open in-room search; optional prefilled query and Vim mode flag · Oda içi aramayı aç; isteğe bağlı ön sorgu ve Vim kipi bayrağı */
+  ara: (metin?: string, vim?: boolean) => void;
+  aramaKapat: () => void;
+  /** Step search matches (-1 = older / n, 1 = newer / N) and return active event id · Arama eşleşmelerinde adım at ve etkin olay kimliğini döndür */
+  aramaAdim: (yon: -1 | 1) => string | null;
   enAlta: () => void;
   olayaAtla: (olayId: string) => void;
   menu: (oge: ZamanOgesi, x: number, y: number) => void;
@@ -38,11 +46,15 @@ export interface OdaKlavye {
 }
 
 export type KomutBaglami = "genel" | "liste" | "mesaj";
+export type KlavyeKipi = "normal" | "yazma" | "ara" | "komut";
+export type YardimGrubu = "gezinme" | "mesajlar" | "sohbetler" | "komut" | "genel";
 
 export interface Komut {
   id: string;
   /** Display key combo (split on "+" for <kbd> chips) · Gösterim tuş bileşimi (<kbd> için "+" ile bölünür) */
   key: string;
+  /** Concise Normal-mode Vim key shown in the hint strip when in Normal mode · Normal kipteyken ipucu şeridinde gösterilen kısa Vim tuşu */
+  vimKey?: string;
   context: KomutBaglami;
   /** i18n label key for help and settings · Yardım ve ayarlar için i18n etiket anahtarı */
   etiket: Anahtar;
@@ -61,6 +73,25 @@ export interface Komut {
   /** Whether a message command can run on this message · Mesaj komutunun bu mesajda çalışabilirliği */
   uygun?: (oge: ZamanOgesi, oda: OdaKlavye) => boolean;
   run: () => void;
+}
+
+export interface YardimOgesi {
+  id: string;
+  grup: YardimGrubu;
+  /** Alternative key sequences, each split into individual <kbd> chips · Alternatif tuş dizileri, her biri ayrı <kbd> çiplerine bölünür */
+  tuslar: readonly (readonly string[])[];
+  etiket: Anahtar;
+  /** Works even when Vim / keyboard shortcuts are turned off · Vim / klavye kısayolları kapalıyken de çalışır */
+  herZaman?: boolean;
+  /** Extra search terms (Turkish/English aliases) · Ek arama sözcükleri */
+  anahtarlar?: string;
+}
+
+export interface SatirKomutu {
+  ad: string;
+  ek?: string;
+  etiket: Anahtar;
+  takma?: readonly string[];
 }
 
 const ZIYARET = "rubychat.sonOdalar";
@@ -88,13 +119,59 @@ class Klavye {
   /** Rooms in the order they were last opened · En son açılma sırasıyla odalar */
   ziyaret: string[] = ziyaretOku();
 
+  /** Count prefix digits accumulated in Normal mode (e.g. "5") · Normal kipte biriken sayı öneki rakamları (örn. "5") */
+  sayac = $state("");
+  /** Pending two-key leader ("g", "d", "z") · Bekleyen iki tuşlu önek ("g", "d", "z") */
+  bekleyen = $state<"" | "g" | "d" | "z">("");
+  /** ":" mini command line state · ":" küçük komut satırı durumu */
+  komutAcik = $state(false);
+  komutMetin = $state("");
+
+  /** Focus and overlay mirrors for reactive mode indicator · Reaktif kip göstergesi için odak ve katman yansıları */
+  odakMetinde = $state(false);
+  odakAramada = $state(false);
+  katmanAcik = $state(false);
+  aramaAcik = $state(false);
+  aramaSira = $state(0);
+  aramaToplam = $state(0);
+  /** True while KisayolIpucu is mounted so KlavyeDurum avoids showing a duplicate badge · Çift rozet olmasın diye KisayolIpucu görünürken true */
+  ipucuGorunur = $state(false);
+  /** Consumed by Sohbetler to open YeniSohbet from ":yeni" · ":yeni" komutundan YeniSohbet açmak için Sohbetler tarafından tüketilir */
+  yeniSohbetBekleyen = $state(false);
+  /** Last in-room search query per room (for reopening on n/N) · Oda başına son arama sorgusu */
+  sonArama = new Map<string, string>();
+
+  kip = $derived.by<KlavyeKipi>(() => {
+    if (this.komutAcik) return "komut";
+    if (this.aramaAcik && this.odakAramada) return "ara";
+    if (this.odakMetinde) return "yazma";
+    return "normal";
+  });
+
+  bekleyenTemizle() {
+    if (this.sayac) this.sayac = "";
+    if (this.bekleyen) this.bekleyen = "";
+  }
+
+  komutAc() {
+    this.bekleyenTemizle();
+    this.komutMetin = "";
+    this.komutAcik = true;
+  }
+
+  komutKapat() {
+    if (!this.komutAcik) return;
+    this.komutAcik = false;
+    this.komutMetin = "";
+  }
+
   secimBirak() {
     if (this.seciliId !== null) this.seciliId = null;
   }
 }
 export const klavye = new Klavye();
 
-/** Records the current position of the open room before a jump (search result, reply quote, Ctrl+G). · Atlamadan önce açık odanın geçerli konumunu kaydeder (arama sonucu, yanıt alıntısı, Ctrl+G). */
+/** Records the current position of the open room before a jump (search result, reply quote, Ctrl+G, gg/G). · Atlamadan önce açık odanın geçerli konumunu kaydeder (arama sonucu, yanıt alıntısı, Ctrl+G, gg/G). */
 export function konumKaydet(odaId: string, hedefOlayId?: string) {
   const oda = klavye.oda;
   if (!oda || oda.odaId !== odaId) return;
@@ -119,6 +196,8 @@ const gorunur = (e: Element) => e.getClientRects().length > 0 && !e.closest("[in
 const metinAlani = (e: Element | null): e is HTMLElement =>
   !!e && (e.matches('textarea, [contenteditable="true"]') || (e instanceof HTMLInputElement && !["checkbox", "radio", "range", "color", "button", "file"].includes(e.type)));
 
+const katla = (s: string) => s.toLocaleLowerCase("tr").normalize("NFD").replace(/\p{M}/gu, "").replaceAll("ı", "i");
+
 /** Top-most open menu or dialog, if any · Varsa en üstteki açık menü ya da pencere */
 function ustKatman(): HTMLElement | null {
   const l = [...document.querySelectorAll<HTMLElement>('[role="menu"], [role="dialog"], [role="alertdialog"]')].filter(gorunur);
@@ -141,6 +220,26 @@ function odakla(e: HTMLElement | null): boolean {
 function yazmaOdakla() {
   const alan = document.querySelector<HTMLElement>(".oda .yazma textarea") ?? document.querySelector<HTMLElement>('.oda .cubuk input[type="search"]');
   odakla(alan);
+}
+
+async function yazmayaGec() {
+  if (duzen.cekmece) duzen.cekmeceKapat();
+  if (!klavye.oda || odaSayfasi()) return;
+  // In-room search replaces YazmaAlani while open: close it first so the textarea mounts. · Oda içi arama açıkken YazmaAlani'nın yerini alır: textarea takılsın diye önce kapat.
+  if (klavye.oda.aramaAcik()) {
+    klavye.oda.aramaKapat();
+    await tick();
+  }
+  const alan = document.querySelector<HTMLElement>(".oda .yazma textarea");
+  odakla(alan);
+}
+
+async function yazmaEylemi(yap: () => void) {
+  if (klavye.oda?.aramaAcik()) {
+    klavye.oda.aramaKapat();
+    await tick();
+  }
+  yap();
 }
 
 function listeKapsamlari(): HTMLElement[] {
@@ -170,11 +269,12 @@ function odaSatirlari(): HTMLElement[] {
 
 function listeOdakla() {
   klavye.secimBirak();
+  klavye.bekleyenTemizle();
   duzen.listeGoster();
   if (gezinme.sekme === "ben") gezinme.sekmeSec("sohbetler");
   void tick().then(() => {
     requestAnimationFrame(() => {
-      let l = odaSatirlari();
+      const l = odaSatirlari();
       if (l.length === 0 && gezinme.sekme !== "sohbetler") {
         gezinme.sekmeSec("sohbetler");
         void tick().then(() => {
@@ -208,20 +308,22 @@ function listeyiAc() {
 }
 
 function odayaOdakla() {
-  if (duzen.cekmece) duzen.cekmeceKapat();
-  yazmaOdakla();
+  void yazmayaGec();
 }
 
-function odaDegistir(adim: number) {
+function odaDegistir(adim: number, yazmaOdagiKoru = true) {
   const l = odalar.suz("tumu");
   if (l.length === 0) return;
-  const yazmadaydi = !!document.activeElement?.closest(".yazma") || !listedeMi();
+  // Preserve composer focus only when the user was already typing there; Normal-mode gt/gT/H/L stay in Normal mode.
+  // Yalnızca kullanıcı zaten yazma alanındaysa odağı koru; Normal kipteki gt/gT/H/L Normal kipte kalır.
+  const yazmadaydi = yazmaOdagiKoru && !!document.activeElement?.closest(".yazma");
   const i = l.findIndex((o) => o.id === gezinme.acikOdaId);
-  gezinme.odaAc(l[i < 0 ? 0 : (i + adim + l.length) % l.length].id, true);
+  const hedef = i < 0 ? 0 : (((i + adim) % l.length) + l.length) % l.length;
+  gezinme.odaAc(l[hedef].id, true);
   if (yazmadaydi) void tick().then(() => setTimeout(yazmaOdakla, 50));
 }
 
-// ---- Message cursor · Mesaj imleci ----
+// ---- Message cursor & Vim motions · Mesaj imleci ve Vim hareketleri ----
 const mesajSatirlari = () => [...(klavye.oda?.kutu()?.querySelectorAll<HTMLElement>(".satir[data-olay-id]") ?? [])];
 const imlecSatiri = () =>
   klavye.seciliId ? klavye.oda?.kutu()?.querySelector<HTMLElement>(`.satir[data-olay-id="${CSS.escape(klavye.seciliId)}"]`) ?? null : null;
@@ -249,17 +351,148 @@ function imlecOynat(adim: number) {
   const i = klavye.seciliId ? l.findIndex((e) => e.dataset.olayId === klavye.seciliId) : -1;
   let hedef: HTMLElement;
   if (i < 0) {
-    // First press: lowest visible message above the composer. · İlk basış: yazma alanının üstündeki en alttaki görünür mesaj.
+    // First press: lowest visible message above the composer (shifted by extra count if > 1). · İlk basış: yazma alanının üstündeki en alttaki görünür mesaj.
     const stil = getComputedStyle(kutu);
     const alt = kutu.getBoundingClientRect().bottom - (parseFloat(stil.getPropertyValue("--yazma-yer")) || 76) - 8;
-    hedef = l.filter((e) => e.getBoundingClientRect().top < alt).at(-1) ?? l.at(-1)!;
+    const bas = l.filter((e) => e.getBoundingClientRect().top < alt).at(-1) ?? l.at(-1)!;
+    const basIdx = l.indexOf(bas);
+    const kayma = adim > 1 ? adim - 1 : adim < -1 ? adim + 1 : 0;
+    hedef = l[Math.min(l.length - 1, Math.max(0, basIdx + kayma))];
   } else {
     if (i + adim >= l.length) oda.enAlta();
-    if (i + adim < 0) kutu.scrollTop -= 240; // asks for older messages · eski mesajları ister
+    if (i + adim < 0) kutu.scrollTop = Math.max(0, kutu.scrollTop - 240); // asks for older messages · eski mesajları ister
     hedef = l[Math.min(l.length - 1, Math.max(0, i + adim))];
   }
   klavye.seciliId = hedef.dataset.olayId ?? null;
   satiraKaydir(hedef);
+}
+
+function basaGit(hedefSira: number | null) {
+  if (listedeMi()) {
+    const l = odaSatirlari();
+    if (l.length === 0) return;
+    const idx = hedefSira ? Math.min(l.length - 1, Math.max(0, hedefSira - 1)) : 0;
+    odakla(l[idx]);
+    return;
+  }
+  const oda = klavye.oda;
+  if (!oda || odaSayfasi()) return;
+  const kutu = oda.kutu();
+  if (!kutu) return;
+  const l = mesajSatirlari();
+  if (l.length === 0) return;
+  konumKaydet(oda.odaId);
+  const idx = hedefSira ? Math.min(l.length - 1, Math.max(0, hedefSira - 1)) : 0;
+  const hedef = l[idx];
+  klavye.seciliId = hedef.dataset.olayId ?? null;
+  if (!hedefSira) kutu.scrollTop = 0;
+  else satiraKaydir(hedef);
+}
+
+function sonaGit(hedefSira: number | null) {
+  if (listedeMi()) {
+    const l = odaSatirlari();
+    if (l.length === 0) return;
+    const idx = hedefSira ? Math.min(l.length - 1, Math.max(0, hedefSira - 1)) : l.length - 1;
+    odakla(l[idx]);
+    return;
+  }
+  const oda = klavye.oda;
+  if (!oda || odaSayfasi()) return;
+  const kutu = oda.kutu();
+  if (!kutu) return;
+  const l = mesajSatirlari();
+  if (l.length === 0) return;
+  konumKaydet(oda.odaId, oda.enYeniId() ?? undefined);
+  if (hedefSira) {
+    const hedef = l[Math.min(l.length - 1, Math.max(0, hedefSira - 1))];
+    klavye.seciliId = hedef.dataset.olayId ?? null;
+    satiraKaydir(hedef);
+    return;
+  }
+  const son = l.at(-1)!;
+  klavye.seciliId = son.dataset.olayId ?? null;
+  oda.enAlta();
+}
+
+function yarimSayfa(yon: number) {
+  if (listedeMi()) {
+    const l = odaSatirlari();
+    if (l.length === 0) return;
+    const kapsayici = l[0].closest<HTMLElement>(".liste");
+    if (kapsayici) kapsayici.scrollTop += Math.round(kapsayici.clientHeight * 0.5) * yon;
+    listeOynat(yon * 5);
+    return;
+  }
+  const oda = klavye.oda;
+  if (!oda || odaSayfasi()) return;
+  const kutu = oda.kutu();
+  if (!kutu) return;
+  const stil = getComputedStyle(kutu);
+  const tepe = parseFloat(stil.getPropertyValue("--tepe-yer")) || 64;
+  const alt = parseFloat(stil.getPropertyValue("--yazma-yer")) || 76;
+  const gorunurYuk = Math.max(120, kutu.clientHeight - tepe - alt);
+  kutu.scrollTop += Math.round(gorunurYuk * 0.5) * yon;
+  // Keep selection anchored to the row closest to the new viewport centre. · Seçimi yeni görünür alanın ortasına en yakın satırda tut.
+  const l = mesajSatirlari();
+  if (l.length === 0) return;
+  const kr = kutu.getBoundingClientRect();
+  const orta = (kr.top + tepe + kr.bottom - alt) / 2;
+  let enYakin: HTMLElement = l[0];
+  let enAz = Infinity;
+  for (const s of l) {
+    const r = s.getBoundingClientRect();
+    const d = Math.abs((r.top + r.bottom) / 2 - orta);
+    if (d < enAz) {
+      enAz = d;
+      enYakin = s;
+    }
+  }
+  klavye.seciliId = enYakin.dataset.olayId ?? null;
+}
+
+function satiriHizala(yer: "orta" | "ust" | "alt") {
+  const oda = klavye.oda;
+  if (!oda || odaSayfasi()) return;
+  const kutu = oda.kutu();
+  if (!kutu) return;
+  let satir = imlecSatiri();
+  if (!satir) {
+    const l = mesajSatirlari();
+    if (l.length === 0) return;
+    const kr = kutu.getBoundingClientRect();
+    const orta = (kr.top + kr.bottom) / 2;
+    satir = l.reduce((a, b) => {
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      return Math.abs((rb.top + rb.bottom) / 2 - orta) < Math.abs((ra.top + ra.bottom) / 2 - orta) ? b : a;
+    });
+    klavye.seciliId = satir.dataset.olayId ?? null;
+  }
+  const stil = getComputedStyle(kutu);
+  const kr = kutu.getBoundingClientRect();
+  const ust = kr.top + (parseFloat(stil.getPropertyValue("--tepe-yer")) || 64) + 8;
+  const ipucuPay = tercihler.d.kisayolIpucu ? 36 : 0;
+  const alt = kr.bottom - (parseFloat(stil.getPropertyValue("--yazma-yer")) || 76) - ipucuPay - 8;
+  const r = satir.getBoundingClientRect();
+  if (yer === "orta") kutu.scrollTop += (r.top + r.bottom) / 2 - (ust + alt) / 2;
+  else if (yer === "ust") kutu.scrollTop += r.top - ust;
+  else kutu.scrollTop += r.bottom - alt;
+}
+
+function aramaAdimla(yon: -1 | 1, tekrar: number) {
+  const oda = klavye.oda;
+  if (!oda || odaSayfasi()) return;
+  if (!oda.aramaAcik()) {
+    const onceki = klavye.sonArama.get(oda.odaId);
+    if (onceki) oda.ara(onceki, true);
+    return;
+  }
+  let son: string | null = null;
+  for (let i = 0; i < Math.min(tekrar, 100); i++) {
+    son = oda.aramaAdim(yon);
+  }
+  if (son) klavye.seciliId = son;
 }
 
 function satirKonumu(): [number, number] {
@@ -297,8 +530,79 @@ function geriDon() {
   oda.olayaAtla(hedef);
 }
 
-// ---- Single source of truth: command table (dispatch, help sheet, settings, hint strip) ----
-// ---- Tek doğruluk kaynağı: komut tablosu (çalıştırma, yardım sayfası, ayarlar, ipucu şeridi) ----
+function sayacAl(): number {
+  const n = Math.max(1, parseInt(klavye.sayac, 10) || 1);
+  klavye.bekleyenTemizle();
+  return n;
+}
+
+// ---- ":" Command line table & dispatcher · ":" Komut satırı tablosu ve çalıştırıcı ----
+export const KOMUT_SATIRI: readonly SatirKomutu[] = [
+  { ad: "q", etiket: "klavye.vKomutQ", takma: ["quit", "kapat"] },
+  { ad: "ayarlar", etiket: "klavye.vKomutAyarlar", takma: ["ayar", "settings", "set"] },
+  { ad: "yeni", etiket: "klavye.vKomutYeni", takma: ["new"] },
+  { ad: "ara", ek: " <metin>", etiket: "klavye.vKomutAra", takma: ["search", "bul"] },
+  { ad: "yardim", etiket: "klavye.vKomutYardim", takma: ["help", "h"] },
+];
+
+export function komutCalistir(ham: string) {
+  const temiz = ham.trim().replace(/^:+/, "").trim();
+  klavye.komutKapat();
+  if (!temiz) return;
+  const bosluk = temiz.search(/\s/);
+  const ad = katla(bosluk < 0 ? temiz : temiz.slice(0, bosluk));
+  const arg = bosluk < 0 ? "" : temiz.slice(bosluk + 1).trim();
+
+  if (ad === "q" || ad === "quit" || ad === "kapat") {
+    if (gezinme.benAlt) gezinme.benAltKapat();
+    else if (gezinme.acikOdaId) gezinme.odaKapat();
+    return;
+  }
+  if (ad === "ayarlar" || ad === "ayar" || ad === "settings" || ad === "set") {
+    duzen.listeGoster();
+    const alt = katla(arg);
+    if (alt === "klavye" || alt === "keyboard") gezinme.benAltAc("klavye");
+    else if (alt === "gorunum" || alt === "appearance") gezinme.benAltAc("gorunum");
+    else if (alt === "sohbet" || alt === "chat") gezinme.benAltAc("sohbet");
+    else if (alt === "bildirim" || alt === "bildirimler" || alt === "notifications") gezinme.benAltAc("bildirimler");
+    else if (alt === "guvenlik" || alt === "security") gezinme.benAltAc("guvenlik");
+    else if (alt === "hesap" || alt === "account") gezinme.benAltAc("hesap");
+    else gezinme.sekmeSec("ben");
+    return;
+  }
+  if (ad === "yeni" || ad === "new") {
+    duzen.listeGoster();
+    if (gezinme.sekme !== "sohbetler") gezinme.sekmeSec("sohbetler");
+    klavye.yeniSohbetBekleyen = true;
+    return;
+  }
+  if (ad === "ara" || ad === "search" || ad === "bul") {
+    const oda = klavye.oda;
+    if (!oda || odaSayfasi()) {
+      bildirim.goster(t("klavye.komutOdaYok"), 2500, { tur: "bilgi" });
+      return;
+    }
+    if (arg) klavye.sonArama.set(oda.odaId, arg);
+    oda.ara(arg || undefined, true);
+    return;
+  }
+  if (ad === "yardim" || ad === "help" || ad === "h") {
+    klavye.yardim = true;
+    return;
+  }
+  if (ad === "oda" || ad === "o") {
+    klavye.palet = true;
+    return;
+  }
+  if (ad === "liste" || ad === "b") {
+    duzen.degistir();
+    return;
+  }
+  bildirim.goster(t("klavye.komutBilinmiyor", { k: ad }), 2500, { tur: "hata" });
+}
+
+// ---- Single source of truth: Ctrl command table (dispatch & hint strip) ----
+// ---- Tek doğruluk kaynağı: Ctrl komut tablosu (çalıştırma ve ipucu şeridi) ----
 export const KOMUTLAR: readonly Komut[] = [
   // Always active · Her zaman etkin
   {
@@ -313,7 +617,11 @@ export const KOMUTLAR: readonly Komut[] = [
     kod: "Space",
     run: () => {
       // A modal dialog that must be finished stays on top. · Bitirilmesi gereken pencere üstte kalır.
-      if (klavye.palet || !ustKatman()) klavye.palet = !klavye.palet;
+      if (klavye.palet || !ustKatman()) {
+        klavye.komutKapat();
+        klavye.bekleyenTemizle();
+        klavye.palet = !klavye.palet;
+      }
     },
   },
   {
@@ -339,7 +647,7 @@ export const KOMUTLAR: readonly Komut[] = [
     ctrl: true,
     shift: false,
     tus: "j",
-    run: () => imlecOynat(1),
+    run: () => imlecOynat(sayacAl()),
   },
   {
     id: "mesajOnceki",
@@ -349,7 +657,27 @@ export const KOMUTLAR: readonly Komut[] = [
     ctrl: true,
     shift: false,
     tus: "k",
-    run: () => imlecOynat(-1),
+    run: () => imlecOynat(-sayacAl()),
+  },
+  {
+    id: "yarimAsagi",
+    key: "Ctrl+D",
+    context: "genel",
+    etiket: "klavye.vYarimSayfa",
+    ctrl: true,
+    shift: false,
+    tus: "d",
+    run: () => yarimSayfa(sayacAl()),
+  },
+  {
+    id: "yarimYukari",
+    key: "Ctrl+U",
+    context: "genel",
+    etiket: "klavye.vYarimSayfa",
+    ctrl: true,
+    shift: false,
+    tus: "u",
+    run: () => yarimSayfa(-sayacAl()),
   },
   {
     id: "listeye",
@@ -379,7 +707,7 @@ export const KOMUTLAR: readonly Komut[] = [
     ctrl: true,
     shift: true,
     tus: "j",
-    run: () => odaDegistir(1),
+    run: () => odaDegistir(sayacAl(), true),
   },
   {
     id: "oncekiOda",
@@ -389,7 +717,7 @@ export const KOMUTLAR: readonly Komut[] = [
     ctrl: true,
     shift: true,
     tus: "k",
-    run: () => odaDegistir(-1),
+    run: () => odaDegistir(-sayacAl(), true),
   },
   {
     id: "ara",
@@ -400,7 +728,7 @@ export const KOMUTLAR: readonly Komut[] = [
     shift: false,
     tus: "f",
     run: () => {
-      if (klavye.oda && !odaSayfasi()) klavye.oda.ara();
+      if (klavye.oda && !odaSayfasi()) klavye.oda.ara(undefined, false);
     },
   },
   {
@@ -462,7 +790,7 @@ export const KOMUTLAR: readonly Komut[] = [
     ctrl: true,
     shift: false,
     tus: "j",
-    run: () => listeOynat(1),
+    run: () => listeOynat(sayacAl()),
   },
   {
     id: "listeOnceki",
@@ -472,7 +800,7 @@ export const KOMUTLAR: readonly Komut[] = [
     ctrl: true,
     shift: false,
     tus: "k",
-    run: () => listeOynat(-1),
+    run: () => listeOynat(-sayacAl()),
   },
   {
     id: "listeAc",
@@ -489,6 +817,7 @@ export const KOMUTLAR: readonly Komut[] = [
   {
     id: "yanitla",
     key: "Ctrl+R",
+    vimKey: "r",
     context: "mesaj",
     etiket: "klavye.kYanit",
     ctrl: true,
@@ -498,13 +827,16 @@ export const KOMUTLAR: readonly Komut[] = [
     run: () =>
       mesajEylemi((o, oda) => {
         if (!gercekOlay(o)) return;
-        klavye.secimBirak();
-        oda.yanitla(o);
+        void yazmaEylemi(() => {
+          klavye.secimBirak();
+          oda.yanitla(o);
+        });
       }),
   },
   {
     id: "tepki",
     key: "Ctrl+T",
+    vimKey: "+",
     context: "mesaj",
     etiket: "klavye.kTepki",
     ipucuEtiket: "klavye.iTepki",
@@ -522,6 +854,7 @@ export const KOMUTLAR: readonly Komut[] = [
   {
     id: "kopyala",
     key: "Ctrl+Y",
+    vimKey: "y",
     context: "mesaj",
     etiket: "klavye.kKopya",
     ctrl: true,
@@ -536,6 +869,7 @@ export const KOMUTLAR: readonly Komut[] = [
   {
     id: "duzenle",
     key: "Ctrl+E",
+    vimKey: "e",
     context: "mesaj",
     etiket: "klavye.kDuzenle",
     ctrl: true,
@@ -545,8 +879,10 @@ export const KOMUTLAR: readonly Komut[] = [
     run: () =>
       mesajEylemi((o, oda) => {
         if (!o.duzenlenebilir) return;
-        klavye.secimBirak();
-        oda.duzenle(o);
+        void yazmaEylemi(() => {
+          klavye.secimBirak();
+          oda.duzenle(o);
+        });
       }),
   },
   {
@@ -595,11 +931,12 @@ export const KOMUTLAR: readonly Komut[] = [
   },
   {
     id: "sil",
-    key: "Ctrl+D",
+    key: "Ctrl+Shift+D",
+    vimKey: "dd",
     context: "mesaj",
     etiket: "klavye.kSil",
     ctrl: true,
-    shift: false,
+    shift: true,
     tus: "d",
     uygun: (o) => o.silinebilir,
     run: () =>
@@ -627,6 +964,60 @@ export const KOMUTLAR: readonly Komut[] = [
   },
 ];
 
+// ---- Grouped shortcut catalogue for "?" help & KlavyeAyarlari · "?" yardımı ve KlavyeAyarlari için gruplu kısayol kataloğu ----
+export const YARDIM_GRUPLARI: readonly { id: YardimGrubu; ad: Anahtar }[] = [
+  { id: "gezinme", ad: "klavye.grupGezinme" },
+  { id: "mesajlar", ad: "klavye.grupMesajlar" },
+  { id: "sohbetler", ad: "klavye.grupSohbetler" },
+  { id: "komut", ad: "klavye.grupKomut" },
+  { id: "genel", ad: "klavye.grupGenel" },
+];
+
+export const YARDIM_OGELERI: readonly YardimOgesi[] = [
+  // Gezinme · Navigation
+  { id: "v-jk", grup: "gezinme", tuslar: [["j"], ["k"], ["Ctrl", "J"], ["Ctrl", "K"]], etiket: "klavye.vHareket", anahtarlar: "asagi yukari down up next prev" },
+  { id: "v-sayac", grup: "gezinme", tuslar: [["5", "j"], ["5", "k"]], etiket: "klavye.vSayac", anahtarlar: "sayi onek count repeat 5j 3k" },
+  { id: "v-ggg", grup: "gezinme", tuslar: [["g", "g"], ["G"]], etiket: "klavye.vBasaSona", anahtarlar: "bas son top bottom oldest newest gg G" },
+  { id: "v-yarim", grup: "gezinme", tuslar: [["Ctrl", "D"], ["Ctrl", "U"]], etiket: "klavye.vYarimSayfa", anahtarlar: "half page scroll kaydir" },
+  { id: "v-zzzt", grup: "gezinme", tuslar: [["z", "z"], ["z", "t"]], etiket: "klavye.vHizala", anahtarlar: "center top ortala ust zz zt zb" },
+  { id: "v-ara", grup: "gezinme", tuslar: [["/"], ["Ctrl", "F"]], etiket: "klavye.vAra", anahtarlar: "search find bul oda" },
+  { id: "v-nn", grup: "gezinme", tuslar: [["n"], ["N"]], etiket: "klavye.vAraAdim", anahtarlar: "next prev match eslesme" },
+  { id: "v-enyeni", grup: "gezinme", tuslar: [["Ctrl", "G"]], etiket: "klavye.kEnYeni", anahtarlar: "bottom latest" },
+  { id: "v-geri", grup: "gezinme", tuslar: [["Ctrl", "O"]], etiket: "klavye.kGeriDon", anahtarlar: "jump back atla" },
+
+  // Mesajlar · Messages
+  { id: "m-yanit", grup: "mesajlar", tuslar: [["r"], ["Ctrl", "R"]], etiket: "klavye.kYanit", anahtarlar: "reply" },
+  { id: "m-kopya", grup: "mesajlar", tuslar: [["y"], ["Ctrl", "Y"]], etiket: "klavye.vKopyala", anahtarlar: "yank copy pano clipboard" },
+  { id: "m-duzenle", grup: "mesajlar", tuslar: [["e"], ["Ctrl", "E"]], etiket: "klavye.vDuzenle", anahtarlar: "edit" },
+  { id: "m-sil", grup: "mesajlar", tuslar: [["d", "d"], ["Ctrl", "Shift", "D"]], etiket: "klavye.vSilOnay", anahtarlar: "delete remove onay dd" },
+  { id: "m-tepki", grup: "mesajlar", tuslar: [["+"], ["Ctrl", "T"]], etiket: "klavye.kTepki", anahtarlar: "react emoji" },
+  { id: "m-sabitle", grup: "mesajlar", tuslar: [["Ctrl", "S"]], etiket: "klavye.kSabitle", anahtarlar: "pin" },
+  { id: "m-ilet", grup: "mesajlar", tuslar: [["Ctrl", "Shift", "F"]], etiket: "klavye.kIlet", anahtarlar: "forward" },
+  { id: "m-profil", grup: "mesajlar", tuslar: [["Ctrl", "P"]], etiket: "klavye.kProfil", anahtarlar: "sender profile user" },
+  { id: "m-menu", grup: "mesajlar", tuslar: [["Ctrl", "Enter"]], etiket: "klavye.kMenu", anahtarlar: "context actions" },
+
+  // Sohbetler · Chats
+  { id: "s-palet", grup: "sohbetler", herZaman: true, tuslar: [["Ctrl", "Space"]], etiket: "klavye.kPalet", anahtarlar: "palette quick switch oda" },
+  { id: "s-liste", grup: "sohbetler", herZaman: true, tuslar: [["Ctrl", "B"]], etiket: "klavye.kListe", anahtarlar: "sidebar panel toggle" },
+  { id: "s-sonraki", grup: "sohbetler", tuslar: [["g", "t"], ["L"], ["Ctrl", "Shift", "J"]], etiket: "klavye.kSonrakiOda", anahtarlar: "next chat tab gt" },
+  { id: "s-onceki", grup: "sohbetler", tuslar: [["g", "T"], ["H"], ["Ctrl", "Shift", "K"]], etiket: "klavye.kOncekiOda", anahtarlar: "prev chat tab gT" },
+  { id: "s-odak", grup: "sohbetler", tuslar: [["Ctrl", "H"]], etiket: "klavye.kListeye", anahtarlar: "list focus" },
+  { id: "s-ac", grup: "sohbetler", tuslar: [["Enter"]], etiket: "klavye.kListeAc", anahtarlar: "open room" },
+
+  // Komut satırı · Command line
+  { id: "c-ac", grup: "komut", tuslar: [[":"]], etiket: "klavye.vKomutAc", anahtarlar: "command ex colon" },
+  { id: "c-q", grup: "komut", tuslar: [[":q"]], etiket: "klavye.vKomutQ", anahtarlar: "close quit kapat" },
+  { id: "c-ayar", grup: "komut", tuslar: [[":ayarlar"]], etiket: "klavye.vKomutAyarlar", anahtarlar: "settings preferences" },
+  { id: "c-yeni", grup: "komut", tuslar: [[":yeni"]], etiket: "klavye.vKomutYeni", anahtarlar: "new chat sohbet" },
+  { id: "c-ara", grup: "komut", tuslar: [[":ara metin"]], etiket: "klavye.vKomutAra", anahtarlar: "search query" },
+  { id: "c-yardim", grup: "komut", tuslar: [[":yardim"]], etiket: "klavye.vKomutYardim", anahtarlar: "help" },
+
+  // Genel · General
+  { id: "g-yazma", grup: "genel", tuslar: [["g", "i"], ["i"], ["Ctrl", "L"]], etiket: "klavye.vYazma", anahtarlar: "insert composer focus gi" },
+  { id: "g-esc", grup: "genel", tuslar: [["Esc"]], etiket: "klavye.vEsc", anahtarlar: "escape normal mode exit cancel" },
+  { id: "g-yardim", grup: "genel", tuslar: [["?"], ["Ctrl", "/"]], etiket: "klavye.vYardim", anahtarlar: "help shortcuts" },
+];
+
 /** Commands usable for a given selected message (drives the hint strip from the single table). · Seçili mesaj için kullanılabilir komutlar (ipucu şeridini tek tablodan sürer). */
 export function mesajKomutlari(oge: ZamanOgesi): Komut[] {
   const oda = klavye.oda;
@@ -643,6 +1034,184 @@ function tusEslesir(k: Komut, e: KeyboardEvent): boolean {
 
 function komutBul(e: KeyboardEvent, baglam: KomutBaglami, herZaman = false): Komut | undefined {
   return KOMUTLAR.find((k) => Boolean(k.herZaman) === herZaman && k.context === baglam && tusEslesir(k, e));
+}
+
+const DEGISKEN_TUSLAR = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "AltGraph", "Dead"]);
+
+/** Handles Normal-mode Vim keys (never called while focus is in any text field). · Normal kip Vim tuşlarını işler (odak herhangi bir metin alanındayken asla çağrılmaz). */
+function normalTus(e: KeyboardEvent): boolean {
+  if (DEGISKEN_TUSLAR.has(e.key)) return false;
+
+  // Pending two-key sequences (g…, d…, z…) · Bekleyen iki tuşlu diziler (g…, d…, z…)
+  if (klavye.bekleyen) {
+    const lider = klavye.bekleyen;
+    const sayacStr = klavye.sayac;
+    const n = Math.max(1, parseInt(sayacStr, 10) || 1);
+    klavye.bekleyenTemizle();
+
+    if (lider === "g") {
+      if (e.key === "g") {
+        e.preventDefault();
+        basaGit(sayacStr ? n : null);
+        return true;
+      }
+      if (e.key === "t") {
+        e.preventDefault();
+        odaDegistir(n, false);
+        return true;
+      }
+      if (e.key === "T") {
+        e.preventDefault();
+        odaDegistir(-n, false);
+        return true;
+      }
+      if (e.key === "i") {
+        e.preventDefault();
+        void yazmayaGec();
+        return true;
+      }
+      return true;
+    }
+    if (lider === "d") {
+      if (e.key === "d") {
+        e.preventDefault();
+        mesajEylemi((o, oda) => {
+          if (o.silinebilir) oda.sil(o);
+        });
+      }
+      return true;
+    }
+    if (lider === "z") {
+      if (e.key === "z") {
+        e.preventDefault();
+        satiriHizala("orta");
+      } else if (e.key === "t") {
+        e.preventDefault();
+        satiriHizala("ust");
+      } else if (e.key === "b") {
+        e.preventDefault();
+        satiriHizala("alt");
+      }
+      return true;
+    }
+  }
+
+  // Count prefix digits (1-9 start, 0 continues) · Sayı öneki rakamları (1-9 başlatır, 0 sürdürür)
+  if (/^[1-9]$/.test(e.key) || (e.key === "0" && klavye.sayac.length > 0)) {
+    e.preventDefault();
+    if (klavye.sayac.length < 3) klavye.sayac += e.key;
+    return true;
+  }
+
+  // Leader starters · İki tuşlu önek başlatıcıları
+  if (e.key === "g" || e.key === "d" || e.key === "z") {
+    e.preventDefault();
+    klavye.bekleyen = e.key;
+    return true;
+  }
+
+  const sayacStr = klavye.sayac;
+  const n = Math.max(1, parseInt(sayacStr, 10) || 1);
+
+  switch (e.key) {
+    case "j":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      if (listedeMi()) listeOynat(n);
+      else imlecOynat(n);
+      return true;
+    case "k":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      if (listedeMi()) listeOynat(-n);
+      else imlecOynat(-n);
+      return true;
+    case "G":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      sonaGit(sayacStr ? n : null);
+      return true;
+    case "H":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      odaDegistir(-n, false);
+      return true;
+    case "L":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      odaDegistir(n, false);
+      return true;
+    case "/":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      if (klavye.oda && !odaSayfasi()) klavye.oda.ara(undefined, true);
+      return true;
+    case "n":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      aramaAdimla(-1, n);
+      return true;
+    case "N":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      aramaAdimla(1, n);
+      return true;
+    case ":":
+      e.preventDefault();
+      klavye.komutAc();
+      return true;
+    case "?":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      klavye.yardim = true;
+      return true;
+    case "i":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      void yazmayaGec();
+      return true;
+    case "y":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      mesajEylemi((o, oda) => {
+        if (o.metin) oda.kopyala(o);
+      });
+      return true;
+    case "r":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      mesajEylemi((o, oda) => {
+        if (!gercekOlay(o)) return;
+        void yazmaEylemi(() => {
+          klavye.secimBirak();
+          oda.yanitla(o);
+        });
+      });
+      return true;
+    case "e":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      mesajEylemi((o, oda) => {
+        if (!o.duzenlenebilir) return;
+        void yazmaEylemi(() => {
+          klavye.secimBirak();
+          oda.duzenle(o);
+        });
+      });
+      return true;
+    case "+":
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      mesajEylemi((o, oda) => {
+        if (!gercekOlay(o)) return;
+        const [x, y] = satirKonumu();
+        oda.tepki(o, x, y);
+      });
+      return true;
+    default:
+      if (klavye.sayac) klavye.bekleyenTemizle();
+      return false;
+  }
 }
 
 function tus(e: KeyboardEvent) {
@@ -662,13 +1231,39 @@ function tus(e: KeyboardEvent) {
   // 2. Everything else requires the setting to be on. · Geri kalan her şey ayarın açık olmasını ister.
   if (!tercihler.d.ctrlKisayol) return;
 
-  // 3. Never intercept while a dialog / menu is open (Esc and the dialog's own handlers stay in charge). · Pencere / menü açıkken asla yakalama (Esc ve pencerenin kendi işleyicileri yönetir).
+  // 3. Command line owns its own typing; only Esc closes it here as a fallback. · Komut satırı kendi yazımını yönetir; burada yalnızca yedek Esc kapatır.
+  if (klavye.komutAcik) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      klavye.komutKapat();
+    }
+    return;
+  }
+
+  // 4. Never intercept while a dialog / menu is open (Esc and the dialog's own handlers stay in charge). · Pencere / menü açıkken asla yakalama (Esc ve pencerenin kendi işleyicileri yönetir).
   if (ustKatman()) return;
 
-  // 4. Esc drops the message selection first when no overlay is covering the room; otherwise it falls through to existing handling.
-  //    Odayı örten bir katman yokken Esc önce mesaj seçimini bırakır; değilse mevcut işleyişe geçer.
+  // 5. Esc: leave composer into Normal mode → cancel pending count/leader → close in-room search → clear selection → fall through to gezinme.
+  //    Esc: yazma alanından Normal kipe çık → bekleyen sayı/öneki iptal et → oda içi aramayı kapat → seçimi bırak → gezinme'ye devret.
   if (e.key === "Escape" && !e.ctrlKey && !e.shiftKey) {
-    if (klavye.seciliId && !odaSayfasi() && !duzen.cekmece && !klavye.oda?.aramaAcik() && !acilirAcik() && !document.getElementById("bahis-listesi")) {
+    const aktif = document.activeElement;
+    if (aktif instanceof HTMLElement && aktif.matches(".oda .yazma textarea") && !document.getElementById("bahis-listesi")) {
+      e.preventDefault();
+      aktif.blur();
+      klavye.bekleyenTemizle();
+      return;
+    }
+    if (klavye.bekleyen || klavye.sayac) {
+      e.preventDefault();
+      klavye.bekleyenTemizle();
+      return;
+    }
+    if (klavye.oda?.aramaAcik() && !odaSayfasi()) {
+      e.preventDefault();
+      klavye.oda.aramaKapat();
+      return;
+    }
+    if (klavye.seciliId && !odaSayfasi() && !duzen.cekmece && !acilirAcik() && !document.getElementById("bahis-listesi")) {
       e.preventDefault();
       klavye.secimBirak();
     }
@@ -678,8 +1273,7 @@ function tus(e: KeyboardEvent) {
   // Keep @mention autocomplete in YazmaAlani in charge while it is open. · YazmaAlani'ndaki @bahsetme listesi açıkken önceliği onda tut.
   const bahisAcik = !!document.getElementById("bahis-listesi");
 
-  // 5. List context (when list side has focus): Ctrl+J/K move between room rows, Enter opens focused room row.
-  //    Liste bağlamı (liste tarafı odaktayken): Ctrl+J/K oda satırlarında gezer, Enter odaktaki odayı açar.
+  // 6. List context (when list side has focus): Ctrl+J/K and Enter. · Liste bağlamı (liste tarafı odaktayken): Ctrl+J/K ve Enter.
   if (listedeMi()) {
     const k = komutBul(e, "liste");
     if (k) {
@@ -690,13 +1284,16 @@ function tus(e: KeyboardEvent) {
     }
   }
 
-  // 6. Global and message commands (only Ctrl combos reach here; Esc and list Enter were handled above).
-  //    Genel ve mesaj komutları (buraya yalnızca Ctrl bileşimleri ulaşır; Esc ve liste Enter yukarıda işlendi).
+  // 7. Non-Ctrl keys: NEVER eat characters while focus is in any text field; in Normal mode run Vim motions/actions.
+  //    Ctrl'siz tuşlar: odak herhangi bir metin alanındayken ASLA karakter yeme; Normal kipte Vim hareket/eylemlerini çalıştır.
   if (!e.ctrlKey) {
-    // A closed menu or dialog leaves the focus on the page: a typed character goes to the composer. · Kapanan menü ya da pencere odağı sayfada bırakır: yazılan karakter yazma alanına gider.
-    if (e.key.length === 1 && document.activeElement === document.body && klavye.oda && !odaSayfasi()) yazmaOdakla();
+    if (metinAlani(document.activeElement)) return;
+    if (bahisAcik || acilirAcik()) return;
+    normalTus(e);
     return;
   }
+
+  // 8. Modeless Ctrl shortcuts (work both in Normal mode and while typing in the composer). · Kipsiz Ctrl kısayolları (hem Normal kipte hem yazarken çalışır).
   const genel = komutBul(e, "genel");
   if (genel) {
     e.preventDefault();
@@ -713,12 +1310,58 @@ function tus(e: KeyboardEvent) {
 }
 
 export function klavyeBaslat(): () => void {
+  const durumBilesen = mount(KlavyeDurum, { target: document.body });
+
+  let kare = 0;
+  const durumuYenile = () => {
+    kare = 0;
+    const el = document.activeElement;
+    klavye.odakAramada = !!el?.closest(".oda .cubuk");
+    klavye.odakMetinde = metinAlani(el);
+    klavye.katmanAcik = !!ustKatman() || acilirAcik() || !!document.getElementById("bahis-listesi");
+    if ((klavye.odakMetinde && !klavye.komutAcik) || klavye.katmanAcik) klavye.bekleyenTemizle();
+  };
+  const planla = () => {
+    if (!kare) kare = requestAnimationFrame(durumuYenile);
+  };
+  const odakDegisti = () => {
+    const el = document.activeElement;
+    klavye.odakAramada = !!el?.closest(".oda .cubuk");
+    klavye.odakMetinde = metinAlani(el);
+    if (klavye.odakMetinde && !klavye.komutAcik) klavye.bekleyenTemizle();
+    planla();
+  };
+  const odakCikti = () => queueMicrotask(odakDegisti);
+  const tiklama = () => {
+    if (klavye.bekleyen || klavye.sayac) klavye.bekleyenTemizle();
+    planla();
+  };
+
+  // Track overlay / popover changes so the mode pill hides behind menus and dialogs. · Kip hapı menü ve pencerelerin altında gizlensin diye katman değişimlerini izle.
+  const katmanSecici = '[role="menu"], [role="dialog"], [role="alertdialog"], .acilir, #bahis-listesi';
+  const ilgiliDugum = (d: Node) => d instanceof Element && (d.matches(katmanSecici) || d.querySelector(katmanSecici) !== null);
+  const gozlemci = new MutationObserver((kayitlar) => {
+    for (const k of kayitlar) {
+      if (k.type === "attributes" && k.target instanceof Element && k.target.matches(katmanSecici)) return planla();
+      if ([...k.addedNodes].some(ilgiliDugum) || [...k.removedNodes].some(ilgiliDugum)) return planla();
+    }
+  });
+  gozlemci.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "inert", "role"] });
+
   window.addEventListener("keydown", tus);
+  window.addEventListener("focusin", odakDegisti, true);
+  window.addEventListener("focusout", odakCikti, true);
+  window.addEventListener("pointerdown", tiklama, true);
+  durumuYenile();
+
   const bitir = $effect.root(() => {
     $effect(() => {
       const id = gezinme.acikOdaId;
       // Untracked: reading the selection here would clear it the moment it is made. · İzlenmeden: seçimi burada okumak onu yapıldığı an silerdi.
-      untrack(() => klavye.secimBirak());
+      untrack(() => {
+        klavye.secimBirak();
+        klavye.bekleyenTemizle();
+      });
       if (!id) return;
       klavye.ziyaret = [id, ...klavye.ziyaret.filter((x) => x !== id)].slice(0, 30);
       try {
@@ -728,11 +1371,21 @@ export function klavyeBaslat(): () => void {
       }
     });
     $effect(() => {
-      if (!tercihler.d.ctrlKisayol) klavye.secimBirak();
+      if (!tercihler.d.ctrlKisayol) {
+        klavye.secimBirak();
+        klavye.bekleyenTemizle();
+        klavye.komutKapat();
+      }
     });
   });
   return () => {
+    cancelAnimationFrame(kare);
+    gozlemci.disconnect();
     window.removeEventListener("keydown", tus);
+    window.removeEventListener("focusin", odakDegisti, true);
+    window.removeEventListener("focusout", odakCikti, true);
+    window.removeEventListener("pointerdown", tiklama, true);
     bitir();
+    void unmount(durumBilesen);
   };
 }

@@ -11,7 +11,18 @@
   import OzellestirSayfasi from "../bilesenler/OzellestirSayfasi.svelte";
   import Secici from "../bilesenler/Secici.svelte";
   import { tercihler, type Kompakt } from "../durum/tercihler.svelte";
-  import { ayarlar, type AzAnimasyon, type Tema, type VurguAdi, type YaziBoyutu, type YaziTipi } from "../durum/ayarlar.svelte";
+  import {
+    ayarlar,
+    SOHBET_OLCEK_ADIM,
+    SOHBET_OLCEK_MAKS,
+    SOHBET_OLCEK_MIN,
+    type AzAnimasyon,
+    type Tema,
+    type VurguAdi,
+    type YaziBoyutu,
+    type YaziTipi,
+    type Yogunluk,
+  } from "../durum/ayarlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { dil, dilSecimi, dilYaz, t } from "../i18n";
 
@@ -50,6 +61,11 @@
     { id: "normal", ad: t("gorunum.normal") },
     { id: "buyuk", ad: t("gorunum.buyuk") },
   ]);
+  const yogunluklar = $derived<{ id: Yogunluk; ad: string }[]>([
+    { id: "rahat", ad: t("gorunum.yogunlukRahat") },
+    { id: "varsayilan", ad: t("gorunum.yogunlukVarsayilan") },
+    { id: "kompakt", ad: t("gorunum.yogunlukKompakt") },
+  ]);
   const hareketler = $derived<{ id: AzAnimasyon; ad: string }[]>([
     { id: "sistem", ad: t("gorunum.sistem") },
     { id: "acik", ad: t("gorunum.acikHareket") },
@@ -57,6 +73,7 @@
 
   // Only where there is a mouse: a phone has neither windows nor these keys. · Yalnızca fare olan yerde: telefonda pencere de bu tuşlar da yok.
   const masaustu = window.matchMedia("(any-hover: hover) and (any-pointer: fine)").matches;
+  const sohbetYuzde = $derived(Math.round(ayarlar.sohbetOlcek * 100));
   const kompaktlar = $derived<{ id: Kompakt; ad: string }[]>([
     { id: "otomatik", ad: t("klavye.otomatik") },
     { id: "acik", ad: t("klavye.acik") },
@@ -124,6 +141,14 @@
     </section>
 
     <section class="ay-bolum">
+      <h2>{t("gorunum.yogunluk")}</h2>
+      <div class="ay-kart">
+        <div class="ay-secici"><Secici secenekler={yogunluklar} deger={ayarlar.yogunluk} sec={(id) => ayarlar.gorunumYaz("yogunluk", id)} etiket={t("gorunum.yogunluk")} /></div>
+      </div>
+      <p class="ay-not">{t("gorunum.yogunlukAlt")}</p>
+    </section>
+
+    <section class="ay-bolum">
       <div class="ay-kart"><button class="ay-satir dugme" data-dalga onclick={() => (sohbetGorunumuAcik = true)}>
         <span class="ay-simge"><Ikon ad="galeri" boyut={20} /></span>
         <div class="ay-metin"><strong>{t("ayar.sohbetGorunumu")}</strong><span>{t("ayar.sohbetGorunumuAlt")}</span></div>
@@ -132,6 +157,52 @@
     </section>
 
     {#if masaustu}
+      <section class="ay-bolum">
+        <h2>{t("gorunum.sohbetBoyutu")}</h2>
+        <div class="ay-kart">
+          <div class="ay-satir olcek-ust">
+            <div class="ay-metin"><strong>{t("gorunum.sohbetBoyutu")}</strong><span>{t("gorunum.sohbetBoyutuAlt")}</span></div>
+            <span class="olcek-deger mono">{dil === "en" ? `${sohbetYuzde}%` : `%${sohbetYuzde}`}</span>
+          </div>
+          <div class="olcek-denetim">
+            <button
+              type="button"
+              class="olcek-adim"
+              aria-label={t("gorunum.sohbetBoyutuKucult")}
+              disabled={ayarlar.sohbetOlcek <= SOHBET_OLCEK_MIN}
+              onclick={() => ayarlar.sohbetOlcekAdim(-1, SOHBET_OLCEK_ADIM)}
+            >−</button>
+            <input
+              type="range"
+              min={Math.round(SOHBET_OLCEK_MIN * 100)}
+              max={Math.round(SOHBET_OLCEK_MAKS * 100)}
+              step={Math.round(SOHBET_OLCEK_ADIM * 100)}
+              value={sohbetYuzde}
+              aria-label={t("gorunum.sohbetBoyutu")}
+              oninput={(e) => ayarlar.sohbetOlcekYaz(Number(e.currentTarget.value) / 100)}
+            />
+            <button
+              type="button"
+              class="olcek-adim"
+              aria-label={t("gorunum.sohbetBoyutuBuyut")}
+              disabled={ayarlar.sohbetOlcek >= SOHBET_OLCEK_MAKS}
+              onclick={() => ayarlar.sohbetOlcekAdim(1, SOHBET_OLCEK_ADIM)}
+            >+</button>
+          </div>
+          <!-- Live preview scaled only by --sohbet-olcek (em-based, no zoom/transform) so the rest of the settings stays unchanged -->
+          <!-- Yalnızca --sohbet-olcek ile ölçeklenen canlı önizleme (em tabanlı, zoom/transform yok); ayarların geri kalanı değişmez -->
+          <div class="olcek-onizleme" aria-label={t("gorunum.onizleme")}>
+            <div class="sohbet-ornek">
+              <div class="gelen">{t("gorunum.onizlemeGelen")}</div>
+              <div class="giden">{t("gorunum.onizlemeGiden")}</div>
+              <div class="ornek-yazma" aria-hidden="true"><span>{t("oda.yazi")}</span></div>
+            </div>
+            <button type="button" class="buton metin sifirla" disabled={ayarlar.sohbetOlcek === 1} onclick={() => ayarlar.sohbetOlcekSifirla()}>{t("gorunum.varsayilan")}</button>
+          </div>
+        </div>
+        <p class="ay-not">{t("gorunum.sohbetBoyutuNot")}</p>
+      </section>
+
       <section class="ay-bolum">
         <h2>{t("klavye.masaustu")}</h2>
         <div class="ay-kart">
@@ -169,14 +240,26 @@
 {#if sohbetGorunumuAcik}<OzellestirSayfasi onkapat={() => (sohbetGorunumuAcik = false)} />{/if}
 
 <style>
-  .onizleme { display: grid; gap: 2px; padding: 1rem; border-radius: 1.5rem; background: var(--yuzey-1); }
-  .gelen, .giden { max-width: 78%; padding: .5rem .75rem; border-radius: 1.25rem; font-size: .9375rem; line-height: 1.4; }
-  .gelen { background: var(--gelen-dolgu); border-bottom-left-radius: .375rem; justify-self: start; }
-  .giden { background: var(--giden-dolgu); border-bottom-right-radius: .375rem; justify-self: end; }
+  .onizleme { display: grid; gap: var(--grup-aralik, .5rem); padding: 1rem; border-radius: 1.5rem; background: var(--yuzey-1); }
+  .gelen, .giden { max-width: 78%; padding: var(--balon-dolgu, .5em .75em); border-radius: var(--balon-r, 1.25em); font-size: .9375em; line-height: var(--sohbet-satir-yukseklik, 1.45); }
+  .gelen { background: var(--gelen-dolgu); border-bottom-left-radius: .375em; justify-self: start; }
+  .giden { background: var(--giden-dolgu); border-bottom-right-radius: .375em; justify-self: end; }
+  .olcek-ust { gap: .75rem; }
+  .olcek-deger { flex: none; padding: .25rem .625rem; border-radius: .75rem; background: var(--ton); color: var(--ton-ustu); font-size: .875rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .olcek-denetim { display: flex; align-items: center; gap: .5rem; padding: .375rem .75rem; }
+  .olcek-denetim input[type="range"] { flex: 1; min-width: 0; height: 2.75rem; accent-color: var(--vurgu); }
+  .olcek-adim { flex: none; width: 2.75rem; min-width: 44px; height: 2.75rem; min-height: 44px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--yuzey-3); color: var(--yazi); font-size: 1.25rem; font-weight: 600; transition: opacity var(--sure-hizli) var(--egri-cikis); }
+  .olcek-adim:disabled { opacity: .38; }
+  .olcek-onizleme { padding: .75rem 1rem .5rem; display: grid; gap: .5rem; }
+  /* Isolated chat-size preview: font-size scales via --sohbet-olcek while surrounding settings keep 1rem. */
+  /* Yalıtılmış sohbet boyutu önizlemesi: font-size --sohbet-olcek ile ölçeklenir, çevredeki ayarlar 1rem kalır. */
+  .sohbet-ornek { display: grid; gap: var(--grup-aralik, .5em); padding: .75rem; border-radius: 1.125rem; background: var(--zemin); border: 1px solid var(--kenar-ince); font-size: calc(1rem * var(--sohbet-olcek, 1)); overflow: hidden; }
+  .ornek-yazma { margin-top: .25em; padding: .5em .875em; border-radius: 1.5em; background: var(--yuzey-3); color: var(--yazi-2); font-size: .9375em; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sifirla { justify-self: end; width: auto; min-height: 2.75rem; padding: 0 .875rem; }
   .secili-ikon { color: var(--vurgu); display: inline-flex; }
   .taslar { display: grid; grid-template-columns: repeat(auto-fit, minmax(2.75rem, 1fr)); gap: .5rem; justify-items: center; }
   /* 48px round accent swatches · 48px yuvarlak vurgu örnekleri */
-  .tas { position: relative; width: 2.5rem; height: 2.5rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--zemin); outline: 2px solid transparent; outline-offset: 3px; transition: outline-color var(--sure-hizli) var(--egri-cikis); }
+  .tas { position: relative; width: 2.5rem; height: 2.5rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--zemin); outline: 2px solid transparent; outline-offset: 3px; transition: transform var(--sure-hizli) var(--egri-cikis); }
   .tas[aria-checked="true"], .tas.secili { outline-color: var(--yazi); }
   .isaret { display: inline-flex; }
   .ozel { cursor: pointer; }

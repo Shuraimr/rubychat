@@ -22,7 +22,6 @@
   .baslik {
     flex: none; display: flex; align-items: center; gap: 4px; min-height: 4.25rem; box-sizing: content-box;
     padding: env(safe-area-inset-top) .75rem 0 1rem; border-bottom: 1px solid transparent;
-    transition: border-color var(--sure-hizli) var(--egri-cikis);
   }
   .baslik.kenar { border-bottom-color: var(--kenar-ince); }
   .geri { margin-left: -.5rem; }

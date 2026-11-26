@@ -34,10 +34,12 @@
 </script>
 
 <script lang="ts">
-  import { hareketVar } from "../hareket";
+  import { egri, hareketVar, sureMs } from "../hareket";
   import { onMount, tick } from "svelte";
+  import { androidMi } from "../arama-ec/ses";
   import { titret } from "../dokunma";
   import { tercihler } from "../durum/tercihler.svelte";
+  import { masaustuLinux } from "../pano";
   import type { PaketGorseli } from "../api/tipler";
   import { EMOJI_GRUPLARI, TEN_TONLARI, emojiAra, tenli } from "../emoji/veri";
   import { paketler } from "../emoji/paketler.svelte";
@@ -78,7 +80,7 @@
     /** A custom emoji was picked · Özel bir emoji seçildi */
     ozelEkle?: (g: PaketGorseli) => void;
     /** A sticker was picked · Bir çıkartma seçildi */
-    cikartmaGonder?: (g: PaketGorseli) => void;
+    cikartmaGonder?: (g: PaketGorseli) => void | Promise<void>;
     /** A GIF was picked: its KLIPY link, sent as a text message · Bir GIF seçildi: KLIPY bağlantısı, metin mesajı olarak gönderilir */
     gifGonder?: (url: string) => void;
     /** On screen (the composer keeps the panel alive while closed) · Ekranda (yazma alanı paneli kapalıyken de canlı tutar) */
@@ -86,10 +88,12 @@
   } = $props();
 
   type Sekme = "emoji" | "cikartma" | "gif";
+  const masaustuMu = masaustuLinux || (!androidMi() && !/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent));
   let sekme = $state<Sekme>("emoji");
   let sorgu = $state("");
   let araAcik = $state(false);
   let gifArar = $state(false);
+  let cikartmaMesgul = $state(false);
   let araKutu: HTMLInputElement | undefined = $state();
   let kok: HTMLDivElement | undefined = $state();
   let kap: HTMLDivElement | undefined = $state();
@@ -104,6 +108,7 @@
       araAcik = false;
       sorgu = "";
       ten = null;
+      cikartmaMesgul = false;
       return;
     }
     if (!ilkAcilis) {
@@ -186,7 +191,8 @@
   function canlan(d: EventTarget | null) {
     const oge = (d as HTMLElement | null)?.closest("button")?.firstElementChild as HTMLElement | null;
     if (oge && hareketVar()) {
-      oge.animate([{ transform: "scale(1)" }, { transform: "scale(1.45)", offset: 0.35 }, { transform: "scale(1)" }], { duration: 260, easing: "ease-out" });
+      const sure = sureMs("--sure-orta");
+      if (sure > 0) oge.animate([{ transform: "scale(1)" }, { transform: "scale(1.35)", offset: 0.35 }, { transform: "scale(1)" }], { duration: sure, easing: egri("--egri-cikis") });
     }
     titret(5);
   }
@@ -335,6 +341,41 @@
     odakGeri?.();
   }
 
+  function araTus(e: KeyboardEvent) {
+    if (!masaustuMu || !tercihler.d.enterGonder || e.isComposing || e.repeat) return;
+    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (sonuc.length > 0) {
+        e.preventDefault();
+        sec(null, sonuc[0].ten ? gorunen(sonuc[0].emoji) : sonuc[0].emoji);
+      } else if (ozelSonuc.length > 0) {
+        e.preventDefault();
+        ozelEkle?.(ozelSonuc[0]);
+      }
+    }
+  }
+
+  async function cikartmaYolla(g: PaketGorseli) {
+    if (cikartmaMesgul || !cikartmaGonder) return;
+    cikartmaMesgul = true;
+    try {
+      await cikartmaGonder(g);
+    } finally {
+      cikartmaMesgul = false;
+    }
+  }
+
+  function cikartmaTus(e: KeyboardEvent, liste: PaketGorseli[]) {
+    if (!masaustuMu || !tercihler.d.enterGonder || e.isComposing || e.repeat) return;
+    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const hedef = e.target as HTMLElement | null;
+      if (hedef?.closest("button")) return;
+      if (liste[0]) {
+        e.preventDefault();
+        void cikartmaYolla(liste[0]);
+      }
+    }
+  }
+
   // Backspace repeats while held · Geri silme basılı tutulurken yineler
   let tekrar: ReturnType<typeof setTimeout> | undefined;
   function silBasla(e: PointerEvent) {
@@ -359,8 +400,8 @@
   {#if sekme === "emoji"}
     <div class="tepe">
       {#if araAcik}
-        <label class="ara"><Ikon ad="ara" boyut={18} /><input bind:this={araKutu} bind:value={sorgu} placeholder={t("emoji.ara")} aria-label={t("emoji.ara")} enterkeyhint="search" autocomplete="off" /></label>
-        <button class="duz" aria-label={t("emoji.araKapat")} onclick={araKapat}><Ikon ad="kapat" boyut={20} /></button>
+        <label class="ara"><Ikon ad="ara" boyut={18} /><input bind:this={araKutu} bind:value={sorgu} onkeydown={araTus} placeholder={t("emoji.ara")} aria-label={t("emoji.ara")} enterkeyhint="search" autocomplete="off" /></label>
+        <button type="button" class="duz" aria-label={t("emoji.araKapat")} onclick={araKapat}><Ikon ad="kapat" boyut={20} /></button>
       {:else}
         {#if tepki}<button class="duz" aria-label={t("emoji.ara")} onclick={araAc}><Ikon ad="ara" boyut={20} /></button>{/if}
         <div class="serit" role="tablist" aria-label={t("emoji.kategoriler")} bind:this={serit}>
@@ -410,7 +451,7 @@
       {/if}
     </div>
   {:else if sekme === "gif" && gifGonder}
-    <div class="kap gif"><GifSecici sec={gifGonder} odak={(a) => { gifArar = a; aramada?.(a); }} /></div>
+    <div class="kap gif"><GifSecici sec={gifGonder} {acik} odak={(a) => { gifArar = a; aramada?.(a); }} /></div>
   {:else}
     <div class="cik-ust"><label class="yap"><Ikon ad="makas" boyut={18} />{t("cikartmaYap.dugme")}<input type="file" accept="image/*" onchange={yapSec} /></label></div>
     <!-- Stickers: tabs are the packs that have sticker images · Çıkartmalar: sekmeler çıkartma görseli olan paketlerdir -->
@@ -430,12 +471,14 @@
         </div>
       {/if}
       {@const gecerli = cikartmaPaketleri[Math.min(cikartmaGrubu, cikartmaPaketleri.length - 1)]?.p}
-      <div class="kap cik">
+      {@const cikartmaListesi = gecerli ? gecerli.gorseller.filter((g) => g.cikartma) : []}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="kap cik" tabindex="-1" onkeydown={(e) => cikartmaTus(e, cikartmaListesi)}>
         {#if gecerli}
           <p class="paket-ad">{gecerli.ad}</p>
           <div class="izgara cikartmalar">
-            {#each gecerli.gorseller.filter((g) => g.cikartma) as g (g.kisaKod)}
-              <button class="cikartma" onclick={() => cikartmaGonder?.(g)} aria-label={g.metin}><img src={gorselUrl(g.mxc, 80) ?? ""} alt={g.metin} width="72" height="72" loading="lazy" /></button>
+            {#each cikartmaListesi as g (g.kisaKod)}
+              <button type="button" class="cikartma" disabled={cikartmaMesgul} onclick={() => void cikartmaYolla(g)} aria-label={g.metin}><img src={gorselUrl(g.mxc, 80) ?? ""} alt={g.metin} width="72" height="72" loading="lazy" /></button>
             {/each}
           </div>
         {/if}
@@ -476,7 +519,7 @@
   .ara input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: var(--yazi); font: inherit; font-size: .9375rem; }
   .serit { position: relative; flex: 1; min-width: 0; display: flex; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
   .serit::-webkit-scrollbar, .kategoriler::-webkit-scrollbar { display: none; }
-  .serit button, .kategoriler button { flex: none; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.25rem; line-height: 1; color: var(--yazi-2); opacity: .62; transition: background var(--sure-hizli) var(--egri-cikis), opacity var(--sure-hizli) var(--egri-cikis); }
+  .serit button, .kategoriler button { flex: none; width: 44px; height: 44px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.25rem; line-height: 1; color: var(--yazi-2); opacity: .62; transition: opacity var(--sure-hizli) var(--egri-cikis); }
   .serit button.secili, .kategoriler button.secili { background: var(--ton); color: var(--ton-ustu); opacity: 1; }
   .kategoriler { display: flex; overflow-x: auto; scrollbar-width: none; padding: 0 8px; }
   .kap { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 8px; touch-action: pan-y; }
@@ -505,7 +548,7 @@
   .yap input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
   .alt { flex: none; margin-top: auto; display: flex; align-items: center; gap: .25rem; padding: .25rem .5rem .375rem; }
   .sekmeler { flex: 1; min-width: 0; display: flex; justify-content: center; gap: 2px; }
-  .sekmeler button { flex: 0 1 6.5rem; min-width: 0; min-height: 2.75rem; padding: 0 .25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: .375rem; font-size: min(.875rem, 4.5vw); font-weight: 600; background: var(--yuzey-2); color: var(--yazi-2); transition: background var(--sure-orta) var(--egri-cikis), color var(--sure-orta) var(--egri-cikis), border-radius var(--sure-orta) var(--egri-cikis); }
+  .sekmeler button { flex: 0 1 6.5rem; min-width: 0; min-height: 2.75rem; padding: 0 .25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: .375rem; font-size: min(.875rem, 4.5vw); font-weight: 600; background: var(--yuzey-2); color: var(--yazi-2); }
   .sekmeler button:first-child { border-top-left-radius: 1.375rem; border-bottom-left-radius: 1.375rem; }
   .sekmeler button:last-child { border-top-right-radius: 1.375rem; border-bottom-right-radius: 1.375rem; }
   .sekmeler button.secili { background: var(--ton); color: var(--ton-ustu); border-radius: 1.375rem; }

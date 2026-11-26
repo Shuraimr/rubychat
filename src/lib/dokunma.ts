@@ -10,11 +10,10 @@
 //  - Uzun basma: `uzunBasma` eylemi (300ms) öğeyi 1.01'e büyütür, ağır titreşim verir ve geri çağırır.
 // Belgeye dinler (olay delegasyonu); yeni düğmeler bileşen başına kod olmadan davranışı alır. `data-bas="yok"` ile kapatılır.
 // Azaltılmış hareket (--hareket 0): ölçek yok, dalga yok, yalnızca %8 yüzey değişimi.
-import { hareketVar } from "./hareket";
+import { egri, hareketVar, sureMs } from "./hareket";
 import { tercihler } from "./durum/tercihler.svelte";
 
 const HEDEF = 'button, [role="button"], [role="menuitem"], [role="radio"], [role="switch"], a[href], [data-bas]';
-const AYDINLIK = "inset 0 0 0 999px color-mix(in srgb, var(--yazi) 8%, transparent)";
 
 /**
  * Haptic kinds. On Android they run on the vibration motor through the native bridge (RubyTitresim, MainActivity.kt) with the system's own
@@ -41,27 +40,39 @@ export function titret(tur: TitresimTuru | number = "dokunus") {
 /** Small controls move a hair (.985); wide surfaces (rows, cards) do not move at all, they only get the state layer. · Küçük denetimler kıl payı oynar (.985); geniş yüzeyler (satır, kart) hiç oynamaz, yalnızca durum katmanı alır. */
 const olcek = (el: HTMLElement) => (el.offsetWidth > 120 ? 1 : 0.985);
 
-let aktif: { el: HTMLElement; anim: Animation | null } | null = null;
+let aktif: { el: HTMLElement; anim: Animation | null; olcek: number } | null = null;
 
 function birak() {
   if (!aktif) return;
-  const { el, anim } = aktif;
+  const { el, anim, olcek: s } = aktif;
   aktif = null;
+  el.removeAttribute("data-basili");
   anim?.cancel();
-  if (!hareketVar()) return;
-  // The state layer fades out calmly, no overshoot. · Durum katmanı sakince söner, aşma yok.
-  el.animate([{ transform: `scale(${olcek(el)})`, boxShadow: AYDINLIK }, { transform: "scale(1)", boxShadow: "inset 0 0 0 999px transparent" }], { duration: 200, easing: "cubic-bezier(.2, 0, 0, 1)" });
+  if (!hareketVar() || s === 1) return;
+  // Animate transform only (the 8% state layer comes from [data-basili] without per-frame box-shadow repaint).
+  // Yalnızca transform canlanır (%8 durum katmanı kare başına box-shadow boyaması olmadan [data-basili] ile gelir).
+  const sure = sureMs("--sure-orta");
+  if (sure <= 0) return;
+  el.style.willChange = "transform";
+  const a = el.animate([{ transform: `scale(${s})` }, { transform: "scale(1)" }], { duration: sure, easing: egri("--egri-vurgulu") });
+  const temizle = () => el.style.removeProperty("will-change");
+  a.onfinish = temizle;
+  a.oncancel = temizle;
 }
 
 function dalga(el: HTMLElement, x: number, y: number) {
+  const sure = sureMs("--sure-yavas");
+  if (sure <= 0) return;
   const r = el.getBoundingClientRect();
   const boy = Math.hypot(Math.max(x - r.left, r.right - x), Math.max(y - r.top, r.bottom - y)) * 2;
   const n = document.createElement("span");
   n.setAttribute("aria-hidden", "true");
-  n.style.cssText = `position:absolute;left:${x - r.left - boy / 2}px;top:${y - r.top - boy / 2}px;width:${boy}px;height:${boy}px;border-radius:50%;background:var(--vurgu);opacity:.16;pointer-events:none;`;
+  n.style.cssText = `position:absolute;left:${x - r.left - boy / 2}px;top:${y - r.top - boy / 2}px;width:${boy}px;height:${boy}px;border-radius:50%;background:var(--vurgu);opacity:.16;pointer-events:none;will-change:transform,opacity;`;
   el.appendChild(n);
-  const a = n.animate([{ transform: "scale(0)", opacity: 0.16 }, { transform: "scale(1)", opacity: 0 }], { duration: 450, easing: "cubic-bezier(.2,.8,.2,1)" });
-  a.onfinish = () => n.remove();
+  const a = n.animate([{ transform: "scale(0)", opacity: 0.16 }, { transform: "scale(1)", opacity: 0 }], { duration: sure, easing: egri("--egri-cikis") });
+  const sil = () => n.remove();
+  a.onfinish = sil;
+  a.oncancel = sil;
 }
 
 function bas(e: PointerEvent) {
@@ -71,11 +82,18 @@ function bas(e: PointerEvent) {
   const el = hedef.closest<HTMLElement>(HEDEF);
   if (!el || el.matches(":disabled, [aria-disabled='true']") || el.dataset.bas === "yok") return;
   birak();
+  el.setAttribute("data-basili", "");
   const hareket = hareketVar();
-  const kare = hareket ? [{ transform: "scale(1)", boxShadow: "inset 0 0 0 999px transparent" }, { transform: `scale(${olcek(el)})`, boxShadow: AYDINLIK }] : [{ boxShadow: "inset 0 0 0 999px transparent" }, { boxShadow: AYDINLIK }];
-  // fill: forwards keeps the pressed look until `birak` cancels it · fill: forwards, `birak` iptal edene dek basılı görünümü tutar
-  const anim = el.animate(kare, { duration: hareket ? 90 : 60, easing: "ease-out", fill: "forwards" });
-  aktif = { el, anim };
+  const s = hareket ? olcek(el) : 1;
+  let anim: Animation | null = null;
+  if (hareket && s !== 1) {
+    const sure = Math.min(90, sureMs("--sure-hizli"));
+    if (sure > 0) {
+      // fill: forwards keeps the pressed scale until `birak` cancels it · fill: forwards, `birak` iptal edene dek basılı ölçeği tutar
+      anim = el.animate([{ transform: "scale(1)" }, { transform: `scale(${s})` }], { duration: sure, easing: egri("--egri-cikis"), fill: "forwards" });
+    }
+  }
+  aktif = { el, anim, olcek: s };
   const dalgali = el.closest<HTMLElement>("[data-dalga]");
   if (dalgali && hareket) dalga(dalgali, e.clientX, e.clientY);
 }
@@ -123,7 +141,10 @@ export function uzunBasma(node: HTMLElement, secenek: { ac: (x: number, y: numbe
     z = setTimeout(() => {
       oldu = true;
       titret("agir");
-      if (hareketVar()) node.animate([{ transform: "scale(1)" }, { transform: "scale(1.01)" }, { transform: "scale(1)" }], { duration: 260, easing: "cubic-bezier(.2,0,0,1)" });
+      if (hareketVar()) {
+        const sure = sureMs("--sure-orta");
+        if (sure > 0) node.animate([{ transform: "scale(1)" }, { transform: "scale(1.01)" }, { transform: "scale(1)" }], { duration: sure, easing: egri("--egri-vurgulu") });
+      }
       ayar.ac(bx, by);
     }, ayar.sure ?? 300);
   };

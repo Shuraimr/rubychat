@@ -38,7 +38,7 @@
   .kart { position: fixed; z-index: 45; width: min(17.5rem, calc(100vw - 24px)); max-height: 70vh; overflow-y: auto; padding: 8px; border-radius: 1.75rem; transform-origin: 85% 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .kart.asagi { transform-origin: 85% 0; }
   .baslik { display: flex; align-items: center; gap: .5rem; padding: .375rem .75rem; font-size: .8125rem; font-weight: 600; color: var(--vurgu); }
-  .satir { min-height: 3.25rem; padding: .375rem .75rem; display: flex; align-items: center; gap: .75rem; border-radius: 1rem; text-align: left; transition: background var(--sure-hizli) linear, color var(--sure-hizli) linear; }
+  .satir { min-height: 3.25rem; padding: .375rem .75rem; display: flex; align-items: center; gap: .75rem; border-radius: 1rem; text-align: left; }
   .satir.burada .ad { color: var(--vurgu); }
   .satir.secili, .satir:active { background: var(--ton); color: var(--ton-ustu); }
   .ad { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

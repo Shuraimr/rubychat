@@ -13,6 +13,7 @@ pub mod medya;
 pub mod istekler;
 pub mod kesif;
 pub mod odalar;
+pub mod onizleme;
 pub mod onyukle;
 pub mod oturum;
 pub mod paketler;

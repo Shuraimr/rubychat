@@ -43,14 +43,19 @@
 </nav>
 
 <style>
-  .serit { position: relative; z-index: 6; width: 68px; flex: none; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; background: var(--yuzey-1); border-right: 1px solid var(--kenar-ince); }
-  .odalar { flex: 1; min-height: 0; width: 100%; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; scroll-padding: 4px; }
+  .serit { position: relative; z-index: 6; width: var(--serit-en, 68px); flex: none; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; background: var(--yuzey-1); border-right: 1px solid var(--kenar-ince); }
+  .odalar { contain: layout style; flex: 1; min-height: 0; width: 100%; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; scroll-padding: 4px; }
   .odalar::-webkit-scrollbar { display: none; }
-  .uc { position: relative; flex: none; width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; color: var(--yazi-2); transition: background var(--sure-hizli) var(--egri-cikis); }
-  .oda { position: relative; flex: none; width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; transition: background var(--sure-hizli) var(--egri-cikis); }
+  .uc { position: relative; flex: none; width: 46px; height: 46px; border-radius: 16px; display: grid; place-items: center; color: var(--yazi-2); }
+  .oda { contain: layout style; position: relative; flex: none; width: var(--serit-oda-boy, 56px); height: var(--serit-oda-boy, 56px); border-radius: 18px; display: grid; place-items: center; }
+  /* Cap strip avatars to the density token so large root font sizes never clip inside the narrow strip. */
+  /* Şerit avatarlarını yoğunluk değişkeniyle sınırla; büyük kök yazı boyutları dar şeritte taşmasın. */
+  .oda :global(.avatar) { width: var(--serit-avatar, 44px) !important; height: var(--serit-avatar, 44px) !important; border-radius: calc(var(--serit-avatar, 44px) * 0.27) !important; font-size: calc(var(--serit-avatar, 44px) * 0.42) !important; }
+  .uc :global(.avatar) { width: 32px !important; height: 32px !important; border-radius: 9px !important; font-size: 13px !important; }
   @media (hover: hover) { .uc:hover, .oda:hover { background: var(--yuzey-3); } }
   .uc.aktif, .oda.secili { background: var(--ton); color: var(--ton-ustu); }
+  .oda.secili::before { content: ""; position: absolute; left: -5px; top: 12px; bottom: 12px; width: 3px; border-radius: 2px; background: var(--vurgu); }
   .uc:focus-visible, .oda:focus-visible { outline-offset: -2px; }
-  .rozet { position: absolute; right: 0; bottom: 2px; min-width: 18px; height: 18px; padding: 0 5px; font-size: .6875rem; border: 2px solid var(--yuzey-1); box-sizing: content-box; }
+  .rozet { position: absolute; right: 2px; bottom: 2px; min-width: 18px; max-width: calc(100% - 4px); height: 18px; padding: 0 5px; font-size: .6875rem; border: 2px solid var(--yuzey-1); box-sizing: content-box; overflow: hidden; text-overflow: ellipsis; }
   .nokta { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 4px; background: var(--vurgu); border: 2px solid var(--yuzey-1); box-sizing: content-box; }
 </style>

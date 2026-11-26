@@ -51,7 +51,7 @@
 {:else if d.etiket === "p"}<p>{@render cocuklar(d.cocuk)}</p>
 {:else if d.etiket === "h1" || d.etiket === "h2" || d.etiket === "h3" || d.etiket === "h4" || d.etiket === "h5" || d.etiket === "h6"}<p class="baslik">{@render cocuklar(d.cocuk)}</p>
 {:else if d.etiket === "spoiler"}
-  <button class="spoiler" class:acik aria-label={acik ? undefined : t("bicim.spoiler")} onclick={() => (acik = !acik)}>{@render cocuklar(d.cocuk)}</button>
+  <button class="spoiler" class:acik aria-label={acik ? undefined : t("bicim.spoiler")} onclick={() => (acik = !acik)}><span class="spoiler-ic">{@render cocuklar(d.cocuk)}</span></button>
 {:else if d.etiket === "emoji"}
   <img class="ozel-emoji" src={gorselUrl(d.mxc, 32) ?? ""} alt={d.alt ?? ""} title={d.alt ?? ""} draggable="false" />
 {:else if d.etiket === "a" && d.href}
@@ -73,7 +73,7 @@
   p { margin: 0; }
   p:not(:last-child) { margin-bottom: .5em; }
   .baslik { font-weight: 700; }
-  pre { margin: .25em 0; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, currentColor 12%, transparent); font-family: var(--mono-tipi); font-size: .8125rem; white-space: pre-wrap; overflow-x: auto; }
+  pre { margin: .25em 0; padding: .4em .55em; border-radius: .5em; background: color-mix(in srgb, currentColor 12%, transparent); font-family: var(--mono-tipi); font-size: .875em; white-space: pre-wrap; overflow-x: auto; }
   code { font-family: var(--mono-tipi); font-size: .875em; padding: 0 4px; border-radius: 4px; background: color-mix(in srgb, currentColor 12%, transparent); }
   /* <code> inside <pre> is another component instance, so it needs a global selector · <pre> içindeki <code> başka bir bileşen örneğidir, bu yüzden global seçici ister */
   :global(.bicimli pre code) { padding: 0; background: none; }
@@ -83,8 +83,10 @@
   .pill { display: inline; padding: 1px 6px; border-radius: 8px; font: inherit; font-weight: 600; text-align: left; overflow-wrap: anywhere; background: var(--ton); color: var(--ton-ustu); transition: opacity var(--sure-hizli) var(--egri-cikis); }
   .pill.ben { background: var(--vurgu); color: var(--vurgu-ustu); }
   .pill:active { opacity: .82; }
-  /* Spoiler: the text is hidden behind a blur until tapped (reduced motion: the blur just switches). · Spoiler: dokunulana dek metin bulanıklığın arkasında (az harekette bulanıklık yalnızca değişir). */
-  .spoiler { display: inline; padding: 0 2px; font: inherit; color: inherit; border-radius: 4px; text-align: left; filter: blur(6px); background: color-mix(in srgb, currentColor 18%, transparent); transition: filter var(--sure-orta) var(--egri-cikis); }
-  .spoiler.acik { filter: none; background: color-mix(in srgb, currentColor 10%, transparent); }
+  /* Spoiler: solid tonal cover revealed via opacity only (no blur filter). · Spoiler: yalnızca opaklıkla açılan düz tonlu örtü (blur filtresi yok). */
+  .spoiler { display: inline; padding: 0 4px; font: inherit; color: inherit; border-radius: 4px; text-align: left; background: color-mix(in srgb, var(--yazi) 22%, var(--yuzey-3)); }
+  .spoiler-ic { opacity: 0; transition: opacity var(--sure-orta) var(--egri-cikis); }
+  .spoiler.acik { background: color-mix(in srgb, currentColor 10%, transparent); }
+  .spoiler.acik .spoiler-ic { opacity: 1; }
   .ozel-emoji { height: 1.5em; width: auto; max-width: 3em; vertical-align: middle; object-fit: contain; }
 </style>

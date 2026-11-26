@@ -15,6 +15,14 @@ use crate::hata::{Hata, Sonuc};
 
 #[cfg(desktop)]
 const ETIKET: &str = "kayit";
+/// Counter for unique window labels: `close()` is asynchronous, so reusing one label right after fails.
+/// Benzersiz pencere etiketi sayacı: `close()` asenkron olduğundan aynı etiketi hemen yeniden kullanmak başarısız olur.
+#[cfg(desktop)]
+static SAYAC: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Label of the window that is open now (None after we closed it ourselves). Only that window may report "closed".
+/// Şu an açık pencerenin etiketi (biz kapattıysak None). Yalnızca o pencere "kapandı" bildirebilir.
+#[cfg(desktop)]
+static AKTIF: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 /// Sent to the UI when the person closes the window themselves. · Kişi pencereyi kendisi kapatınca arayüze gönderilir.
 #[cfg(desktop)]
 pub const OLAY_KAPANDI: &str = "kayit-kapandi";
@@ -52,19 +60,31 @@ fn ac(app: AppHandle, adres: String, baslik: String) -> Sonuc<()> {
     if url.scheme() != "https" {
         return Err(Hata::Diger("adres".into()));
     }
-    if let Some(w) = app.get_webview_window(ETIKET) {
-        let _ = w.close();
+    // The new window becomes the active one first, so the old one's Destroyed event stays silent.
+    // Yeni pencere önce aktif olur; böylece eskisinin Destroyed olayı sessiz kalır.
+    let etiket = format!("{ETIKET}-{}", SAYAC.fetch_add(1, Ordering::SeqCst) + 1);
+    let eski = AKTIF.lock().unwrap_or_else(|e| e.into_inner()).replace(etiket.clone());
+    if let Some(w) = eski.and_then(|e| app.get_webview_window(&e)) {
+        let _ = w.destroy();
     }
     let ana = url.host_str().unwrap_or_default().to_owned();
     // Turned once: the register page links back to "sign in", which must then stay sign in.
     // Bir kez çevrilir: kayıt sayfası "giriş yap"a geri bağlantı verir; o zaman giriş olarak kalmalı.
     let cevrildi = Arc::new(AtomicBool::new(false));
     let uygulama = app.clone();
-    let pencere = WebviewWindowBuilder::new(&app, ETIKET, WebviewUrl::External(url))
+    let gezin_etiketi = etiket.clone();
+    let pencere = WebviewWindowBuilder::new(&app, etiket.as_str(), WebviewUrl::External(url))
         .title(baslik)
         .inner_size(480.0, 760.0)
         .min_inner_size(360.0, 480.0)
         .on_navigation(move |adres| {
+            // Only https, whatever the page redirects to (no http, file, medya, ec, tauri...): the password must never travel in clear
+            // text and app-wide schemes must stay out of reach of a foreign page. Checked before anything else.
+            // Sayfa nereye yönlendirirse yönlendirsin yalnızca https (http, file, medya, ec, tauri... yok): parola düz metin gitmesin,
+            // uygulama çapındaki şemalar yabancı sayfanın erişiminden uzak kalsın. Her şeyden önce denetlenir.
+            if adres.scheme() != "https" {
+                return false;
+            }
             if cevrildi.load(Ordering::SeqCst) {
                 return true;
             }
@@ -72,8 +92,9 @@ fn ac(app: AppHandle, adres: String, baslik: String) -> Sonuc<()> {
             cevrildi.store(true, Ordering::SeqCst);
             // Navigating from inside the callback is not allowed: do it right after. · Geri çağrının içinden gezinilmez: hemen sonra yapılır.
             let u = uygulama.clone();
+            let e = gezin_etiketi.clone();
             tauri::async_runtime::spawn(async move {
-                if let Some(w) = u.get_webview_window(ETIKET) {
+                if let Some(w) = u.get_webview_window(&e) {
                     let _ = w.navigate(yeni);
                 }
             });
@@ -84,7 +105,14 @@ fn ac(app: AppHandle, adres: String, baslik: String) -> Sonuc<()> {
     let u = app.clone();
     pencere.on_window_event(move |olay| {
         if matches!(olay, WindowEvent::Destroyed) {
-            let _ = u.emit(OLAY_KAPANDI, ());
+            // Report only if this is still the active window and we did not close it ourselves.
+            // Yalnızca bu hâlâ aktif pencereyse ve onu biz kapatmadıysak bildir.
+            let mut aktif = AKTIF.lock().unwrap_or_else(|e| e.into_inner());
+            if aktif.as_deref() == Some(etiket.as_str()) {
+                *aktif = None;
+                drop(aktif);
+                let _ = u.emit(OLAY_KAPANDI, ());
+            }
         }
     });
     Ok(())
@@ -94,8 +122,13 @@ fn ac(app: AppHandle, adres: String, baslik: String) -> Sonuc<()> {
 #[tauri::command]
 pub fn kayit_penceresi_kapat(app: AppHandle) {
     #[cfg(desktop)]
-    if let Some(w) = tauri::Manager::get_webview_window(&app, ETIKET) {
-        let _ = w.destroy();
+    {
+        // Clear the active label first: a programmatic close must not look like the person closing it.
+        // Önce aktif etiketi temizle: kodla kapatma, kişinin kapatması gibi görünmemeli.
+        let etiket = AKTIF.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(w) = etiket.and_then(|e| tauri::Manager::get_webview_window(&app, &e)) {
+            let _ = w.destroy();
+        }
     }
     #[cfg(mobile)]
     let _ = app;

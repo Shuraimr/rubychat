@@ -19,27 +19,39 @@
   import Ikon from "./Ikon.svelte";
 
   // `kisayol`: on wide screens there is no dock "Yeni" menu, so the sheet carries its other entries. · Geniş ekranda dock'taki "Yeni" menüsü yok; sayfa diğer girişleri taşır.
-  let { onkapat, kisayol }: { onkapat: () => void; kisayol?: (s: "kesfet" | "grup" | "alan") => void } = $props();
+  let { onkapat: ustKapat, kisayol }: { onkapat: () => void; kisayol?: (s: "kesfet" | "grup" | "alan") => void } = $props();
   let sorgu = $state("");
   let sonuclar = $state<BulunanKisi[]>([]);
   let araniyor = $state(false);
   let mesgul = $state<string | null>(null);
+  // Set when the sheet closes (by us or by back / scrim): a late answer must not pull the person into a room afterwards.
+  // Sayfa kapanınca (bizden ya da geri / perdeden) kurulur: geç gelen yanıt kişiyi sonradan bir odaya çekmemeli.
+  let kapandi = false;
+  const onkapat = () => {
+    kapandi = true;
+    ustKapat();
+  };
 
   const benimSunucum = $derived(oturum.ben?.kullaniciId.split(":").slice(1).join(":") ?? "");
   // A typed id, or a bare username on my own server. · Yazılan kimlik ya da kendi sunucumda düz kullanıcı adı.
   const dogrudan = $derived.by(() => {
     const s = sorgu.trim();
-    if (/^@[^:\s]+:[^\s]+$/.test(s)) return s;
-    if (/^@?[a-z0-9._=\-/+]+$/i.test(s) && benimSunucum) return `@${s.replace(/^@/, "").toLowerCase()}:${benimSunucum}`;
-    return null;
+    let aday: string | null = null;
+    if (/^@[^:\s]+:[^\s]+$/.test(s)) aday = s;
+    else if (/^@?[a-z0-9._=\-/+]+$/i.test(s) && benimSunucum) aday = `@${s.replace(/^@/, "").toLowerCase()}:${benimSunucum}`;
+    // Never offer a chat with yourself. · Kendinle sohbet asla önerilmez.
+    if (aday && aday.toLowerCase() === oturum.ben?.kullaniciId.toLowerCase()) return null;
+    return aday;
   });
   const sonKisiler = $derived(odalar.liste.filter((o) => o.dm && !o.davet).slice(0, 8));
-  const listede = $derived(new Set(sonuclar.map((k) => k.kullaniciId)));
+  const listede = $derived(new Set(sonuclar.map((k) => k.kullaniciId.toLowerCase())));
 
   let tur = 0;
   $effect(() => {
     const s = sorgu.trim();
     if (s.length < 2) {
+      // Invalidates a search still on the network, or its late answer would refill the cleared box. · Ağdaki aramayı geçersiz kılar; yoksa geç yanıtı temizlenen kutuyu yeniden doldururdu.
+      ++tur;
       sonuclar = [];
       araniyor = false;
       return;
@@ -64,6 +76,7 @@
     mesgul = kimlik;
     try {
       const id = await dmAc(kimlik);
+      if (kapandi) return;
       onkapat();
       gezinme.odaAc(id);
     } catch (err) {
@@ -102,7 +115,7 @@
     {/if}
 
     <ul class="liste">
-      {#if dogrudan && !listede.has(dogrudan)}
+      {#if dogrudan && !listede.has(dogrudan.toLowerCase())}
         <li>
           <button class="satir" type="button" disabled={!!mesgul} onclick={() => void baslat(dogrudan!)}>
             <span class="yer"><Ikon ad="kisi" boyut={22} /></span>

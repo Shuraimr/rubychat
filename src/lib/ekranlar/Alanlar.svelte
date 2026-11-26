@@ -33,8 +33,8 @@
   // Refresh the graph whenever the room list changes (a space joined / left). Debounced: the list emits often.
   // Oda listesi değişince grafiği yenile (alana katılındı / ayrılındı). Bekletmeli: liste sık yayınlanır.
   $effect(() => {
-    odalar.liste;
-    const z = setTimeout(() => void alanlar.ustYenile(), 250);
+    const l = odalar.liste;
+    const z = setTimeout(() => alanlar.listeDegisti(l), 250);
     return () => clearTimeout(z);
   });
 

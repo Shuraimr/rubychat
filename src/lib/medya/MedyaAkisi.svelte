@@ -14,10 +14,12 @@
 <script lang="ts">
   import { menuCik } from "../gecis";
   import { onMount, tick } from "svelte";
+  import { androidMi } from "../arama-ec/ses";
   import type { MedyaTuru } from "../api/tipler";
   import Ikon from "../bilesenler/Ikon.svelte";
   import { bildirim } from "../durum/bildirim.svelte";
   import { medya, type GonderilecekOge, type VideoAyari } from "../durum/medya.svelte";
+  import { masaustuLinux } from "../pano";
   import {
     blobaCevir,
     bosDuzenleme,
@@ -66,16 +68,32 @@
   const MAKS_OGE = 10;
   const KAREAD = 9;
 
+  const masaustuMu = masaustuLinux || (!androidMi() && !/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent));
+
   let kok: HTMLDivElement;
   let girdi: HTMLInputElement;
+  let aciklamaEl: HTMLTextAreaElement | undefined = $state();
   let ogeler = $state<Oge[]>([]);
   let secili = $state(0);
   let ekran = $state<"onizleme" | "kirp">("onizleme");
   let okunuyor = $state(false);
+  let gonderiliyor = $state(false);
   let aciklama = $state("");
   let kaliteMenusu = $state(false);
   let devredildi = false;
   let sayac = 0;
+
+  /** Grow caption textarea up to 5 lines while keeping a 44px single-line height. · Açıklama kutusunu tek satırda 44px tutarak 5 satıra dek büyütür. */
+  function aciklamaBoyutla() {
+    if (!aciklamaEl) return;
+    aciklamaEl.style.height = "auto";
+    aciklamaEl.style.height = `${Math.min(aciklamaEl.scrollHeight, 132)}px`;
+  }
+  $effect(() => {
+    void aciklama;
+    void aciklamaEl;
+    aciklamaBoyutla();
+  });
 
   const oge = $derived<Oge | undefined>(ogeler[secili]);
   const videoOlabilir = $derived(medya.yetenek.videoSikistirma);
@@ -147,6 +165,12 @@
     }
     okunuyor = false;
     if (!ogeler.length) kapat();
+    else if (masaustuMu && ekran === "onizleme") {
+      // Desktop: put focus in the caption field right away so the user can type or press Enter to send.
+      // Masaüstü: kullanıcı hemen yazabilsin ya da Enter ile gönderebilsin diye odağı açıklama kutusuna al.
+      await tick();
+      aciklamaEl?.focus();
+    }
   }
 
   /** The user closed the picker without choosing: leave the flow (when nothing is chosen yet). · Kullanıcı seçmeden seçiciyi kapattı: akıştan çık (henüz seçili bir şey yoksa). */
@@ -473,7 +497,8 @@
 
   // ---- Sending · Gönderme ----
   function gonder() {
-    if (!ogeler.length) return;
+    if (!ogeler.length || okunuyor || devredildi || gonderiliyor) return;
+    gonderiliyor = true;
     devredildi = true;
     // Plain objects (not $state proxies) go to the queue. · Kuyruğa düz nesneler ($state vekilleri değil) gider.
     const liste: GonderilecekOge[] = ogeler.map((o) => {
@@ -504,13 +529,46 @@
     { ad: "9:16", deger: 9 / 16 },
   ];
 
+  function aciklamaTus(e: KeyboardEvent) {
+    if (e.isComposing || e.repeat) return;
+    // Desktop: Enter sends when "Enter ile gönder" is on; Shift+Enter inserts a newline. Phone keeps default newline behaviour.
+    // Masaüstü: "Enter ile gönder" açıkken Enter gönderir; Shift+Enter yeni satır ekler. Telefonda varsayılan davranış kalır.
+    if (masaustuMu && tercihler.d.enterGonder && e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      gonder();
+    }
+  }
+
   function tus(e: KeyboardEvent) {
     // The back stack already used this Escape (it closed the crop view): it must not close the whole sheet too.
     // Geri yığını bu Escape'i zaten kullandı (kırpmayı kapattı): bütün sayfayı da kapatmamalı.
-    if (e.defaultPrevented) return;
+    if (e.defaultPrevented || e.isComposing) return;
     if (e.key === "Escape") {
       if (ekran === "kirp") kirpIptal();
       else kapat();
+      return;
+    }
+    if (
+      masaustuMu &&
+      tercihler.d.enterGonder &&
+      ekran === "onizleme" &&
+      !kaliteMenusu &&
+      ogeler.length > 0 &&
+      !okunuyor &&
+      !gonderiliyor &&
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.metaKey &&
+      !e.repeat
+    ) {
+      const hedef = e.target as HTMLElement | null;
+      // Do not hijack Enter when focus is on a button or another interactive control. · Odak bir düğmede ya da etkileşimli denetimdeyken Enter'ı alma.
+      if (!hedef?.closest("button, a, input, textarea, select, [role='slider'], [role='menuitemradio']")) {
+        e.preventDefault();
+        gonder();
+      }
     }
   }
 </script>
@@ -681,8 +739,17 @@
       {/if}
 
       <div class="yaz-satir">
-        <input class="aciklama" type="text" bind:value={aciklama} placeholder={m("aciklamaEkle")} maxlength="1000" enterkeyhint="send" />
-        <button type="button" class="gonder" onclick={gonder} disabled={!ogeler.length || okunuyor} aria-label={m("gonder")}>
+        <textarea
+          bind:this={aciklamaEl}
+          class="aciklama"
+          rows="1"
+          bind:value={aciklama}
+          onkeydown={aciklamaTus}
+          placeholder={m("aciklamaEkle")}
+          maxlength="1000"
+          enterkeyhint={masaustuMu && tercihler.d.enterGonder ? "send" : "enter"}
+        ></textarea>
+        <button type="button" class="gonder" onclick={gonder} disabled={!ogeler.length || okunuyor || gonderiliyor} aria-label={m("gonder")}>
           <Ikon ad="yukari" />
           <span>{ogeler.length}</span>
         </button>
@@ -1098,18 +1165,23 @@
   }
   .yaz-satir {
     display: flex;
+    align-items: flex-end;
     gap: 8px;
   }
   .aciklama {
     flex: 1;
     min-width: 0;
-    height: 44px;
-    padding: 0 14px;
+    min-height: 44px;
+    max-height: 132px;
+    padding: 10px 14px;
     border: 1px solid var(--kenar);
     border-radius: 12px;
     background: var(--yuzey-2);
     color: var(--yazi);
     font: inherit;
+    line-height: 1.4;
+    resize: none;
+    overflow-y: auto;
   }
   .aciklama:focus-visible {
     outline: 2px solid var(--vurgu);

@@ -28,21 +28,34 @@ import androidx.core.view.WindowInsetsCompat
  * elle kapatılınca arayüze haber verilir (`rubychat-kayit-kapandi`).
  */
 object KayitPenceresi {
-  private var pencere: Dialog? = null
-  private var arayuzKapatti = false
+  /**
+   * One open dialog with its own "the UI closed it" flag: Dialog.dismiss() calls the listener later (main looper), so a flag shared
+   * by all dialogs would let an old dialog's listener fire a false "closed" event for the new one.
+   * Açık bir pencere ve ona özel "arayüz kapattı" bayrağı: Dialog.dismiss() dinleyiciyi sonra (ana looper) çağırır; tüm pencerelerin
+   * paylaştığı bir bayrak eski pencerenin dinleyicisinin yeni pencere için sahte "kapandı" olayı yollamasına yol açardı.
+   */
+  private class Acik(val dialog: Dialog) {
+    var arayuzKapatti = false
+  }
+  private var aktif: Acik? = null
 
   /** `/login?…` on the same host → `/register?…` · Aynı sunucuda `/login?…` → `/register?…` */
   private fun kaydaCevir(adres: Uri, ana: String): Uri? =
     if (adres.host == ana && adres.path?.trimEnd('/') == "/login") adres.buildUpon().path("/register").build() else null
 
   @SuppressLint("SetJavaScriptEnabled")
-  fun ac(etkinlik: MainActivity, url: String, baslik: String, zemin: String, yazi: String) {
+  /** False when the address is not a usable https one (nothing opens; the UI shows the error). · Adres kullanılabilir bir https değilse false (hiçbir şey açılmaz; arayüz hatayı gösterir). */
+  fun ac(etkinlik: MainActivity, url: String, baslik: String, zemin: String, yazi: String): Boolean {
     val adres = Uri.parse(url)
-    if (adres.scheme != "https") return
-    val ana = adres.host ?: return
+    if (adres.scheme != "https") return false
+    val ana = adres.host ?: return false
     etkinlik.runOnUiThread {
-      pencere?.dismiss()
-      arayuzKapatti = false
+      // The old dialog is closed by us: its own listener must stay silent. · Eski pencereyi biz kapatırız: kendi dinleyicisi sessiz kalmalı.
+      aktif?.let {
+        it.arayuzKapatti = true
+        it.dialog.dismiss()
+      }
+      aktif = null
       val zeminRenk = runCatching { Color.parseColor(zemin) }.getOrDefault(Color.BLACK)
       val yaziRenk = runCatching { Color.parseColor(yazi) }.getOrDefault(Color.WHITE)
       val dp = { d: Int -> TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, d.toFloat(), etkinlik.resources.displayMetrics).toInt() }
@@ -118,22 +131,28 @@ object KayitPenceresi {
         } else false
       }
       kapatDugmesi.setOnClickListener { d.dismiss() }
+      val bu = Acik(d)
       d.setOnDismissListener {
+        // Detach before destroy (the WebView docs ask for it). · Yok etmeden önce ayır (WebView belgeleri bunu ister).
+        kok.removeView(web)
         web.destroy()
-        if (pencere === d) pencere = null
-        if (!arayuzKapatti) etkinlik.olayGonder("rubychat-kayit-kapandi")
+        if (aktif === bu) aktif = null
+        if (!bu.arayuzKapatti) etkinlik.olayGonder("rubychat-kayit-kapandi")
       }
-      pencere = d
+      aktif = bu
       d.show()
       web.loadUrl(url)
     }
+    return true
   }
 
   fun kapat(etkinlik: MainActivity) {
     etkinlik.runOnUiThread {
-      arayuzKapatti = true
-      pencere?.dismiss()
-      pencere = null
+      aktif?.let {
+        it.arayuzKapatti = true
+        it.dialog.dismiss()
+      }
+      aktif = null
     }
   }
 }

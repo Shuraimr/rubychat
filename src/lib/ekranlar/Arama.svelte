@@ -116,6 +116,8 @@
   /* Giden: halka nabız atar (1,6 sn); süren aramada halka sabit; gelen: iki sakin sabit halka. Azaltılmış harekette hepsi durur. */
   .halka::before, .halka::after { content: ""; position: absolute; border-radius: 32px; pointer-events: none; opacity: 0; }
   .halka.calar::after { inset: -8px; border: 2px solid var(--vurgu); animation: nabiz calc(1600ms * var(--hareket)) var(--egri-cikis) infinite; }
+  @media (prefers-reduced-motion: reduce) { .halka.calar::after { animation: none; opacity: .55; } }
+  :global([data-az-animasyon]) .halka.calar::after { animation: none; opacity: .55; }
   .halka.gelen::before { inset: -10px; border: 1px solid var(--vurgu); opacity: .9; border-radius: 34px; }
   .halka.gelen::after { inset: -22px; border: 1px solid var(--vurgu); opacity: .5; border-radius: 42px; }
   .halka.bagli::after { inset: -12px; border: 8px solid var(--ton); opacity: 1; border-radius: 36px; }
@@ -125,7 +127,6 @@
   .durum.sayac { font-variant-numeric: tabular-nums; }
   .cip-dugme {
     display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid var(--kenar); color: var(--yazi); font-size: .8125rem; font-weight: 500;
-    transition: background var(--sure-hizli) var(--egri-cikis);
   }
   .cip-dugme.acik { background: var(--ton); color: var(--ton-ustu); border-color: transparent; }
   .cip-dugme:active { background: var(--yuzey-3); }
@@ -137,7 +138,7 @@
   .dugme-kutu span { font-size: .75rem; color: var(--yazi-2); }
   .dugme {
     width: 64px; height: 64px; border-radius: 32px; display: inline-flex; align-items: center; justify-content: center;
-    background: var(--yuzey-2); color: var(--yazi); transition: background var(--sure-hizli) var(--egri-cikis);
+    background: var(--yuzey-2); color: var(--yazi); transition: opacity var(--sure-hizli) var(--egri-cikis);
   }
   .dugme.buyuk { width: 72px; height: 72px; border-radius: 36px; }
   .dugme:active { background: var(--yuzey-3); }

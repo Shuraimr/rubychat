@@ -356,7 +356,9 @@ impl Arama {
         // The screen shows the call before the microphone is published (that waits for the server). · Ekran, mikrofon yayınlanmadan
         // (sunucuyu bekler) önce aramayı gösterir.
         self.bildir().await;
-        self.mikrofonu_yayinla().await;
+        if let Some(son) = self.mikrofonu_yayinla(rx).await {
+            return son;
+        }
         loop {
             tokio::select! {
                 i = rx.recv() => match i {
@@ -423,14 +425,39 @@ impl Arama {
 
     // ---------- microphone · mikrofon ----------
 
-    async fn mikrofonu_yayinla(&mut self) {
-        // Muted until the recorder runs, so there is no open-mic window. · Kayıt başlayana kadar sessiz; açık mikrofon aralığı olmasın.
-        // Bounded: a stuck publish must not stop the loop (hang-up included). · Sınırlı: takılan yayın döngüyü (kapatma dahil) durdurmamalı.
-        let r = match tokio::time::timeout(Duration::from_secs(10), self.call.publish(PublishOptions::microphone().muted())).await {
-            Ok(r) => r.map_err(|e| e.to_string()),
-            Err(_) => Err("zaman aşımı".to_owned()),
+    /// Publishes the muted microphone track. While that waits for the server, hang-up (and every other request) is still listened to:
+    /// `Some(..)` means "the call ended meanwhile" and the loop returns it. The track itself arrives later as `MikrofonHazir`.
+    /// `self.call` cannot move into a background task (`leave` needs it by value), so the wait is raced against the request channel.
+    /// Sessiz mikrofon parçasını yayınlar. Sunucuyu beklerken kapatma (ve diğer istekler) dinlenmeye devam eder: `Some(..)` "arama bu
+    /// arada bitti" demektir, döngü onu döndürür. Parça sonra `MikrofonHazir` olarak gelir. `self.call` arka plan görevine taşınamaz
+    /// (`leave` onu değer olarak ister); bu yüzden bekleme istek kanalıyla yarıştırılır.
+    async fn mikrofonu_yayinla(&mut self, rx: &mut mpsc::UnboundedReceiver<Istek>) -> Option<(&'static str, Option<oneshot::Sender<()>>)> {
+        let mut bekleyen: Vec<Istek> = vec![];
+        let sonuc = {
+            // Muted until the recorder runs, so there is no open-mic window. · Kayıt başlayana kadar sessiz; açık mikrofon aralığı olmasın.
+            // Bounded: a stuck publish must not hold the call forever. · Sınırlı: takılan yayın aramayı sonsuza dek tutmamalı.
+            let yayin = tokio::time::timeout(Duration::from_secs(10), self.call.publish(PublishOptions::microphone().muted()));
+            tokio::pin!(yayin);
+            loop {
+                tokio::select! {
+                    r = &mut yayin => break match r {
+                        Ok(r) => r.map_err(|e| e.to_string()),
+                        Err(_) => Err("zaman aşımı".to_owned()),
+                    },
+                    i = rx.recv() => match i {
+                        Some(Istek::Kapat(b)) => return Some(("biz", Some(b))),
+                        None => return Some(("biz", None)),
+                        // Applied right after the publish, in order. · Yayından hemen sonra, sırayla uygulanır.
+                        Some(i) => bekleyen.push(i),
+                    },
+                }
+            }
         };
-        let _ = self.tx.send(Istek::MikrofonHazir(r));
+        let _ = self.tx.send(Istek::MikrofonHazir(sonuc));
+        for i in bekleyen {
+            self.uygula(i).await;
+        }
+        None
     }
 
     fn mikrofonu_esitle(&mut self) {

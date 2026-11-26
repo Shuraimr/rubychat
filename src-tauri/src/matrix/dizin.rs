@@ -22,7 +22,7 @@
 //! geçer: SimpleTokenizer → küçük harf → Türkçe harf katlama → ASCII katlama.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -338,16 +338,28 @@ fn yazici_dongusu(
     let mut ilerleme_kirli = false;
     let mut bekleyen = 0usize;
     let mut ilk_bekleyen: Option<Instant> = None;
+    // Uncommitted documents and deletions in the current batch so edits never force an early commit+reload.
+    // Geçerli yığındaki commit edilmemiş belgeler ve silmeler: düzenlemeler erken commit+reload zorlamasın.
+    let mut bekleyen_belgeler: HashMap<String, Belge> = HashMap::new();
+    let mut bekleyen_silinenler: HashSet<String> = HashSet::new();
 
     // Commit, then make searches see it, update the counter. · Commit et, aramalar görsün, sayacı güncelle.
-    let commit = |yazici: &mut IndexWriter, bekleyen: &mut usize, ilk: &mut Option<Instant>| {
+    let commit = |yazici: &mut IndexWriter,
+                  bekleyen: &mut usize,
+                  ilk: &mut Option<Instant>,
+                  belgeler: &mut HashMap<String, Belge>,
+                  silinenler: &mut HashSet<String>| {
         if let Err(e) = yazici.commit() {
             warn!("arama dizini commit hatası: {e}");
         }
-        let _ = okuyucu.reload();
+        if let Err(e) = okuyucu.reload() {
+            warn!("arama dizini yeniden yüklenemedi: {e}");
+        }
         belge_sayisi.store(okuyucu.searcher().num_docs(), Ordering::Relaxed);
         *bekleyen = 0;
         *ilk = None;
+        belgeler.clear();
+        silinenler.clear();
     };
 
     loop {
@@ -358,29 +370,46 @@ fn yazici_dongusu(
                 yazici.delete_term(Term::from_field_text(a.olay_id, &b.olay_id));
                 if let Err(e) = yazici.add_document(belge_yap(&a, &b)) {
                     warn!("belge eklenemedi: {e}");
+                } else {
+                    bekleyen_silinenler.remove(&b.olay_id);
+                    bekleyen_belgeler.insert(b.olay_id.clone(), b);
                 }
                 bekleyen += 1;
                 ilk_bekleyen.get_or_insert_with(Instant::now);
             }
             Ok(Komut::Duzenle { olay_id, govde }) => {
-                // The original may still be uncommitted: commit so the lookup can see it. · Orijinal henüz commit edilmemiş olabilir: arama görsün diye commit et.
-                if bekleyen > 0 {
-                    commit(&mut yazici, &mut bekleyen, &mut ilk_bekleyen);
-                }
-                let searcher = okuyucu.searcher();
-                let q = TermQuery::new(Term::from_field_text(a.olay_id, &olay_id), IndexRecordOption::Basic);
-                let bulunan = searcher.search(&q, &TopDocs::with_limit(1).order_by_score()).ok().and_then(|v| v.into_iter().next());
-                if let Some((_, adres)) = bulunan {
-                    if let Some(mut eski) = searcher.doc::<TantivyDocument>(adres).ok().and_then(|d| belge_oku(&a, &d)) {
-                        eski.govde = govde;
-                        yazici.delete_term(Term::from_field_text(a.olay_id, &olay_id));
-                        let _ = yazici.add_document(belge_yap(&a, &eski));
-                        bekleyen += 1;
-                        ilk_bekleyen.get_or_insert_with(Instant::now);
+                // Check uncommitted docs first; only fall back to the committed searcher when absent, avoiding a forced commit+reload.
+                // Önce commit edilmemiş belgelere bak; yoksa commit edilmiş arayıcıya düş: zorunlu commit+reload engellenir.
+                if let Some(eski) = bekleyen_belgeler.get_mut(&olay_id) {
+                    eski.govde = govde;
+                    yazici.delete_term(Term::from_field_text(a.olay_id, &olay_id));
+                    if let Err(e) = yazici.add_document(belge_yap(&a, eski)) {
+                        warn!("düzenlenen belge eklenemedi: {e}");
+                    }
+                    bekleyen += 1;
+                    ilk_bekleyen.get_or_insert_with(Instant::now);
+                } else if !bekleyen_silinenler.contains(&olay_id) {
+                    let searcher = okuyucu.searcher();
+                    let q = TermQuery::new(Term::from_field_text(a.olay_id, &olay_id), IndexRecordOption::Basic);
+                    let bulunan = searcher.search(&q, &TopDocs::with_limit(1).order_by_score()).ok().and_then(|v| v.into_iter().next());
+                    if let Some((_, adres)) = bulunan {
+                        if let Some(mut eski) = searcher.doc::<TantivyDocument>(adres).ok().and_then(|d| belge_oku(&a, &d)) {
+                            eski.govde = govde;
+                            yazici.delete_term(Term::from_field_text(a.olay_id, &olay_id));
+                            if let Err(e) = yazici.add_document(belge_yap(&a, &eski)) {
+                                warn!("düzenlenen belge eklenemedi: {e}");
+                            } else {
+                                bekleyen_belgeler.insert(olay_id, eski);
+                            }
+                            bekleyen += 1;
+                            ilk_bekleyen.get_or_insert_with(Instant::now);
+                        }
                     }
                 }
             }
             Ok(Komut::Sil(id)) => {
+                bekleyen_belgeler.remove(&id);
+                bekleyen_silinenler.insert(id.clone());
                 yazici.delete_term(Term::from_field_text(a.olay_id, &id));
                 bekleyen += 1;
                 ilk_bekleyen.get_or_insert_with(Instant::now);
@@ -393,7 +422,7 @@ fn yazici_dongusu(
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
                 if bekleyen > 0 {
-                    commit(&mut yazici, &mut bekleyen, &mut ilk_bekleyen);
+                    commit(&mut yazici, &mut bekleyen, &mut ilk_bekleyen, &mut bekleyen_belgeler, &mut bekleyen_silinenler);
                 }
                 if ilerleme_kirli {
                     ilerleme_yaz(&yol, &ilerleme);
@@ -402,7 +431,7 @@ fn yazici_dongusu(
             }
         }
         if bekleyen >= COMMIT_ADEDI || ilk_bekleyen.is_some_and(|t| t.elapsed() >= COMMIT_SURESI) {
-            commit(&mut yazici, &mut bekleyen, &mut ilk_bekleyen);
+            commit(&mut yazici, &mut bekleyen, &mut ilk_bekleyen, &mut bekleyen_belgeler, &mut bekleyen_silinenler);
         }
         // Progress is written only when nothing is uncommitted: a crash must never leave "page done" without its messages indexed.
         // İlerleme yalnızca commit edilmemiş bir şey yokken yazılır: çökme "sayfa bitti" bilgisini mesajları dizinlenmeden bırakmasın.
@@ -417,6 +446,9 @@ fn yazici_dongusu(
 // Public handle · Genel tutamaç
 // ---------------------------------------------------------------------------------------------------------------------
 
+/// Max compiled prefix `RegexQuery` entries kept in memory (LRU). · Bellekte tutulan en çok derlenmiş önek `RegexQuery` sayısı (LRU).
+const ONEK_ONBELLEK_SINIR: usize = 64;
+
 pub struct Dizin {
     index: Index,
     okuyucu: IndexReader,
@@ -425,6 +457,9 @@ pub struct Dizin {
     iplik: Mutex<Option<std::thread::JoinHandle<()>>>,
     belge_sayisi: Arc<AtomicU64>,
     dolduruluyor: Arc<AtomicBool>,
+    /// Bounded LRU cache of compiled prefix queries so backspacing / room-filter switches / repeated queries skip DFA compilation.
+    /// Derlenmiş önek sorgularının sınırlı LRU önbelleği: silme / oda filtresi değişimi / yinelenen aramalarda DFA yeniden derlenmez.
+    onek_onbellek: Mutex<VecDeque<(String, RegexQuery)>>,
 }
 
 impl Dizin {
@@ -434,6 +469,29 @@ impl Dizin {
 
     pub fn dolduruluyor(&self) -> bool {
         self.dolduruluyor.load(Ordering::Relaxed)
+    }
+
+    fn onek_sorgusu(&self, k: &str) -> Sonuc<RegexQuery> {
+        {
+            let mut ob = self.onek_onbellek.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(i) = ob.iter().position(|(anahtar, _)| anahtar == k) {
+                if let Some((anahtar, q)) = ob.remove(i) {
+                    let kopya = q.clone();
+                    ob.push_back((anahtar, q));
+                    return Ok(kopya);
+                }
+            }
+        }
+        // Compile outside the lock so concurrent searches never block each other. · Kilidin dışında derle: eşzamanlı aramalar birbirini beklemesin.
+        let q = RegexQuery::from_pattern(&format!("{}.*", regex_kacis(k)), self.a.govde).map_err(dep)?;
+        let mut ob = self.onek_onbellek.lock().unwrap_or_else(|e| e.into_inner());
+        if !ob.iter().any(|(anahtar, _)| anahtar == k) {
+            if ob.len() >= ONEK_ONBELLEK_SINIR {
+                ob.pop_front();
+            }
+            ob.push_back((k.to_owned(), q.clone()));
+        }
+        Ok(q)
     }
 
     fn komut(&self, k: Komut) {
@@ -466,12 +524,17 @@ impl Dizin {
             kelimeler.drain(..kelimeler.len() - 8);
         }
         let onek = sorgu.chars().last().is_some_and(|c| !c.is_whitespace());
+        // Turkish puts its endings on the word (kitap → kitapları), so EVERY word matches as a prefix, not only the one being typed.
+        // A finished last word (trailing space) stays exact, and one-letter words are exact (a one-letter prefix matches everything).
+        // Türkçe ekleri sözcüğe ekler (kitap → kitapları); bu yüzden yalnızca yazılmakta olan değil HER sözcük önek olarak eşleşir.
+        // Bitmiş son sözcük (sonda boşluk) tam eşleşir; tek harfli sözcükler de tam (tek harflik önek her şeyi eşler).
+        let n = kelimeler.len();
+        let onekler: Vec<bool> = kelimeler.iter().enumerate().map(|(i, k)| (i + 1 < n || onek) && k.chars().count() >= 2).collect();
 
         let mut parcalar: Vec<(Occur, Box<dyn Query>)> = Vec::new();
         for (i, k) in kelimeler.iter().enumerate() {
-            let son = i + 1 == kelimeler.len();
-            let q: Box<dyn Query> = if son && onek {
-                Box::new(RegexQuery::from_pattern(&format!("{}.*", regex_kacis(k)), self.a.govde).map_err(dep)?)
+            let q: Box<dyn Query> = if onekler[i] {
+                Box::new(self.onek_sorgusu(k)?)
             } else {
                 Box::new(TermQuery::new(Term::from_field_text(self.a.govde, k), IndexRecordOption::Basic))
             };
@@ -491,7 +554,7 @@ impl Dizin {
         for (_, adres) in sonuclar {
             let Ok(d) = searcher.doc::<TantivyDocument>(adres) else { continue };
             let Some(b) = belge_oku(&self.a, &d) else { continue };
-            let parcalar = parcalar_yap(&b.govde, &mut c, &kelimeler, onek);
+            let parcalar = parcalar_yap(&b.govde, &mut c, &kelimeler, &onekler);
             cikti.push(MesajAramaSonucu {
                 olay_id: b.olay_id,
                 oda_id: b.oda_id,
@@ -522,18 +585,12 @@ fn regex_kacis(s: &str) -> String {
 /// Highlights are computed here (not with tantivy's SnippetGenerator) because it cannot highlight the prefix (regex) term.
 /// Sonuç özetini kurar: ilk eşleşmenin çevresinde ~200 karakterlik pencere, düz / vurgulu parçalara bölünmüş.
 /// Vurgu burada hesaplanır (tantivy'nin SnippetGenerator'ı ile değil): o, önek (regex) terimini vurgulayamaz.
-fn parcalar_yap(govde: &str, c: &mut TextAnalyzer, sorgu: &[String], onek: bool) -> Vec<MesajParcasi> {
+fn parcalar_yap(govde: &str, c: &mut TextAnalyzer, sorgu: &[String], onekler: &[bool]) -> Vec<MesajParcasi> {
     // Same byte length as the original, so token offsets stay valid. · Orijinalle aynı bayt uzunluğu; token konumları geçerli kalır.
     let temiz = govde.replace(['\n', '\r', '\t'], " ");
     let mut araliklar: Vec<(usize, usize)> = Vec::new();
     for (t, bas, son) in belirtecler(c, &temiz) {
-        let eslesti = sorgu.iter().enumerate().any(|(i, k)| {
-            if onek && i + 1 == sorgu.len() {
-                t.starts_with(k.as_str())
-            } else {
-                t == *k
-            }
-        });
+        let eslesti = sorgu.iter().enumerate().any(|(i, k)| if onekler.get(i).copied().unwrap_or(false) { t.starts_with(k.as_str()) } else { t == *k });
         if eslesti && temiz.is_char_boundary(bas) && temiz.is_char_boundary(son) {
             araliklar.push((bas, son));
         }
@@ -664,11 +721,20 @@ async fn gorunen_ad(oda: &Room, kullanici: &str) -> Option<String> {
 pub async fn baslat(client: &Client, veri: &Path) -> Sonuc<(Arc<Dizin>, Vec<JoinHandle<()>>)> {
     let yol = veri.join(DIZIN_KLASORU);
     let yol2 = yol.clone();
-    let (index, a) = tokio::task::spawn_blocking(move || dizini_ac(&yol2)).await.map_err(dep)??;
-    let yazici: IndexWriter = index.writer_with_num_threads(1, YAZICI_BELLEK).map_err(dep)?;
-    // Searches are made visible by an explicit `reload()` after each commit. · Aramalar her commit'ten sonra açık `reload()` ile görünür olur.
-    let okuyucu: IndexReader = index.reader_builder().reload_policy(ReloadPolicy::Manual).try_into().map_err(dep)?;
-    let belge_sayisi = Arc::new(AtomicU64::new(okuyucu.searcher().num_docs()));
+    // Opening the mmap index, acquiring the writer lock and building the reader all do blocking disk I/O.
+    // Mmap dizinini açma, yazıcı kilidini alma ve okuyucuyu kurma bloklayıcı disk G/Ç'si yapar.
+    let (index, a, yazici, okuyucu, ilk_sayi) =
+        tokio::task::spawn_blocking(move || -> Sonuc<(Index, Alanlar, IndexWriter, IndexReader, u64)> {
+            let (index, a) = dizini_ac(&yol2)?;
+            let yazici: IndexWriter = index.writer_with_num_threads(1, YAZICI_BELLEK).map_err(dep)?;
+            // Searches are made visible by an explicit `reload()` after each commit. · Aramalar her commit'ten sonra açık `reload()` ile görünür olur.
+            let okuyucu: IndexReader = index.reader_builder().reload_policy(ReloadPolicy::Manual).try_into().map_err(dep)?;
+            let ilk_sayi = okuyucu.searcher().num_docs();
+            Ok((index, a, yazici, okuyucu, ilk_sayi))
+        })
+        .await
+        .map_err(dep)??;
+    let belge_sayisi = Arc::new(AtomicU64::new(ilk_sayi));
     let (tx, rx) = mpsc::channel();
 
     let iplik = {
@@ -686,6 +752,7 @@ pub async fn baslat(client: &Client, veri: &Path) -> Sonuc<(Arc<Dizin>, Vec<Join
         iplik: Mutex::new(Some(iplik)),
         belge_sayisi,
         dolduruluyor: Arc::new(AtomicBool::new(false)),
+        onek_onbellek: Mutex::new(VecDeque::new()),
     });
 
     // LIVE: new messages (and edits) from sync. The SDK has already decrypted them. · CANLI: eşitlemeden gelen yeni mesajlar (ve düzenlemeler). SDK bunları zaten çözdü.
@@ -727,7 +794,7 @@ pub async fn baslat(client: &Client, veri: &Path) -> Sonuc<(Arc<Dizin>, Vec<Join
 /// Doldurma: katıldığımız her odayı geriye yürür, en son etkin oda önce, sayfa sayfa, yavaşça. Kaldığı yerden sürer.
 async fn dolgu_gorevi(client: Client, dizin: Arc<Dizin>, yol: PathBuf) {
     tokio::time::sleep(DOLDURMA_GECIKMESI).await;
-    let mut kayit = ilerleme_oku(&yol);
+    let mut kayit = tokio::task::spawn_blocking(move || ilerleme_oku(&yol)).await.unwrap_or_default();
     let mut odalar = client.joined_rooms();
     odalar.sort_by_key(|o| std::cmp::Reverse(o.latest_event_timestamp().map(|t| u64::from(t.0)).unwrap_or(0)));
     dizin.dolduruluyor.store(true, Ordering::Relaxed);

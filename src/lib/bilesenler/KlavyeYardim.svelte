@@ -1,4 +1,4 @@
-<!-- Keyboard shortcut list (Ctrl+/) · Klavye kısayolu listesi (Ctrl+/) -->
+<!-- Keyboard shortcut help (? or Ctrl+/) · Klavye kısayolu yardımı (? veya Ctrl+/) -->
 <script lang="ts">
   import { t } from "../i18n";
   import { klavye } from "../klavyeKisayol.svelte";
@@ -7,5 +7,5 @@
 </script>
 
 <AltSayfa baslik={t("klavye.kisayollar")} onkapat={() => (klavye.yardim = false)}>
-  <KlavyeListesi />
+  <KlavyeListesi otoOdak />
 </AltSayfa>

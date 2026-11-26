@@ -5,7 +5,7 @@
   büyür; geniş şekillerde altıgen "yeni sohbet" düğmesinin yanındaki her zaman görünen haptır.
 -->
 <script lang="ts">
-  import { egri, sureMs } from "../hareket";
+  import { hareketVar } from "../hareket";
   import { flushSync, onDestroy, tick } from "svelte";
   import MesajAramaSonuclari from "../arama-mesaj/MesajAramaSonuclari.svelte";
   import type { OdaOzeti } from "../api/tipler";
@@ -26,7 +26,6 @@
   let aramaModu = $state(false);
   let ham = $state("");
   let alan: HTMLInputElement | undefined = $state();
-  let hap: HTMLFormElement | undefined = $state();
   let sonlar = $state<string[]>(sonAramalariOku());
   let aramaKatmani = 0;
   const ayri = $derived(sorguAyir(ham));
@@ -61,30 +60,16 @@
   const gizli = $derived(dock ? !aramaModu : kabuk.altGizli && !aramaModu);
 
   /**
-   * Run a state change as ONE shared-element transition of the pill: View Transitions when the WebView has them, else animate the pill's
-   * width from the old to the new size. Reduced motion: change at once.
-   * Bir durum değişimini hapın TEK ortak öğe geçişi olarak çalıştır: View Transitions varsa o, yoksa hapın genişliğini canlandır.
+   * Run a state change as ONE shared-element transition of the pill when View Transitions exist; otherwise switch cleanly without animating width.
+   * View Transitions varsa hapın TEK ortak öğe geçişi olarak çalıştır; yoksa width canlandırmadan temizce değiştir.
    */
   async function hapMorf(degistir: () => void) {
-    const az = document.documentElement.hasAttribute("data-az-animasyon") || matchMedia("(prefers-reduced-motion: reduce)").matches;
     const vt = (document as Document & { startViewTransition?: (f: () => Promise<void>) => unknown }).startViewTransition;
-    if (az || !hap) return degistir();
-    if (vt && !dock) {
-      vt.call(document, async () => {
-        degistir();
-        await tick();
-      });
-      return;
-    }
-    const once = hap.getBoundingClientRect().width;
-    degistir();
-    await tick();
-    if (!hap) return;
-    const sonra = hap.getBoundingClientRect().width;
-    const sure = sureMs("--sure-yay");
-    if (sure > 0 && Math.abs(once - sonra) > 4) {
-      hap.animate([{ width: `${once}px` }, { width: `${sonra}px` }], { duration: sure, easing: egri("--egri-yay-sakin") });
-    }
+    if (!hareketVar() || !vt || dock) return degistir();
+    vt.call(document, async () => {
+      degistir();
+      await tick();
+    });
   }
 
   function aramaAc() {
@@ -187,7 +172,7 @@
       {/each}
     </div>
   {/if}
-  <form class="arama-hapi" class:odakta={aramaModu} bind:this={hap} onsubmit={gonder} role="search">
+  <form class="arama-hapi" class:odakta={aramaModu} onsubmit={gonder} role="search">
     <button class="ara-simge" type="button" aria-label={aramaModu ? t("sohbetler.aramaKapat") : t("sohbetler.ara")} onclick={aramaModu ? aramaKapat : () => alan?.focus()}>
       <Ikon ad={aramaModu ? "geri" : "ara"} boyut={20} />
     </button>
@@ -206,7 +191,7 @@
   .hap.aktif { background: color-mix(in srgb, var(--vurgu) 18%, var(--zemin)); color: var(--vurgu); font-weight: 600; }
   /* Search results panel · Arama sonuç paneli */
   .arama-paneli { position: absolute; inset: 0; z-index: 3; background: var(--zemin); display: flex; flex-direction: column; animation: belir var(--sure-orta) var(--egri-ac); }
-  @keyframes belir { from { opacity: 0; transform: translateY(8px); } }
+  @keyframes belir { from { opacity: 0; transform: translate3d(0, 8px, 0); } }
   .panel-kayan { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: calc(env(safe-area-inset-top) + .75rem) 0 8.5rem; }
   h1 { padding: .25rem 1rem .5rem; font-size: 1.75rem; }
   .op-cipleri { display: flex; gap: .5rem; padding: 0 1rem .5rem; }
@@ -227,18 +212,18 @@
   .alt-cubuk { position: absolute; z-index: 4; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: .75rem; padding: .5rem .75rem calc(.75rem + env(safe-area-inset-bottom)); pointer-events: none; transition: transform var(--sure-orta) var(--egri-ac), opacity var(--sure-cikis) linear; }
   .alt-cubuk.aramada { flex-wrap: wrap; row-gap: .5rem; }
   .kapsamlar { pointer-events: auto; flex: 0 0 calc(100% + 1.5rem); margin: 0 -.75rem; padding: 0 .75rem; box-sizing: border-box; display: flex; gap: .5rem; overflow-x: auto; scrollbar-width: none; animation: belir var(--sure-orta) var(--egri-ac); }
-  .cip-k { flex: none; min-height: 2.75rem; padding: 0 1rem 0 .75rem; display: inline-flex; align-items: center; gap: .5rem; border-radius: .875rem; background: var(--yuzey-3); color: var(--yazi-2); font-size: .875rem; font-weight: 500; transition: background var(--sure-orta) linear, color var(--sure-orta) linear, border-radius var(--sure-orta) var(--egri-ac); }
+  .cip-k { flex: none; min-height: 2.75rem; padding: 0 1rem 0 .75rem; display: inline-flex; align-items: center; gap: .5rem; border-radius: .875rem; background: var(--yuzey-3); color: var(--yazi-2); font-size: .875rem; font-weight: 500; }
   .cip-k.secili { background: var(--ton); color: var(--ton-ustu); border-radius: 1.375rem; }
   .alt-cubuk.gizli { transform: translate3d(0, calc(100% + 1rem), 0); opacity: 0; }
   .alt-cubuk.gizli > * { pointer-events: none; }
   .fab { width: 3.5rem; height: 3.5rem; border-radius: 1rem; display: inline-flex; align-items: center; justify-content: center; background: var(--vurgu); color: var(--vurgu-ustu); box-shadow: var(--kat-2); }
-  .arama-hapi { background: var(--yuzey-3); box-shadow: var(--kat-2); pointer-events: auto; flex: 1; min-width: 0; min-height: 3.5rem; display: flex; align-items: center; border-radius: 1.75rem; overflow: hidden; view-transition-name: arama-hapi; transition: border-color var(--sure-hizli) var(--egri-cikis); }
+  .arama-hapi { background: var(--yuzey-3); box-shadow: var(--kat-2); pointer-events: auto; flex: 1; min-width: 0; min-height: 3.5rem; display: flex; align-items: center; border-radius: 1.75rem; overflow: hidden; view-transition-name: arama-hapi; }
     .ara-simge { flex: none; width: 3.25rem; min-height: 3.5rem; display: inline-flex; align-items: center; justify-content: center; color: var(--yazi-2); }
   .arama-hapi input { flex: 1; min-width: 0; min-height: 3.5rem; background: none; border: 0; outline: none; color: var(--yazi); font-size: 1rem; text-overflow: ellipsis; }
   .arama-hapi input::placeholder { color: var(--yazi-2); }
   .temizle { flex: none; width: 2.75rem; height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; color: var(--yazi-2); }
-  /* The FAB scales away while searching so the pill grows into its place · Arama sırasında FAB küçülüp kaybolur; hap yerine büyür */
-  .fab-yer { pointer-events: auto; flex: none; display: inline-flex; transition: transform var(--sure-yay) var(--egri-yay-capkin), opacity var(--sure-orta) var(--egri-cikis), margin var(--sure-yay) var(--egri-yay-sakin); }
+  /* The FAB scales away via transform + opacity only (no per-frame margin animation). · Arama sırasında FAB yalnızca transform + opacity ile kaybolur (kare başına margin animasyonu yok). */
+  .fab-yer { pointer-events: auto; flex: none; display: inline-flex; transition: transform var(--sure-orta) var(--egri-ac), opacity var(--sure-cikis) linear; }
   .fab-yer.gizli-fab { transform: scale(.3); opacity: 0; margin-left: -4rem; pointer-events: none; }
   /* Phone: the field grows out of the dock (same place, same corners) · Telefon: alan dock'un içinden büyür (aynı yer, aynı köşeler) */
   .alt-cubuk.dockta.gizli { transform: scale(.94, 1.15); opacity: 0; transform-origin: 50% 100%; }

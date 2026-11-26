@@ -404,25 +404,26 @@ impl Drop for UygulamaSesi {
 
 /// The open player; dropping it stops the track, which also wakes a write that is waiting. · Açık çalar; düşünce parça durur, bekleyen yazma da uyanır.
 #[cfg(target_os = "android")]
-struct Calar;
+struct Calar(i32);
 #[cfg(target_os = "android")]
 impl Drop for Calar {
     fn drop(&mut self) {
-        crate::android_jni::arama_sesi_cal_kapat();
+        // Closes only this player's own id: a newer call's player stays. · Yalnızca bu çalarınki: daha yeni aramanın çalarına dokunulmaz.
+        crate::android_jni::arama_sesi_cal_kapat(self.0);
     }
 }
 
 #[cfg(target_os = "android")]
 fn cal(karisim: &Mutex<Karistirici>, apm: &Mutex<Apm>, dur: &AtomicBool, calar: &Mutex<Option<Calar>>) -> std::io::Result<()> {
     let hata = |e: String| std::io::Error::other(e);
-    crate::android_jni::arama_sesi_cal_ac().map_err(hata)?;
-    *kilitle(calar) = Some(Calar);
+    let id = crate::android_jni::arama_sesi_cal_ac().map_err(hata)?;
+    *kilitle(calar) = Some(Calar(id));
     if dur.load(Relaxed) {
         *kilitle(calar) = None;
         return Ok(());
     }
     // Same as pacat: the blocking write lets the device set the pace. · pacat gibi: bekleyen yazma tempoyu cihaza bıraktırır.
-    let sonuc = crate::android_jni::arama_sesi_cal_dongusu(dur, || {
+    let sonuc = crate::android_jni::arama_sesi_cal_dongusu(id, dur, || {
         let mut kare = kilitle(karisim).sonraki();
         let cikan = kare.clone();
         let _ = kilitle(apm).0.process_reverse_stream(&mut kare, HIZ as i32, 2);
@@ -436,18 +437,22 @@ fn cal(karisim: &Mutex<Karistirici>, apm: &Mutex<Apm>, dur: &AtomicBool, calar: 
 #[cfg(target_os = "android")]
 pub struct Kayit {
     dur: Arc<AtomicBool>,
+    /// Id of the microphone the loop has open right now (0 = none); `drop` closes exactly that one.
+    /// Döngünün şu an açık tuttuğu mikrofonun kimliği (0 = yok); `drop` tam onu kapatır.
+    id: Arc<std::sync::atomic::AtomicI32>,
 }
 
 #[cfg(target_os = "android")]
 impl Kayit {
     /// Only the microphone exists here (mono); `ek` (an application stream) is never asked for on Android. · Burada yalnız mikrofon var (mono).
     fn baslat(_ek: Vec<String>, _kanal: u32, _gecikme: u32, mut al: impl FnMut(Vec<i16>) -> bool + Send + 'static) -> Kayit {
-        let k = Kayit { dur: Arc::default() };
+        let k = Kayit { dur: Arc::default(), id: Arc::default() };
         let dur = k.dur.clone();
+        let id = k.id.clone();
         thread::spawn(move || {
             while !dur.load(Relaxed) {
                 // Fails while the microphone permission is not granted yet: try again shortly. · Mikrofon izni henüz yokken başarısız olur: az sonra yeniden dene.
-                if let Err(e) = crate::android_jni::arama_sesi_kayit_dongusu(&dur, KARE, &mut al) {
+                if let Err(e) = crate::android_jni::arama_sesi_kayit_dongusu(&dur, &id, KARE, &mut al) {
                     tracing::warn!("ses kaydı açılamadı: {e}");
                 }
                 if !dur.load(Relaxed) {
@@ -463,7 +468,10 @@ impl Kayit {
 impl Drop for Kayit {
     fn drop(&mut self) {
         self.dur.store(true, Relaxed);
-        crate::android_jni::arama_sesi_kayit_kapat();
+        let id = self.id.swap(0, std::sync::atomic::Ordering::SeqCst);
+        if id > 0 {
+            crate::android_jni::arama_sesi_kayit_kapat(id);
+        }
     }
 }
 

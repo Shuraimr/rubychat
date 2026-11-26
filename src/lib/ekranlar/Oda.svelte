@@ -191,6 +191,25 @@
     return { olayId, ust: el.getBoundingClientRect().top - kutuUst };
   }
 
+  // WebKitGTK (the desktop) has no CSS scroll anchoring: anything that grows or shrinks ABOVE the view (a late image, a row painted for the
+  // first time, the start-of-chat card) pushes the messages being read. A ResizeObserver on the content puts the first visible row back
+  // where it was before the frame is painted, the way Chromium (Android) already does natively.
+  // WebKitGTK'de (masaüstü) CSS kaydırma çapası yok: görünümün ÜSTÜNDE büyüyen ya da küçülen her şey (geç gelen görsel, ilk kez boyanan
+  // satır, sohbetin başı kartı) okunan mesajları iter. İçerikteki ResizeObserver ilk görünür satırı kare boyanmadan eski yerine koyar;
+  // Chromium (Android) bunu zaten kendisi yapar.
+  const yerelCapa = typeof CSS !== "undefined" && CSS.supports("overflow-anchor", "auto");
+  let surekliCapa: { olayId: string; ust: number } | null = null;
+  function capaTut() {
+    surekliCapa = !yerelCapa && kutu && ilkKaydirmaYapildi && !altaYapisik ? ilkGorunurOlay() : null;
+  }
+  function capayaDon() {
+    if (yerelCapa || !kutu || !surekliCapa || altaYapisik) return;
+    const el = kutu.querySelector<HTMLElement>(`[data-olay-id="${CSS.escape(surekliCapa.olayId)}"]`);
+    if (!el) return;
+    const fark = el.getBoundingClientRect().top - kutu.getBoundingClientRect().top - surekliCapa.ust;
+    if (Math.abs(fark) > 0.5) kaydirAyarla(kutu.scrollTop + fark);
+  }
+
   /** Event id (or unique id) of the oldest rendered message row, used to stop empty automatic pagination.
    *  Çizilen en eski mesaj satırının olay kimliği (veya tekil kimliği); boş otomatik sayfalamayı durdurmak için. */
   function ilkListeOlayi(): string | null {
@@ -206,7 +225,9 @@
    *  Üst tampon kısaldığında eski mesajları ister (kaydırma, liste güncellemesi veya boyut değişimi). */
   function eskiGerekli(kaydirmadan = false) {
     if (!kutu || !ilkKaydirmaYapildi || zaman.onbellekten || zaman.yukleniyor || zaman.eskiYukleniyor || zaman.basaUlasildi || zaman.hata || zamanAsimi) return;
-    if (kutu.scrollTop >= Math.max(400, kutu.clientHeight * 1.5)) return;
+    // Ask early (about three screens before the top): a fast flick must not reach the top before the page has arrived.
+    // Erken iste (tepeye yaklaşık üç ekran kala): hızlı bir savurma sayfa gelmeden tepeye varmamalı.
+    if (kutu.scrollTop >= Math.max(1600, kutu.clientHeight * 3)) return;
     if (!kaydirmadan) {
       const ilk = ilkListeOlayi();
       if (otoSonIlk !== undefined && ilk === otoSonIlk) {
@@ -301,6 +322,7 @@
       oncekiYukseklik = kutu.scrollHeight;
       altaGorunur = altaYapisik;
       if (altaYapisik) sonGorulenId = sonId;
+      capaTut();
       eskiGerekli();
     });
     if (altaYapisik) okunduPlanla();
@@ -313,6 +335,8 @@
       if (!kutu) return;
       kutuBoyu = kutu.clientHeight - altYuk;
       if (altaYapisik) kaydirAyarla(kutu.scrollHeight);
+      else capayaDon();
+      capaTut();
       eskiGerekli();
     });
     g.observe(kutu);
@@ -352,6 +376,7 @@
       sonGorulenId = zaman.ogeler.at(-1)?.id ?? null;
       if (!alttaydi) okunduPlanla();
     }
+    capaTut();
     eskiGerekli(kullanici);
   }
 
@@ -405,6 +430,12 @@
   let uyelerAcik = $state(false);
   let ozellestirAcik = $state(false);
   let aramaAcik = $state(false);
+  let aramaVim = $state(false);
+  let aramaApi: { adim: (yon: -1 | 1) => string | null; odakla: () => void; kapat: () => void } | null = null;
+  let aramaDurum = $state({ sira: 0, toplam: 0 });
+  /** Words of the CURRENT results and the events they matched: only those bubbles highlight (others keep their formatting).
+   *  GÜNCEL sonuçların kelimeleri ve eşleştikleri olaylar: yalnızca o balonlar vurgulanır (diğerleri biçimini korur). */
+  let aramaVurgu = $state.raw<{ sorgu: string; idler: Set<string> }>({ sorgu: "", idler: new Set() });
   let aktifOlay = $state<string | null>(null);
   let aramaSorgu = $state("");
   const gorunum = $derived(sohbetGorunumu.al(odaId));
@@ -507,10 +538,21 @@
       },
       aramaAcik: () => aramaAcik,
       sabitleyebilir: () => zaman.sabitleyebilir,
-      ara: () => {
-        if (aramaAcik) document.querySelector<HTMLInputElement>('.oda .cubuk input[type="search"]')?.focus();
-        else aramaAcik = true;
+      ara: (metin?: string, vim = false) => {
+        aramaVim = vim;
+        if (metin !== undefined) aramaSorgu = metin;
+        if (aramaAcik) {
+          if (metin === undefined) aramaApi?.odakla();
+          else document.querySelector<HTMLInputElement>('.oda .cubuk input[type="search"]')?.blur();
+        } else {
+          aramaAcik = true;
+        }
       },
+      aramaKapat: () => {
+        if (aramaApi) aramaApi.kapat();
+        else aramaAcik = false;
+      },
+      aramaAdim: (yon) => aramaApi?.adim(yon) ?? null,
       enAlta: asagiIn,
       olayaAtla: (olayId) => void mesajaGit(buOda, olayId, false),
       menu: (o, x, y) => menuAc(x, y, o),
@@ -546,6 +588,23 @@
     };
   });
 
+  // Mirror in-room search state to the mode indicator and sync message selection while browsing matches in Normal mode.
+  // Oda içi arama durumunu kip göstergesine yansıt ve Normal kipte eşleşmeleri gezerken mesaj seçimini eşle.
+  $effect(() => {
+    klavye.aramaAcik = aramaAcik;
+    klavye.aramaSira = aramaAcik ? aramaDurum.sira : 0;
+    klavye.aramaToplam = aramaAcik ? aramaDurum.toplam : 0;
+    if (aramaAcik && aramaSorgu.trim()) klavye.sonArama.set(buOda, aramaSorgu.trim());
+    if (aramaAcik && aktifOlay && !klavye.odakAramada) klavye.seciliId = aktifOlay;
+    return () => {
+      if (klavye.oda?.odaId === buOda) {
+        klavye.aramaAcik = false;
+        klavye.aramaSira = 0;
+        klavye.aramaToplam = 0;
+      }
+    };
+  });
+
   function tepkiKimleri(oge: ZamanOgesi, r: Tepki) {
     tepkiKimlerHedef = { oge, anahtar: r.anahtar };
   }
@@ -571,6 +630,10 @@
   interface Gun { id: string; zaman: number | null; satirlar: Satir[] }
   const GRUP_ARALIGI = 5 * 60_000;
 
+  // Row objects are reused while their message and grouping flags stay the same, so an unchanged bubble gets identical props.
+  // Satır nesneleri mesajları ve gruplama bayrakları aynı kaldıkça yeniden kullanılır; değişmeyen balon aynı prop'ları alır.
+  const YENI_SATIR: Satir = { tur: "yeni" };
+  let oncekiSatirlar = new Map<string, Satir & { tur: "oge" }>();
   const gunler = $derived.by(() => {
     const sonuc: Gun[] = [];
     let gun: Gun = { id: "basla", zaman: null, satirlar: [] };
@@ -588,7 +651,7 @@
       }
       if (o.tur === "okunmamis_ayirici") continue;
       if (o.id === yeniKilit) {
-        gun.satirlar.push({ tur: "yeni" });
+        gun.satirlar.push(YENI_SATIR);
         onceki = null;
       }
       const s: Satir & { tur: "oge" } = { tur: "oge", oge: o, ilk: true, son: true, uzak: sira < sinir };
@@ -600,6 +663,17 @@
       gun.satirlar.push(s);
       onceki = s;
     }
+    const yeniSatirlar = new Map<string, Satir & { tur: "oge" }>();
+    for (const g of sonuc) {
+      g.satirlar = g.satirlar.map((x) => {
+        if (x.tur !== "oge") return x;
+        const e = oncekiSatirlar.get(x.oge.id);
+        const r = e && e.oge === x.oge && e.ilk === x.ilk && e.son === x.son && e.uzak === x.uzak ? e : x;
+        yeniSatirlar.set(x.oge.id, r);
+        return r;
+      });
+    }
+    oncekiSatirlar = yeniSatirlar;
     return sonuc.filter((g) => g.satirlar.length > 0);
   });
 
@@ -679,6 +753,9 @@
 
   <SohbetZemini resim={gorunum.resim} resimAnahtari={odaId} karart={gorunum.karart} />
   <div class="zaman-sarmal">
+    <!-- Over the list, not in it: a line inside the scrolled content would push the messages every time a page starts and ends.
+         Listenin içinde değil üstünde: kayan içerikteki bir satır her sayfa başlayıp bittiğinde mesajları iterdi. -->
+    {#if zaman.eskiYukleniyor}<p class="eski-yukleniyor" role="status">{t("oda.eskiYukleniyor")}</p>{/if}
     <div class="zaman" bind:this={kutu} onscroll={kaydir}>
       <div class="sutun">
         {#if zaman.hata}
@@ -687,7 +764,6 @@
         {:else if zamanAsimi}
           <BosDurum maskot="hata" baslik={t("oda.acilamadi")} metin={t("oda.zamanAsimi")} eylem={t("oda.yeniden")} onEylem={yenidenAc} />
         {:else}
-          {#if zaman.eskiYukleniyor}<p class="orta">{t("oda.eskiYukleniyor")}</p>{/if}
           {#if zaman.basaUlasildi && zaman.ogeler.length > 0 && bilgi}
             <!-- Start of the conversation (design section 13) · Konuşmanın başı (tasarım bölüm 13) -->
             <div class="basi">
@@ -711,7 +787,7 @@
                 {#if s.tur === "yeni"}
                   <div class="yeni" data-yeni><span>{t("oda.yeniMesajlar")}</span></div>
                 {:else}
-                  <MesajBalonu oge={s.oge} konum={konumu(s)} uzak={s.uzak} gonderenGoster={grupOdasi} yeni={!!yeniGelenler[s.oge.id]} vurgulu={menu?.oge.id === s.oge.id || hizliTepki?.oge.id === s.oge.id} secili={!!s.oge.olayId && klavye.seciliId === s.oge.olayId} eslesme={aramaAcik && !!aktifOlay && s.oge.olayId === aktifOlay} vurguSorgu={aramaAcik ? aramaSorgu : ""} dm={aranabilir} okundu={okunanlar.has(s.oge.id)} yanitla={(o) => yazma.yanitla(o)} {tepkiKimleri} okuyanlarAc={(o) => (okuyanHedef = o)} {yenidenDene} vazgec={(o) => void vazgec(o)} {menuAc} />
+                  <MesajBalonu oge={s.oge} konum={konumu(s)} uzak={s.uzak} gonderenGoster={grupOdasi} yeni={!!yeniGelenler[s.oge.id]} vurgulu={menu?.oge.id === s.oge.id || hizliTepki?.oge.id === s.oge.id} secili={!!s.oge.olayId && klavye.seciliId === s.oge.olayId} eslesme={aramaAcik && !!aktifOlay && s.oge.olayId === aktifOlay} vurguSorgu={aramaAcik && s.oge.olayId && aramaVurgu.idler.has(s.oge.olayId) ? aramaVurgu.sorgu : ""} dm={aranabilir} okundu={okunanlar.has(s.oge.id)} yanitla={(o) => yazma.yanitla(o)} {tepkiKimleri} okuyanlarAc={(o) => (okuyanHedef = o)} {yenidenDene} vazgec={(o) => void vazgec(o)} {menuAc} />
                 {/if}
               {/each}
             </section>
@@ -725,7 +801,16 @@
   </div>
 
   {#if aramaAcik}
-    <OdaIciArama {odaId} onkapat={() => (aramaAcik = false)} bind:aktifOlay bind:sorgu={aramaSorgu} />
+    <OdaIciArama
+      {odaId}
+      onkapat={() => { aramaAcik = false; aramaVim = false; }}
+      bind:aktifOlay
+      bind:sorgu={aramaSorgu}
+      vimKipi={aramaVim}
+      adimBagla={(a) => (aramaApi = a)}
+      durumDegis={(d) => (aramaDurum = d)}
+      vurguDegis={(v) => (aramaVurgu = v)}
+    />
   {:else}
     <YazmaAlani {odaId} sifreli={bilgi?.sifreli ?? false} {gonder} altta={altaGorunur} {yeniSayi} enAlta={asagiIn} {seciliOge} bind:yukseklik={altYuk} />
   {/if}
@@ -812,8 +897,11 @@
   .alt.yaziyor { color: var(--vurgu); font-weight: 500; overflow: hidden; text-overflow: ellipsis; display: block; }
   .alt { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: .75rem; color: var(--yazi-2); white-space: nowrap; overflow: hidden; }
   .uye { overflow: hidden; text-overflow: ellipsis; }
-  .zaman-sarmal { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  .zaman { touch-action: pan-y; position: relative; z-index: 1; flex: 1; min-height: 0; overflow-y: auto; padding: calc(var(--tepe-yer) + 4px) .75rem calc(var(--yazma-yer) + 4px); scroll-padding-top: calc(var(--tepe-yer) + 8px); scroll-padding-bottom: calc(var(--yazma-yer) + 8px); overscroll-behavior: contain; }
+  .zaman-sarmal { contain: layout style; position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  /* Desktop chat zoom (--sohbet-olcek) applies here via font-size so every em inside the timeline scales without zoom/transform. */
+  /* Masaüstü sohbet ölçeği (--sohbet-olcek) burada font-size ile uygulanır; çizelgedeki tüm em değerleri zoom/transform olmadan ölçeklenir. */
+  .zaman { touch-action: pan-y; position: relative; z-index: 1; flex: 1; min-height: 0; overflow-y: auto; font-size: calc(1rem * var(--sohbet-olcek, 1)); padding: calc(var(--tepe-yer) + 4px) var(--sohbet-yatay-dolgu, .75rem) calc(var(--yazma-yer) + 4px); scroll-padding-top: calc(var(--tepe-yer) + 8px); scroll-padding-bottom: calc(var(--yazma-yer) + 8px); overscroll-behavior: contain; }
+  :global([data-yogunluk="kompakt"]) .ust { min-height: 54px; padding: 5px 6px; }
   /* Landscape phone (height <= 500px): header 48px, message column at most 680px and centred (design section 15). */
   /* Yatay telefon (yükseklik <= 500px): başlık 48px, mesaj sütunu en fazla 680px ve ortalı (tasarım bölüm 15). */
   .sutun { width: 100%; }
@@ -822,17 +910,26 @@
     .ust { min-height: 48px; padding: 1px 5px; }
     .sutun { max-width: 680px; margin: 0 auto; }
   }
-  .orta { text-align: center; font-size: .8125rem; color: var(--yazi-2); padding: 12px; }
-  .basi { display: grid; justify-items: center; gap: 6px; padding: 24px 24px 8px; text-align: center; font-size: .875rem; color: var(--yazi-2); }
-  .basi strong { font-family: var(--baslik-tipi); font-size: 1.0625rem; color: var(--yazi); }
-  .basi-kutu { width: 48px; height: 48px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: var(--ton); color: var(--ton-ustu); margin-bottom: 4px; }
+  .eski-yukleniyor {
+    position: absolute; z-index: 3; top: calc(var(--tepe-yer) + 8px); left: 50%; translate: -50% 0; pointer-events: none;
+    padding: 6px 14px; border-radius: 16px; background: var(--yuzey-2); box-shadow: var(--kat-1);
+    font-size: .75rem; font-weight: 500; color: var(--yazi-2); white-space: nowrap;
+    /* Appears only when a page takes a moment (no flash on a quick one) · Yalnızca sayfa biraz sürerse görünür (hızlısında yanıp sönmez) */
+    animation: eski-belir var(--sure-hizli) var(--egri-cikis) 300ms both;
+  }
+  @keyframes eski-belir { from { opacity: 0; } }
+  .orta { text-align: center; font-size: .8125em; color: var(--yazi-2); padding: .75em; }
+  .basi { display: grid; justify-items: center; gap: .375em; padding: 1.5em 1.5em .5em; text-align: center; font-size: .875em; color: var(--yazi-2); }
+  .basi strong { font-family: var(--baslik-tipi); font-size: 1.2em; color: var(--yazi); }
+  .basi-kutu { width: 3em; height: 3em; border-radius: .75em; display: inline-flex; align-items: center; justify-content: center; background: var(--ton); color: var(--ton-ustu); margin-bottom: .25em; }
 
   /* Sticky date chip: sticks to the top while its day scrolls by, bounded by its own <section>. */
   /* Yapışkan tarih hapı: günü kayarken üstte kalır, kendi <section>'ıyla sınırlıdır. */
-  .tarih { position: sticky; top: calc(var(--tepe-yer) - 4px); z-index: 2; display: flex; justify-content: center; padding: 8px 0 4px; pointer-events: none; }
-  .tarih span { background: var(--yuzey-2); color: var(--yazi); font-size: .75rem; font-weight: 600; padding: .25rem .75rem; border-radius: .75rem; }
+  .tarih { position: sticky; top: calc(var(--tepe-yer) - 4px); z-index: 2; display: flex; justify-content: center; padding: .5em 0 .25em; pointer-events: none; }
+  :global([data-yogunluk="kompakt"]) .tarih { padding: .25em 0 .125em; }
+  .tarih span { background: var(--yuzey-2); color: var(--yazi); font-size: .75em; font-weight: 600; padding: .25em .75em; border-radius: .75em; }
 
-  .yeni { display: flex; align-items: center; gap: 12px; margin: 14px 0 6px; color: var(--vurgu); font-size: .75rem; font-weight: 600; }
+  .yeni { display: flex; align-items: center; gap: .75em; margin: .875em 0 .375em; color: var(--vurgu); font-size: .75em; font-weight: 600; }
   .yeni::before, .yeni::after { content: ""; flex: 1; height: 1px; background: var(--vurgu); opacity: .5; }
 
   .iskelet { display: flex; margin-top: 10px; }

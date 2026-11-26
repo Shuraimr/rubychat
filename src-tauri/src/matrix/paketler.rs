@@ -8,15 +8,14 @@
 //!  - room state `im.ponies.room_emotes` / `m.room.image_pack` (state key = pack name)  · oda durumu
 //!  - my account data `im.ponies.user_emotes` / `m.image_pack`                         · kendi hesap verim
 //!  - my account data `im.ponies.emote_rooms` / `m.image_pack.rooms`: which room packs I enabled · hangi oda paketlerini açtığım
-//! Sliding sync does not request these custom state types, so the store usually lacks them: when the store has none we ask the
-//! server (`GET /state`, once per picker opening; the UI caches the answer).
-//! Sliding sync bu özel durum türlerini istemez, bu yüzden depoda genelde yoktur: depoda yoksa sunucuya sorarız (`GET /state`,
-//! seçici açılışı başına bir kez; arayüz cevabı önbelleğe alır).
+//! Read strictly from the local store: downloading the entire room state (`GET /state`) on every picker open pulls
+//! megabytes of membership events over the network for rooms that have no packs.
+//! Yalnızca yerel depodan okunur: her seçici açılışında odanın bütün durumunu (`GET /state`) indirmek, paketi olmayan
+//! odalarda bile ağdan megabaytlarca üyelik olayı çekiyordu.
 
 use matrix_sdk::{
     deserialized_responses::RawAnySyncOrStrippedState,
     ruma::{
-        api::client::state::get_state_events,
         events::{GlobalAccountDataEventType, StateEventType},
         RoomId,
     },
@@ -35,10 +34,6 @@ use crate::{
 const ODA_TURLERI: [&str; 2] = ["m.room.image_pack", "im.ponies.room_emotes"];
 const KULLANICI_TURLERI: [&str; 2] = ["m.image_pack", "im.ponies.user_emotes"];
 const ODA_LISTESI_TURLERI: [&str; 2] = ["m.image_pack.rooms", "im.ponies.emote_rooms"];
-
-/// Rooms with more joined members than this are not asked for their state from the server (a `/state` of a huge room is megabytes).
-/// Bu kadar üyeden fazlası olan odalar için sunucudan durum istenmez (dev bir odanın `/state`i megabaytlarca olur).
-const BUYUK_ODA: u64 = 2000;
 
 fn ham_json(o: &RawAnySyncOrStrippedState) -> Option<Value> {
     match o {
@@ -92,8 +87,18 @@ fn paket_coz(kaynak: &str, yedek_ad: &str, icerik: &Value) -> Option<GorselPaket
     })
 }
 
-/// (state_key, content) of every image-pack state event of a room, from the store first, else from the server.
-/// Bir odanın her görsel paketi durum olayının (state_key, içerik); önce depodan, yoksa sunucudan.
+/// What the network answer gave per room this run (kept, so the picker shows the same packs every time it opens).
+/// Bu çalıştırmada ağ yanıtının oda başına verdiği (saklanır; seçici her açılışta aynı paketleri göstersin).
+type PaketOlaylari = Vec<(String, Value)>;
+static AGDAN_GELEN: std::sync::Mutex<Option<std::collections::HashMap<String, PaketOlaylari>>> = std::sync::Mutex::new(None);
+/// Above this the full room state is too heavy to fetch for a few emoji. · Bunun üstünde birkaç emoji için tam oda durumu çok ağır.
+const BUYUK_ODA: u64 = 2000;
+
+/// (state_key, content) of every image-pack state event of a room: the local store first. Sliding sync does not always bring these
+/// events into the store, so when it has none the full state is fetched, but at most once per room per run (it used to be fetched
+/// every time the picker opened).
+/// Bir odanın her görsel paketi durum olayının (state_key, içerik): önce yerel depo. Sliding sync bu olayları depoya her zaman
+/// getirmez; depoda yoksa tam durum indirilir, ama her oda için çalıştırma başına en çok bir kez (eskiden seçici her açılışta indiriyordu).
 async fn oda_paket_olaylari(oda: &Room) -> Vec<(String, Value)> {
     let mut sonuc = Vec::new();
     for tur in ODA_TURLERI {
@@ -110,7 +115,11 @@ async fn oda_paket_olaylari(oda: &Room) -> Vec<(String, Value)> {
     if !sonuc.is_empty() || oda.joined_members_count() > BUYUK_ODA {
         return sonuc;
     }
-    let Ok(yanit) = oda.client().send(get_state_events::v3::Request::new(oda.room_id().to_owned())).await else { return sonuc };
+    if let Some(onceki) = AGDAN_GELEN.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).get(oda.room_id().as_str()) {
+        return onceki.clone();
+    }
+    let istek = matrix_sdk::ruma::api::client::state::get_state_events::v3::Request::new(oda.room_id().to_owned());
+    let Ok(yanit) = oda.client().send(istek).await else { return sonuc };
     for olay in yanit.room_state {
         let Ok(v) = olay.deserialize_as_unchecked::<Value>() else { continue };
         let tur = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -120,6 +129,7 @@ async fn oda_paket_olaylari(oda: &Room) -> Vec<(String, Value)> {
             }
         }
     }
+    AGDAN_GELEN.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(oda.room_id().to_string(), sonuc.clone());
     sonuc
 }
 

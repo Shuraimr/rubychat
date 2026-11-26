@@ -181,10 +181,14 @@ pub fn kaydet(app: AppHandle, client: &Client) {
 /// TURN servers from the homeserver, cached until shortly before the TTL ends.
 /// Anasunucudan TURN sunucuları; TTL bitmeden kısa süre öncesine kadar önbellekte tutulur.
 pub async fn turn_sunuculari(durum: &AppState, client: &Client) -> Sonuc<Vec<TurnSunucu>> {
-    let mut onbellek = durum.turn.lock().await;
-    if let Some(o) = onbellek.as_ref() {
-        if o.gecerli_son > Instant::now() {
-            return Ok(o.sunucular.clone());
+    // Release the cache lock BEFORE the network call so a slow TURN request can never block logout or account switch.
+    // Ağ çağrısından ÖNCE önbellek kilidini bırak; yavaş bir TURN isteği çıkış ya da hesap değişimini asla kilitlemesin.
+    {
+        let onbellek = durum.turn.lock().await;
+        if let Some(o) = onbellek.as_ref() {
+            if o.gecerli_son > Instant::now() {
+                return Ok(o.sunucular.clone());
+            }
         }
     }
     let yanit = client.send(TurnIstegi::new()).await?;
@@ -192,7 +196,12 @@ pub async fn turn_sunuculari(durum: &AppState, client: &Client) -> Sonuc<Vec<Tur
     // Refresh a minute early so a call never starts with credentials about to expire.
     // Bir dakika erken yenile; arama bitmek üzere olan bir bilgiyle başlamasın.
     let omur = yanit.ttl.saturating_sub(Duration::from_secs(60));
-    *onbellek = Some(TurnOnbellek { sunucular: sunucular.clone(), gecerli_son: Instant::now() + omur });
+    // Only cache if the same account is still active (never leak credentials across an account switch).
+    // Yalnızca aynı hesap hâlâ etkinse önbelleğe al (hesap değişiminde bilgiler sızmasın).
+    let ayni_hesap = durum.oturum.read().await.as_ref().is_some_and(|o| o.client.user_id() == client.user_id());
+    if ayni_hesap {
+        *durum.turn.lock().await = Some(TurnOnbellek { sunucular: sunucular.clone(), gecerli_son: Instant::now() + omur });
+    }
     Ok(sunucular)
 }
 

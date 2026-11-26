@@ -210,6 +210,9 @@ class EcArama {
         if (cikis) sesCihaziSec(cikis);
         this.ekranAc();
         await yerelAramaBaslat(oda.id, oda.dm, tur === "baslat");
+        // Hung up while Rust was starting: the earlier close did nothing (the call did not exist yet), so close it now.
+        // Rust başlarken kapatıldı: önceki kapatma boşa gitti (arama henüz yoktu), şimdi kapat.
+        if (this.asama !== "yukleniyor") void yerelAramaKapat().catch(() => {});
         return true;
       }
       const a = await ecAc({

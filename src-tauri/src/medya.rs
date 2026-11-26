@@ -57,6 +57,22 @@ fn video_tur_bul(b: &[u8]) -> Option<&'static str> {
     }
 }
 
+enum DosyaGovdesi {
+    /// Owned freshly fetched bytes: moved into a 200 response with zero copy, and only wrapped in `Arc` + cached on Range requests.
+    /// Yeni indirilmiş sahiplenilen baytlar: 200 yanıtına sıfır kopyayla taşınır, yalnızca Range isteklerinde `Arc`'a alınıp önbelleklenir.
+    Tek(Vec<u8>),
+    Paylasilan(Arc<Vec<u8>>),
+}
+
+impl DosyaGovdesi {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Tek(b) => b.as_slice(),
+            Self::Paylasilan(b) => b.as_slice(),
+        }
+    }
+}
+
 /// `medya://localhost/m/<id>`: a full media file or a message thumbnail registered by the timeline mapper (see `durum::MedyaKayit`).
 /// Works for encrypted media too (the SDK decrypts with the `EncryptedFile` it finds in the registry) and answers `Range`
 /// requests, which the Android video player needs for seeking.
@@ -68,28 +84,25 @@ async fn kayitli_sun(app: &AppHandle, istek: &Request<Vec<u8>>, id: &str) -> Res
     let kayit = state.medya_kaynaklari.lock().ok().and_then(|k| k.harita.get(id).cloned());
     let Some(kayit) = kayit else { return yanit(404, "text/plain", vec![]) };
     let Ok(client) = state.client().await else { return yanit(401, "text/plain", vec![]) };
-    let bayt = match son_dosya_al(id) {
-        Some(b) => b,
+    let govde = match son_dosya_al(id) {
+        Some(b) => DosyaGovdesi::Paylasilan(b),
         None => {
             let params = MediaRequestParameters { source: kayit.kaynak, format: MediaFormat::File };
             match client.media().get_media_content(&params, true).await {
-                Ok(b) => {
-                    let b = Arc::new(b);
-                    son_dosya_koy(id, b.clone());
-                    b
-                }
+                Ok(b) => DosyaGovdesi::Tek(b),
                 Err(_) => return yanit(404, "text/plain", vec![]),
             }
         }
     };
+    let dilim = govde.as_slice();
     let tur = kayit
         .mime
         .as_deref()
         .filter(|m| !m.is_empty() && *m != "application/octet-stream")
-        .or_else(|| video_tur_bul(&bayt))
-        .unwrap_or_else(|| tur_bul(&bayt))
+        .or_else(|| video_tur_bul(dilim))
+        .unwrap_or_else(|| tur_bul(dilim))
         .to_owned();
-    let toplam = bayt.len();
+    let toplam = dilim.len();
     // "bytes=START-END" (END optional). Anything else = send the whole body. · "bytes=BAŞ-SON" (SON isteğe bağlı). Başka her şey = tamamını gönder.
     let aralik = istek
         .headers()
@@ -112,26 +125,40 @@ async fn kayitli_sun(app: &AppHandle, istek: &Request<Vec<u8>>, id: &str) -> Res
             Some((bas, son.min(toplam.saturating_sub(1))))
         });
     match aralik {
-        Some((bas, son)) if bas <= son && bas < toplam => Response::builder()
-            .status(206)
-            .header("Content-Type", tur)
-            .header("Accept-Ranges", "bytes")
-            .header("Content-Range", format!("bytes {bas}-{son}/{toplam}"))
-            .header("Cache-Control", "private, max-age=86400")
-            .body(bayt[bas..=son].to_vec())
-            .unwrap_or_else(|_| Response::new(Vec::new())),
+        Some((bas, son)) if bas <= son && bas < toplam => {
+            let parca = govde.as_slice()[bas..=son].to_vec();
+            // Cache only Range-served files (video/audio seeking): plain images skip `SON_DOSYA` so they neither copy nor evict a playing video.
+            // Yalnızca Range ile sunulan dosyaları (video/ses sarma) önbellekle: düz resimler `SON_DOSYA`'ya girmez; hem kopya oluşmaz hem oynayan video atılmaz.
+            if let DosyaGovdesi::Tek(b) = govde {
+                son_dosya_koy(id, Arc::new(b));
+            }
+            Response::builder()
+                .status(206)
+                .header("Content-Type", tur)
+                .header("Accept-Ranges", "bytes")
+                .header("Content-Range", format!("bytes {bas}-{son}/{toplam}"))
+                .header("Cache-Control", "private, max-age=86400")
+                .body(parca)
+                .unwrap_or_else(|_| Response::new(Vec::new()))
+        }
         Some(_) => Response::builder()
             .status(416)
             .header("Content-Range", format!("bytes */{toplam}"))
             .body(Vec::new())
             .unwrap_or_else(|_| Response::new(Vec::new())),
-        None => Response::builder()
-            .status(200)
-            .header("Content-Type", tur)
-            .header("Accept-Ranges", "bytes")
-            .header("Cache-Control", "private, max-age=86400")
-            .body(Arc::unwrap_or_clone(bayt))
-            .unwrap_or_else(|_| Response::new(Vec::new())),
+        None => {
+            let baytlar = match govde {
+                DosyaGovdesi::Tek(b) => b,
+                DosyaGovdesi::Paylasilan(b) => Arc::unwrap_or_clone(b),
+            };
+            Response::builder()
+                .status(200)
+                .header("Content-Type", tur)
+                .header("Accept-Ranges", "bytes")
+                .header("Cache-Control", "private, max-age=86400")
+                .body(baytlar)
+                .unwrap_or_else(|_| Response::new(Vec::new()))
+        }
     }
 }
 

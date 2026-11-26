@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import { untrack, type Snippet } from "svelte";
+  import { hareketVar } from "../hareket";
 
   let { sayfalar, secili, sec, ilerle, kilitli = false, sayfa }: {
     sayfalar: string[];
@@ -23,8 +24,6 @@
   let ilk = true;
   let parmakta = false;
   let z: ReturnType<typeof setTimeout> | undefined;
-
-  const azHareket = () => document.documentElement.hasAttribute("data-az-animasyon") || matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   $effect(() => {
     for (let i = yakin - 1; i <= yakin + 1; i++) {
@@ -47,7 +46,7 @@
     if (!el || i < 0 || !el.clientWidth) return;
     const hedef = i * el.clientWidth;
     if (Math.abs(el.scrollLeft - hedef) < 2) return;
-    el.scrollTo({ left: hedef, behavior: yumusak && !azHareket() ? "smooth" : "instant" });
+    el.scrollTo({ left: hedef, behavior: yumusak && hareketVar() ? "smooth" : "instant" });
   }
   // A tab was chosen from outside, or the page list changed. · Sekme dışarıdan seçildi ya da sayfa listesi değişti.
   let oncekiSecili = "";
@@ -103,6 +102,9 @@
   .sayfalayici::-webkit-scrollbar { display: none; }
   .sayfalayici.kilitli { overflow-x: hidden; }
   .yaprak { flex: 0 0 100%; width: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; scroll-snap-align: start; scroll-snap-stop: always; }
-  /* Pages beside the visible one must not animate (a breathing mascot there costs frames here). · Yandaki sayfalar canlanmamalı (oradaki nefes alan maskot burada kare harcar). */
-  .yaprak[inert] :global(*) { animation-play-state: paused !important; }
+  /* Pages beside the visible one must not spin their loaders (frames spent there show here). Only the looping classes are named: a
+     universal `*` here made every inert toggle at a swipe's start and end restyle the whole page (hundreds of rows), a visible hitch.
+     Yandaki sayfalar yükleme simgelerini döndürmemeli (orada harcanan kare burada görünür). Yalnızca döngülü sınıflar yazılı: buradaki
+     evrensel `*`, kaydırmanın başında ve sonunda her inert değişiminde bütün sayfayı (yüzlerce satır) yeniden stillendiriyor, takılma yapıyordu. */
+  .yaprak[inert] :global(.yuklenme) { animation-play-state: paused; }
 </style>

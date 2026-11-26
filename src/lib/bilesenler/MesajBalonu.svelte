@@ -27,6 +27,7 @@
   import { ciftDokun } from "../ciftDokun";
   import { kaydirYanit } from "../kaydirYanit";
   import { mesajaGit } from "../arama-mesaj/atla";
+  import { katlamaDeseni } from "../arama-mesaj/vurgula";
   import { tepkiVer } from "../mesaj/eylemler";
   import type { Tepki } from "../api/tipler";
   import { kullaniciKartiAc } from "../durum/kullaniciKarti.svelte";
@@ -123,7 +124,7 @@
   // Split the text into plain / highlighted parts for the search words. · Metni arama kelimelerine göre düz / vurgulu parçalara böl.
   const parcalar = $derived.by(() => {
     const m = metin;
-    const kelimeler = vurguSorgu.trim().split(/\s+/).filter((k) => k.length > 1).map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const kelimeler = vurguSorgu.trim().split(/\s+/).filter((k) => k.length > 1).map(katlamaDeseni);
     const re = kelimeler.length ? new RegExp(`(${kelimeler.join("|")})`, "gi") : null;
     const sonuc: { m: string; v: boolean; url: boolean }[] = [];
     for (const p of parcala(m)) {
@@ -265,40 +266,47 @@
 
 <style>
   .sistem {
-    display: flex; align-items: center; justify-content: center; gap: 6px; margin: 10px 0 2px;
-    font-size: .75rem; color: var(--yazi-2);
+    display: flex; align-items: center; justify-content: center; gap: .375em; margin: .625em 0 .125em;
+    font-size: .75em; color: var(--yazi-2);
   }
   .sistem.cevapsiz { color: var(--hata); }
   .sistem .saat { opacity: .75; }
 
-  .satir { position: relative; display: flex; align-items: flex-end; gap: 8px; margin-top: calc(var(--balon-aralik, 2px) * 4); }
+  .satir { contain: layout style; position: relative; display: flex; align-items: flex-end; gap: .5em; margin-top: var(--grup-aralik, .5em); }
   /* The column holds the bubble and what hangs under it (reactions, read avatars). It also moves with the swipe-to-reply drag.
      Sütun balonu ve altında asılı olanları (tepkiler, okundu avatarları) taşır. Yanıt için kaydırma sürüklemesiyle de kayar. */
-  .kolon { position: relative; display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: min(78%, 560px); transform: translateX(var(--kay-x, 0px)); transition: transform var(--sure-ekran) var(--egri-yay); }
+  .kolon { position: relative; display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: min(78%, 35em); transform: translate3d(var(--kay-x, 0px), 0, 0); transition: transform var(--sure-ekran) var(--egri-ac); }
+  :global([data-yogunluk="kompakt"]) .kolon { max-width: min(84%, 40em); }
   .satir.kendi .kolon { align-items: flex-end; }
   .satir:global(.kayiyor) .kolon { transition: none; }
   .yanit-ipucu { position: absolute; right: 6px; top: 50%; margin-top: -12px; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; color: var(--vurgu); background: var(--yuzey-3); opacity: var(--kay-o, 0); pointer-events: none; }
   .satir.orta, .satir.son { margin-top: var(--balon-aralik, 2px); }
   .satir.kendi { justify-content: flex-end; }
-  .avatar-yer { width: 32px; flex: none; }
-  /* 44px hit area around the 32px avatar (negative margin keeps the layout) · 32px avatarın çevresinde 44px dokunma alanı (negatif kenar boşluğu düzeni korur) */
-  .avatar-dugme { display: block; margin: -6px; padding: 6px; border-radius: 14px; }
-  /* "Gruplarda avatar" off: the column disappears · "Gruplarda avatar" kapalı: sütun kaybolur */
+  .avatar-yer { width: var(--sohbet-avatar, 2em); flex: none; }
+  .avatar-yer :global(.avatar) {
+    width: var(--sohbet-avatar, 2em) !important;
+    height: var(--sohbet-avatar, 2em) !important;
+    border-radius: calc(var(--sohbet-avatar, 2em) * 0.25) !important;
+    font-size: calc(var(--sohbet-avatar, 2em) * 0.42) !important;
+  }
+  /* Keep >=44px hit target around the avatar at every density/zoom without shifting layout. */
+  /* Her yoğunluk ve ölçekte düzeni kaydırmadan avatarın çevresinde >=44px dokunma alanı koru. */
+  .avatar-dugme { display: block; margin: min(0px, calc((var(--sohbet-avatar, 2em) - 44px) / 2)); padding: max(0px, calc((44px - var(--sohbet-avatar, 2em)) / 2)); border-radius: 14px; }
   /* Off-screen old rows cost nothing. The clip margin keeps tails, hearts and reactions that stick out of the row. */
   /* Ekran dışı eski satırlar bedava. Kırpma payı satırdan taşan kuyruk, kalp ve tepkileri korur. */
-  .satir.uzak { content-visibility: auto; contain-intrinsic-size: auto 4rem; overflow-clip-margin: 32px; }
+  .satir.uzak { content-visibility: auto; contain-intrinsic-size: auto 4em; overflow-clip-margin: 32px; }
   .satir.vurgulu { position: relative; z-index: 32; }
 
-  /* Rise: a new message comes up 8px and fades in (200ms); own messages rise from the composer, a bit further. */
-  /* Yükselme: yeni mesaj 8px aşağıdan yükselir ve solarak gelir (200ms); giden mesaj yazma alanından, biraz daha uzaktan yükselir. */
-  .satir.yeni { animation: yuksel var(--sure-yay) var(--egri-yay-sakin); }
-  .satir.yeni.kendi { animation-name: yuksel-kendi; animation-duration: var(--sure-yay); animation-timing-function: var(--egri-yay-yumusak); }
-  @keyframes yuksel { from { transform: translate3d(0, 14px, 0) scale(.98); opacity: 0; } }
-  @keyframes yuksel-kendi { from { transform: translate3d(0, 3rem, 0) scale(.88); opacity: 0; transform-origin: 100% 100%; } }
+  /* Rise: only newly arriving messages animate; short, smooth transform + opacity. */
+  /* Yükselme: yalnızca yeni gelen mesajlar canlanır; kısa ve akıcı transform + opacity. */
+  .satir.yeni { animation: yuksel var(--sure-orta) var(--egri-ac); }
+  .satir.yeni.kendi { animation-name: yuksel-kendi; animation-duration: var(--sure-ekran); animation-timing-function: var(--egri-ac); }
+  @keyframes yuksel { from { transform: translate3d(0, 10px, 0) scale(.98); opacity: 0; } }
+  @keyframes yuksel-kendi { from { transform: translate3d(0, 18px, 0) scale(.94); opacity: 0; transform-origin: 100% 100%; } }
 
   .balon {
     --balon-bg: var(--gelen-dolgu);
-    position: relative; max-width: 100%; min-width: 0; padding: var(--balon-dolgu, 8px 12px); border-radius: var(--balon-r, 16px);
+    position: relative; max-width: 100%; min-width: 0; padding: var(--balon-dolgu, .5em .75em); border-radius: var(--balon-r, 1.25em);
     background: var(--balon-bg); color: var(--yazi); box-shadow: var(--kat-1);
   }
   /* TAIL (Telegram style): the last bubble of a group (and a lone one) gets a small curved tail at its bottom outer corner. It is a
@@ -306,14 +314,14 @@
      KUYRUK (Telegram tarzı): grubun son balonu (ve tek balon) alt dış köşesinde küçük kıvrımlı bir kuyruk alır. Balon rengiyle dolu maskeli
      bir karedir, her temayı izler; balonun o köşesi kare olur, böylece birleşirler. */
   .balon.tek:not(.medyali)::after, .balon.son:not(.medyali)::after {
-    content: ""; position: absolute; bottom: 0; width: .75rem; height: .875rem; background: var(--balon-bg); pointer-events: none;
-    left: -.6875rem; -webkit-mask: var(--kuyruk-sol) no-repeat center / 100% 100%; mask: var(--kuyruk-sol) no-repeat center / 100% 100%;
+    content: ""; position: absolute; bottom: 0; width: .75em; height: .875em; background: var(--balon-bg); pointer-events: none;
+    left: -.6875em; -webkit-mask: var(--kuyruk-sol) no-repeat center / 100% 100%; mask: var(--kuyruk-sol) no-repeat center / 100% 100%;
   }
-  .balon.kendi.tek:not(.medyali)::after, .balon.kendi.son:not(.medyali)::after { left: auto; right: -.6875rem; -webkit-mask-image: var(--kuyruk-sag); mask-image: var(--kuyruk-sag); }
+  .balon.kendi.tek:not(.medyali)::after, .balon.kendi.son:not(.medyali)::after { left: auto; right: -.6875em; -webkit-mask-image: var(--kuyruk-sag); mask-image: var(--kuyruk-sag); }
   .balon.tek:not(.kendi):not(.medyali), .balon.son:not(.kendi):not(.medyali) { border-bottom-left-radius: 0; }
   .balon.tek.kendi:not(.medyali), .balon.son.kendi:not(.medyali) { border-bottom-right-radius: 0; }
   .balon.medyali { padding: 4px; }
-  .gif-kart { position: relative; border-radius: .75rem; overflow: hidden; max-width: min(100%, 16rem); }
+  .gif-kart { position: relative; border-radius: .75em; overflow: hidden; max-width: min(100%, 16em); }
   .gif-kart img, .gif-kart video { display: block; width: 100%; height: auto; }
   .klipy { position: absolute; left: .375rem; bottom: .375rem; padding: .0625rem .375rem; border-radius: .375rem; font-size: .625rem; font-weight: 700; letter-spacing: .04em; background: rgb(0 0 0 / .55); color: #fff; }
   /* Corners that join a neighbouring bubble are 4px. Others: left side, own: right side. */
@@ -322,44 +330,42 @@
   .balon.orta { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
   .balon.son { border-top-left-radius: 4px; }
   .balon.kendi { --balon-bg: var(--giden-bg, var(--giden-dolgu)); color: var(--giden-yazi, var(--yazi)); }
-  .balon.kendi.ilk { border-bottom-left-radius: var(--balon-r, 16px); border-bottom-right-radius: 4px; }
-  .balon.kendi.orta { border-top-left-radius: var(--balon-r, 16px); border-bottom-left-radius: var(--balon-r, 16px); border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
-  .balon.kendi.son { border-top-left-radius: var(--balon-r, 16px); border-top-right-radius: 4px; }
+  .balon.kendi.ilk { border-bottom-left-radius: var(--balon-r, 1.25em); border-bottom-right-radius: 4px; }
+  .balon.kendi.orta { border-top-left-radius: var(--balon-r, 1.25em); border-bottom-left-radius: var(--balon-r, 1.25em); border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+  .balon.kendi.son { border-top-left-radius: var(--balon-r, 1.25em); border-top-right-radius: 4px; }
   .balon.sifre-yok { --balon-bg: color-mix(in srgb, var(--bekliyor) 14%, var(--yuzey-1)); border: 1px solid color-mix(in srgb, var(--bekliyor) 30%, transparent); }
 
-  .gonderen { display: block; min-height: 28px; margin: -4px 0 -2px; font-size: .8125rem; font-weight: 600; color: var(--vurgu); text-align: left; }
+  .gonderen { display: block; min-height: 1.625em; margin: -.2em 0 -.1em; font-size: .8125em; font-weight: 600; color: var(--vurgu); text-align: left; }
   /* In-chat search: the current match is outlined, search words highlighted · Sohbet içi arama: şu anki eşleşme çerçeveli, aranan kelimeler vurgulu */
   .balon.eslesme { outline: 2px solid var(--bekliyor); outline-offset: 2px; }
   mark { background: color-mix(in srgb, var(--bekliyor) 38%, transparent); color: inherit; border-radius: 4px; padding: 0 1px; }
-  /* "Çizgisiz": no bubble fill, text only (own messages keep a soft tint) · "Çizgisiz": balon dolgusu yok, yalnızca metin (giden mesajlar yumuşak ton tutar) */
   /* Text: on phones it is NOT selectable (long press opens the menu); with a mouse it is. Long words/links wrap. */
   /* Metin: telefonda seçilemez (uzun basma menüyü açar); fare ile seçilebilir. Uzun kelime/bağlantılar satır kırar. */
-  .metin { font-size: calc(.9375rem * var(--sohbet-yazi, 1)); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+  .metin { font-size: calc(.9375em * var(--sohbet-yazi, 1)); line-height: var(--sohbet-satir-yukseklik, 1.45); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
   @media (hover: hover) and (pointer: fine) { .metin { -webkit-user-select: text; user-select: text; } }
   .metin.soluk { color: var(--yazi-2); font-style: italic; }
   .balon.kendi .metin.soluk { color: inherit; opacity: .8; }
-  .sifre-baslik { display: flex; align-items: center; gap: 6px; font-size: .875rem; font-weight: 600; color: var(--bekliyor); }
-  .sifre-yok .metin { font-size: .8125rem; font-style: normal; }
+  .sifre-baslik { display: flex; align-items: center; gap: 6px; font-size: .875em; font-weight: 600; color: var(--bekliyor); }
+  .sifre-yok .metin { font-size: .8125em; font-style: normal; }
 
   /* Time + status: floats to the right so it shares the last text line when there is room, else drops below. */
   /* Saat + durum: sağa yüzer; yer varsa son metin satırını paylaşır, yoksa alta düşer. */
-  .meta { float: right; display: inline-flex; align-items: center; gap: 4px; margin: 6px 0 -2px 10px; font-size: .6875rem; line-height: 1; color: inherit; opacity: .78; font-style: normal; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .meta.alt-satir { float: none; justify-content: flex-end; margin: 2px 4px 2px 0; }
+  .meta { float: right; display: inline-flex; align-items: center; gap: .3em; margin: .5em 0 -.15em .85em; font-size: .6875em; line-height: 1; color: inherit; opacity: .78; font-style: normal; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .meta.alt-satir { float: none; justify-content: flex-end; margin: .2em .35em .2em 0; }
   .duzenlendi { font-style: italic; }
   .silindi { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .silindi .meta { margin-left: auto; }
   /* Sticker: no bubble; a small chip with the time sits over its corner · Çıkartma: balon yok; saat küçük bir çipte köşesinde durur */
   .cikartma-kap { position: relative; max-width: 100%; }
-  .cikartma-yanit { max-width: 16rem; margin-bottom: 4px; padding: 6px 8px; border-radius: 12px; background: var(--yuzey-1); box-shadow: var(--kat-1); }
+  .cikartma-yanit { max-width: 16em; margin-bottom: 4px; padding: .375em .5em; border-radius: .75em; background: var(--yuzey-1); box-shadow: var(--kat-1); }
   .cikartma-kap .gonderen { margin: 0 0 2px; }
-  .cikartma-kap :global(.cikartma-saat) { position: absolute; right: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 8px; font-size: .6875rem; line-height: 1.2; color: var(--yazi); background: color-mix(in srgb, var(--zemin) 72%, transparent); }
+  .cikartma-kap :global(.cikartma-saat) { position: absolute; right: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 8px; font-size: .6875em; line-height: 1.2; color: var(--yazi); background: color-mix(in srgb, var(--zemin) 72%, transparent); }
 
   .baglanti-metin { display: inline; padding: 0; text-align: left; color: inherit; text-decoration: underline; text-underline-offset: 2px; font: inherit; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
-  .baglanti { display: block; min-height: 44px; margin-top: 4px; padding: 0; color: var(--vurgu); font-size: .8125rem; font-weight: 600; text-align: left; }
+  .baglanti { display: block; min-height: 44px; margin-top: 4px; padding: 0; color: var(--vurgu); font-size: .8125em; font-weight: 600; text-align: left; }
   .tekrar {
     display: flex; align-items: center; gap: 6px; min-height: 44px; margin: 0 -6px -6px auto; padding: 0 8px; border-radius: 12px;
-    font-size: .75rem; font-weight: 600; clear: both;
-    transition: background var(--sure-hizli) var(--egri-cikis);
+    font-size: .75em; font-weight: 600; clear: both;
   }
   .basarisiz { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 12px; clear: both; }
   .tekrar.sil { margin-left: 0; color: var(--hata); }
@@ -367,13 +373,16 @@
   .kirmizi { color: var(--hata); }
   .nokta-ayrac { opacity: .6; }
   .eylem { color: var(--vurgu); }
-  /* Double-tap heart: pops in the middle of the bubble and floats away · Çift dokunma kalbi: balonun ortasında patlar ve uçar */
-  .kalp { position: absolute; z-index: 3; left: 50%; top: 50%; margin: -28px 0 0 -28px; color: var(--hata); pointer-events: none; opacity: 0; filter: drop-shadow(0 4px 12px rgb(0 0 0 / .35)); animation: kalp calc(900ms * var(--hareket)) var(--egri-cikis); }
+  /* Double-tap heart: pure transform + opacity (no filter drop-shadow); hidden in reduced motion. */
+  /* Çift dokunma kalbi: yalnızca transform + opacity (filter drop-shadow yok); azaltılmış harekette gizli. */
+  .kalp { position: absolute; z-index: 3; left: 50%; top: 50%; margin: -28px 0 0 -28px; color: var(--hata); pointer-events: none; opacity: 0; animation: kalp calc(720ms * var(--hareket)) var(--egri-cikis); }
+  @media (prefers-reduced-motion: reduce) { .kalp { display: none; animation: none; } }
+  :global([data-az-animasyon]) .kalp { display: none; animation: none; }
   @keyframes kalp {
-    0% { opacity: 0; transform: scale(.2) rotate(-12deg); }
-    18% { opacity: 1; transform: scale(1.25) rotate(-6deg); }
-    32% { transform: scale(.95) rotate(-4deg); }
-    45%, 70% { opacity: 1; transform: scale(1) rotate(-4deg); }
-    100% { opacity: 0; transform: translateY(-48px) scale(.8); }
+    0% { opacity: 0; transform: scale(.25) rotate(-10deg); }
+    20% { opacity: 1; transform: scale(1.2) rotate(-5deg); }
+    36% { transform: scale(.96) rotate(-3deg); }
+    50%, 72% { opacity: 1; transform: scale(1) rotate(-3deg); }
+    100% { opacity: 0; transform: translate3d(0, -40px, 0) scale(.82); }
   }
 </style>

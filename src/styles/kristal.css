@@ -9,11 +9,11 @@
   her vurgu çalışır; her animasyon bir süre değişkeni okur, sondaki azaltılmış hareket bloğu hepsini sıfırlar.
 */
 :root {
-  /* Spring durations: a spring needs room to settle, so these are longer than the plain ones above.
-     Yay süreleri: yayın oturması için yer gerekir; bu yüzden yukarıdaki düz sürelerden uzundur. */
-  --sure-yay: 460ms;
-  --sure-yay-uzun: 560ms;
-  --sure-sira: 36ms;  /* list stagger step · liste kademeli giriş adımı */
+  /* Spring durations: brisk and responsive so springs settle cleanly without feeling sluggish.
+     Yay süreleri: canlı ve akıcı; yaylar hantallaşmadan temizce yerine oturur. */
+  --sure-yay: 300ms;
+  --sure-yay-uzun: 380ms;
+  --sure-sira: 24ms;  /* optional stagger step · isteğe bağlı kademe adımı */
   /* Fallbacks first (cubic-bezier overshoot); browsers with linear() get the real spring below.
      Önce yedekler (cubic-bezier taşması); linear() destekleyen tarayıcılar aşağıda gerçek yayı alır. */
   --egri-yay-yumusak: cubic-bezier(.3, 1.25, .5, 1);
@@ -43,11 +43,8 @@
 /* ---------------------------------------------------------------------------------------------------------------
    Motion keyframes shared by screens · Ekranların paylaştığı hareket anahtar kareleri
    --------------------------------------------------------------------------------------------------------------- */
-/* List rows: first show only; --i (row index, set inline, capped) staggers them · Liste satırları: yalnızca ilk gösterim; --i (satır sırası) kademelendirir */
-.liste-gir { animation: liste-gir var(--sure-sayfa) var(--egri-ac) backwards; animation-delay: calc(min(var(--i, 0), 6) * 14ms * var(--hareket)); }
-@keyframes liste-gir { from { opacity: 0; transform: translate3d(0, 8px, 0); } }
-/* Reaction chip pop: .6 → 1.1 → 1 · Tepki çipi yaylanması: .6 → 1.1 → 1 */
-@keyframes tepki-pop { 0% { transform: scale(.6); opacity: 0; } 55% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); } }
+/* Reaction chip pop (newly added reactions only): .6 → 1.08 → 1 · Tepki çipi yaylanması (yalnızca yeni eklenen tepkiler): .6 → 1.08 → 1 */
+@keyframes tepki-pop { 0% { transform: scale(.6); opacity: 0; } 55% { transform: scale(1.08); opacity: 1; } 100% { transform: scale(1); } }
 
 /* ---------------------------------------------------------------------------------------------------------------
    View Transitions (where the WebView has them): the shared avatar + the search pill morph. Without support nothing changes.
@@ -64,7 +61,5 @@
    --------------------------------------------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   :root { --sure-yay: 0ms; --sure-yay-uzun: 0ms; --sure-sira: 0ms; }
-  .liste-gir { animation: none; }
 }
 :root[data-az-animasyon] { --sure-yay: 0ms; --sure-yay-uzun: 0ms; --sure-sira: 0ms; }
-:root[data-az-animasyon] .liste-gir { animation: none; }

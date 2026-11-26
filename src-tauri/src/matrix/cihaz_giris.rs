@@ -156,7 +156,8 @@ pub async fn baslat(sunucu: &str) -> Sonuc<CihazKodu> {
         cihaz_id,
         belirtec_adresi: m.token_endpoint.to_string(),
         aralik: k.interval.unwrap_or(5).clamp(1, 60),
-        bitis: Instant::now() + Duration::from_secs(k.expires_in),
+        // Clamped so a broken/hostile server cannot overflow `Instant` (panic). · Bozuk/kötü niyetli sunucu `Instant`'ı taşırıp panik yaptırmasın diye sınırlanır.
+        bitis: Instant::now() + Duration::from_secs(k.expires_in.clamp(60, 3600)),
     });
     drop(bekleyen);
     let kod_yazilir = k.verification_uri_complete.is_none();
@@ -170,6 +171,8 @@ pub fn iptal() {
 
 /// Approved tokens, ready for `bitir`. · Onaylanmış belirteçler, `bitir` için hazır.
 pub struct Onay {
+    /// Which start this approval belongs to (see `hala_gecerli`). · Bu onayın hangi başlatmaya ait olduğu (bkz. `hala_gecerli`).
+    sira: u64,
     sunucu: String,
     sunucu_url: String,
     istemci_id: String,
@@ -237,6 +240,7 @@ pub async fn bekle() -> Sonuc<Onay> {
         return Err(iptal());
     }
     Ok(Onay {
+        sira: b.sira,
         sunucu: b.sunucu,
         sunucu_url,
         istemci_id: b.istemci_id,
@@ -245,6 +249,12 @@ pub async fn bekle() -> Sonuc<Onay> {
             tokens: SessionTokens { access_token: belirtec.access_token, refresh_token: belirtec.refresh_token },
         },
     })
+}
+
+/// False when a cancel or a newer start came after the approval: the session must not be set up then.
+/// Onaydan sonra iptal ya da daha yeni bir başlatma geldiyse false: o durumda oturum kurulmamalı.
+pub fn hala_gecerli(o: &Onay) -> bool {
+    SIRA.load(Ordering::SeqCst) == o.sira
 }
 
 pub async fn bitir(veri: &Path, o: Onay) -> Sonuc<(Client, Ben)> {

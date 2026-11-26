@@ -23,7 +23,35 @@ class Alanlar {
   ust = $derived<{ id: string; ad: string }[]>(this.grafik ? this.grafik.map((a) => ({ id: a.id, ad: a.ad })) : odalar.alanlar.map((a) => ({ id: a.id, ad: a.ad })));
 
   /** Refresh the graph (called when the room list changes; the caller debounces) · Grafiği yenile (oda listesi değişince çağrılır; bekletmeyi çağıran yapar) */
+  #imza = "";
+  #suruyor: Promise<void> | null = null;
+  /**
+   * Called by Sohbetler and Alanlar when the room list changed. The list is sent after almost every message, but the space graph
+   * only changes when rooms come or go or a space is renamed: compare that and skip the rest (both screens are mounted together on
+   * a phone, so this also stops the double call).
+   * Oda listesi değişince Sohbetler ve Alanlar çağırır. Liste neredeyse her mesajdan sonra gelir, ama alan grafiği yalnızca oda
+   * gelince/gidince ya da bir alanın adı değişince değişir: bunu karşılaştır, gerisini atla (telefonda iki ekran birlikte bağlı
+   * olduğundan bu çift çağrıyı da önler).
+   */
+  listeDegisti(liste: readonly { id: string; ad: string; avatarMxc: string | null; alan: boolean; davet: boolean }[]) {
+    const imza = `${liste.length}|${liste.filter((o) => o.alan && !o.davet).map((o) => `${o.id}\u0001${o.ad}\u0001${o.avatarMxc ?? ""}`).join("\u0002")}`;
+    if (imza === this.#imza) return;
+    this.#imza = imza;
+    void this.ustYenile();
+  }
+
   async ustYenile() {
+    // One request at a time; a later call waits for the running one and then asks again. · Aynı anda tek istek; sonraki çağrı süreni bekler, sonra yeniden sorar.
+    while (this.#suruyor) await this.#suruyor;
+    this.#suruyor = this.#ustAl();
+    try {
+      await this.#suruyor;
+    } finally {
+      this.#suruyor = null;
+    }
+  }
+
+  async #ustAl() {
     try {
       this.grafik = await alanlariAl();
     } catch (e) {
@@ -63,6 +91,7 @@ class Alanlar {
 
   sifirla() {
     this.#katmanlar = [];
+    this.#imza = "";
     this.yigin = [];
     this.grafik = null;
     this.icerikler.clear();

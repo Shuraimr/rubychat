@@ -2,6 +2,10 @@
 // Türkçe arayüz metinleri. İngilizce eklemek için bu dosyayı aynı anahtarlarla en.ts olarak kopyala.
 import { trD } from "./tr-d";
 import { trE } from "./tr-e";
+import { trG } from "./tr-g";
+import { trH } from "./tr-h";
+import { trI } from "./tr-i";
+import { trJ } from "./tr-j";
 
 export const tr = {
   // Login · Giriş
@@ -718,6 +722,10 @@ export const tr = {
   "ayar.lisansEc": "Aramalar Element Call (AGPL-3.0, element-hq) ile çalışır; paketlenmiş sürüm 0.28.2. Kaynak: github.com/element-hq/element-call",
   ...trD,
   ...trE,
+  ...trG,
+  ...trH,
+  ...trI,
+  ...trJ,
 } as const;
 
 export type Anahtar = keyof typeof tr;

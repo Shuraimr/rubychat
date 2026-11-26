@@ -22,11 +22,11 @@
 </div>
 
 <style>
-  .serit { display: flex; align-items: center; gap: 8px; padding: 4px 4px 0 12px; min-height: 52px; animation: serit-gel var(--sure-orta) var(--egri-ac); }
-  @keyframes serit-gel { from { opacity: 0; transform: translateY(8px); } }
+  .serit { display: flex; align-items: center; gap: .5em; padding: .25em .25rem 0 .75rem; min-height: 3.25em; animation: serit-gel var(--sure-orta) var(--egri-ac); }
+  @keyframes serit-gel { from { opacity: 0; transform: translate3d(0, 8px, 0); } }
   .cubuk { width: 3px; align-self: stretch; margin: 6px 0; border-radius: 2px; background: var(--vurgu); flex: none; }
   .ikon { color: var(--vurgu); flex: none; display: inline-flex; }
   .govde { flex: 1; min-width: 0; display: grid; }
-  .baslik { font-size: .75rem; font-weight: 600; color: var(--vurgu); }
-  .metin { font-size: .875rem; color: var(--yazi-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .baslik { font-size: .75em; font-weight: 600; color: var(--vurgu); }
+  .metin { font-size: .875em; color: var(--yazi-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

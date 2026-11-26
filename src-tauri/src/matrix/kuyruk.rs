@@ -80,9 +80,9 @@ pub async fn vazgec(client: &Client, zaman: &Arc<Timeline>, oda_id: &str, oge_id
 
 /// Server's upload limit against a file about to be queued. A server that does not tell lets it through.
 /// Kuyruğa girecek dosyayı sunucunun yükleme sınırıyla karşılaştırır. Sınırını söylemeyen sunucuda geçer.
-pub async fn boyut_denetle(client: &Client, boyut: usize) -> Sonuc<()> {
+pub async fn boyut_denetle(client: &Client, boyut: u64) -> Sonuc<()> {
     match tokio::time::timeout(Duration::from_secs(8), client.load_or_fetch_max_upload_size()).await {
-        Ok(Ok(sinir)) if boyut as u64 > u64::from(sinir) => Err(Hata::DosyaBuyuk(u64::from(sinir) / 1_048_576)),
+        Ok(Ok(sinir)) if boyut > u64::from(sinir) => Err(Hata::DosyaBuyuk(u64::from(sinir) / 1_048_576)),
         _ => Ok(()),
     }
 }

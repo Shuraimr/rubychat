@@ -10,6 +10,8 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
+  import { uygulamadanCik } from "./lib/api/komutlar";
+  import { masaustuLinux } from "./lib/pano";
   import { altYeriOlc } from "./lib/alt-yer";
   import { kayCik, kayGir } from "./lib/gecis";
   import { klavyeyiIzle } from "./lib/klavye";
@@ -48,6 +50,8 @@
   import Sohbetler from "./lib/ekranlar/Sohbetler.svelte";
   import { alanlar } from "./lib/durum/alanlar.svelte";
   import { arama } from "./lib/durum/arama.svelte";
+  import { ayarlar } from "./lib/durum/ayarlar.svelte";
+  import { bildirim } from "./lib/durum/bildirim.svelte";
   import { gezinme, type Sekme } from "./lib/durum/gezinme.svelte";
   import { odalar } from "./lib/durum/odalar.svelte";
   import { oturum } from "./lib/durum/oturum.svelte";
@@ -67,6 +71,42 @@
     // Register keyboard shortcuts before gezinme so Esc drops message selection before closing a room on narrow viewports.
     // Klavye kısayollarını gezinme'den önce kaydet; dar ekranda Esc odayı kapatmadan önce mesaj seçimini bıraksın.
     const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat(), klavyeBaslat()];
+    // Desktop: Ctrl+Q quits for real, since the close button only hides the window while it runs in the background.
+    // Masaüstü: Ctrl+Q gerçekten çıkar; arka planda çalışırken kapatma düğmesi pencereyi yalnızca gizler.
+    if (masaustuLinux) {
+      const cik = (e: KeyboardEvent) => {
+        if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "q") {
+          e.preventDefault();
+          void uygulamadanCik().catch(() => {});
+        }
+      };
+      window.addEventListener("keydown", cik);
+      birak.push(() => window.removeEventListener("keydown", cik));
+    }
+    // Desktop: Ctrl+= / Ctrl+- / Ctrl+0 scale only the chat area, without zooming the rest of the app.
+    // Masaüstü: Ctrl+= / Ctrl+- / Ctrl+0 uygulamanın geri kalanını büyütmeden yalnızca sohbet alanını ölçekler.
+    if (window.matchMedia("(any-hover: hover) and (any-pointer: fine)").matches) {
+      const sohbetOlcekle = (e: KeyboardEvent) => {
+        if (e.defaultPrevented || !oturum.ben || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+        let degisti = false;
+        if (e.key === "=" || e.key === "+" || e.code === "Equal" || e.code === "NumpadAdd") {
+          e.preventDefault();
+          ayarlar.sohbetOlcekAdim(1);
+          degisti = true;
+        } else if (e.key === "-" || e.key === "_" || e.code === "Minus" || e.code === "NumpadSubtract") {
+          e.preventDefault();
+          ayarlar.sohbetOlcekAdim(-1);
+          degisti = true;
+        } else if (!e.shiftKey && (e.key === "0" || e.code === "Digit0" || e.code === "Numpad0")) {
+          e.preventDefault();
+          ayarlar.sohbetOlcekSifirla();
+          degisti = true;
+        }
+        if (degisti) bildirim.goster(t("gorunum.sohbetBoyutuBildirim", { yuzde: Math.round(ayarlar.sohbetOlcek * 100) }), 1400);
+      };
+      window.addEventListener("keydown", sohbetOlcekle);
+      birak.push(() => window.removeEventListener("keydown", sohbetOlcekle));
+    }
     gezinme.baslat();
     oturum.baslat();
     return () => birak.forEach((f) => f());
@@ -89,7 +129,7 @@
   // Start/stop room-list tracking with the login state. · Oda listesi izlemesini giriş durumuna göre başlat/durdur.
   $effect(() => {
     if (oturum.ben) {
-      odalar.baslat();
+      odalar.baslat(oturum.ben.kullaniciId);
       untrack(() => oturum.profilYenile());
       arama.baslat(oturum.ben.kullaniciId);
       // untrack: starting listeners must not make this effect depend on the encryption state. · untrack: dinleyici başlatmak bu etkiyi şifreleme durumuna bağımlı yapmasın.
@@ -217,7 +257,7 @@
   .liste-sutunu { width: 360px; flex: none; min-width: 0; border-right: 1px solid var(--kenar-ince); background: var(--zemin); display: flex; flex-direction: column; }
   @media (min-width: 1180px) { .liste-sutunu { width: 380px; } }
   /* Compact: the list slides over the room beside the strip; without a room it takes the room's place. · Kompakt: liste şeridin yanında odanın üstüne gelir; oda yoksa onun yerini alır. */
-  .liste-sutunu.cekmece { position: absolute; z-index: 5; top: 0; bottom: 0; left: 68px; width: min(380px, calc(100% - 68px - 48px)); box-shadow: 8px 0 24px rgb(0 0 0 / .25); animation: cekmece-gel var(--sure-orta) var(--egri-cikis); }
+  .liste-sutunu.cekmece { position: absolute; z-index: 5; top: 0; bottom: 0; left: var(--serit-en, 68px); width: min(380px, calc(100% - var(--serit-en, 68px) - 32px)); box-shadow: 8px 0 24px rgb(0 0 0 / .25); animation: cekmece-gel var(--sure-orta) var(--egri-ac); }
   @keyframes cekmece-gel { from { transform: translate3d(-32px, 0, 0); opacity: 0; } }
   .liste-sutunu.dolu { flex: 1; width: auto; border-right: 0; }
   .cekmece-perde { position: absolute; z-index: 4; inset: 0; background: color-mix(in srgb, var(--zemin) 55%, transparent); }

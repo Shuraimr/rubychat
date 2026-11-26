@@ -129,28 +129,39 @@ impl Kayit {
     }
 
     /// Loads the session; moves secrets from the file into the backend when possible (migration).
+    /// Returns `(Kayit, gizli_depo)` so callers already know the backend name without re-reading `oturum.json`.
     /// `Ok(None)` also when the file says the secrets are in the backend but the backend has lost them.
     /// Oturumu yükler; mümkünse gizli bilgileri dosyadan arka uca taşır (taşıma).
+    /// Çağıranlar `oturum.json`'ı yeniden okumadan arka uç adını bilsin diye `(Kayit, gizli_depo)` döndürür.
     /// Dosya gizli bilgilerin arka uçta olduğunu söylüyor ama arka uç onları kaybetmişse de `Ok(None)`.
-    fn yukle(veri: &Path) -> Sonuc<Option<Kayit>> {
+    fn yukle(veri: &Path) -> Sonuc<Option<(Kayit, String)>> {
         let Some(d) = Self::dosya_oku(veri)? else { return Ok(None) };
         let depo = gizli_depo::varsayilan();
         if let (Some(parola), Some(oturum)) = (d.parola.clone(), d.oturum.clone()) {
             // Secrets are in the file (old format or fallback mode): try the backend now.
             // Gizli bilgiler dosyada (eski biçim ya da yedek kip): şimdi arka ucu dene.
             let kayit = Kayit { sunucu_url: d.sunucu_url, sunucu_adi: d.sunucu_adi, parola, oturum, istemci_id: d.istemci_id };
-            if d.gizli == GIZLI_DOSYADA {
+            let mut gizli = d.gizli;
+            if gizli == GIZLI_DOSYADA {
                 match kayit.kaydet(veri) {
-                    Ok(()) => info!("gizli bilgiler dosyadan {} deposuna taşındı", depo.ad()),
+                    Ok(yeni_gizli) => {
+                        if yeni_gizli != GIZLI_DOSYADA {
+                            info!("gizli bilgiler dosyadan {} deposuna taşındı", depo.ad());
+                        }
+                        gizli = yeni_gizli;
+                    }
                     Err(e) => warn!("gizli bilgiler taşınamadı, dosyada kalıyor: {e}"),
                 }
             }
-            return Ok(Some(kayit));
+            return Ok(Some((kayit, gizli)));
         }
         match depo.oku(&anahtar(veri))? {
             Some(json) => {
                 let g: Gizliler = serde_json::from_str(&json)?;
-                Ok(Some(Kayit { sunucu_url: d.sunucu_url, sunucu_adi: d.sunucu_adi, parola: g.parola, oturum: g.oturum, istemci_id: g.istemci_id }))
+                Ok(Some((
+                    Kayit { sunucu_url: d.sunucu_url, sunucu_adi: d.sunucu_adi, parola: g.parola, oturum: g.oturum, istemci_id: g.istemci_id },
+                    d.gizli,
+                )))
             }
             None => {
                 warn!("oturum dosyası var ama {} deposunda gizli bilgi yok: yeniden giriş gerekir", depo.ad());
@@ -160,8 +171,10 @@ impl Kayit {
     }
 
     /// Writes secrets to the backend and the metadata to the file; falls back to the file for everything on failure.
+    /// Returns the actual secret-store name written to `oturum.json`.
     /// Gizli bilgileri arka uca, üst bilgiyi dosyaya yazar; hata olursa her şeyi dosyaya yazar (yedek).
-    fn kaydet(&self, veri: &Path) -> Sonuc<()> {
+    /// `oturum.json`'a yazılan gerçek gizli depo adını döndürür.
+    fn kaydet(&self, veri: &Path) -> Sonuc<String> {
         let depo = gizli_depo::varsayilan();
         let json = serde_json::to_string(&Gizliler { parola: self.parola.clone(), oturum: self.oturum.clone(), istemci_id: self.istemci_id.clone() })?;
         let mut d = Dosya {
@@ -180,7 +193,8 @@ impl Kayit {
             d.oturum = Some(self.oturum.clone());
             d.istemci_id = self.istemci_id.clone();
         }
-        Self::dosya_yaz(veri, &d)
+        Self::dosya_yaz(veri, &d)?;
+        Ok(d.gizli)
     }
 
     fn sil(veri: &Path) {
@@ -191,6 +205,28 @@ impl Kayit {
         if let Err(e) = gizli_depo::varsayilan().sil(&anahtar(veri)) {
             warn!("gizli depodan silinemedi: {e}");
         }
+    }
+
+    /// Runs `yukle` on the blocking pool because both file I/O and the OS secret backend (D-Bus / JNI) block.
+    /// Hem dosya G/Ç hem de işletim sistemi gizli deposu (D-Bus / JNI) blokladığı için `yukle`'yi blocking havuzunda çalıştırır.
+    async fn yukle_async(veri: PathBuf) -> Sonuc<Option<(Kayit, String)>> {
+        tokio::task::spawn_blocking(move || Self::yukle(&veri))
+            .await
+            .map_err(|e| Hata::Depolama(e.to_string()))?
+    }
+
+    /// Runs `kaydet` on the blocking pool (keyring D-Bus / Android Keystore JNI + file I/O).
+    /// `kaydet`'i blocking havuzunda çalıştırır (anahtarlık D-Bus / Android Keystore JNI + dosya G/Ç).
+    async fn kaydet_async(self, veri: PathBuf) -> Sonuc<String> {
+        tokio::task::spawn_blocking(move || self.kaydet(&veri))
+            .await
+            .map_err(|e| Hata::Depolama(e.to_string()))?
+    }
+
+    /// Runs `sil` on the blocking pool (`remove_dir_all` on SQLite + search index + secret backend delete).
+    /// `sil`'i blocking havuzunda çalıştırır (SQLite + arama dizini `remove_dir_all` + gizli depodan silme).
+    async fn sil_async(veri: PathBuf) {
+        let _ = tokio::task::spawn_blocking(move || Self::sil(&veri)).await;
     }
 }
 
@@ -229,25 +265,49 @@ fn sliding_oku(veri: &Path) -> VersionBuilder {
     }
 }
 
-fn sliding_yaz(veri: &Path, client: &Client) {
+async fn sliding_yaz_async(veri: PathBuf, client: &Client) {
     let s = if matches!(client.sliding_sync_version(), matrix_sdk::sliding_sync::Version::Native) { "native" } else { "none" };
-    if let Err(e) = std::fs::write(veri.join(SLIDING_DOSYASI), s) {
-        warn!("sliding sync sürümü kaydedilemedi: {e}");
-    }
+    let _ = tokio::task::spawn_blocking(move || {
+        if let Err(e) = std::fs::write(veri.join(SLIDING_DOSYASI), s) {
+            warn!("sliding sync sürümü kaydedilemedi: {e}");
+        }
+    })
+    .await;
+}
+
+/// Writes the remembered sliding-sync answer only if the file does not exist yet (off the async runtime).
+/// Hatırlanan sliding-sync cevabını yalnızca dosya henüz yoksa yazar (async iş parçacığı dışında).
+async fn sliding_eksikse_yaz_async(veri: PathBuf, client: &Client) {
+    let s = if matches!(client.sliding_sync_version(), matrix_sdk::sliding_sync::Version::Native) { "native" } else { "none" };
+    let _ = tokio::task::spawn_blocking(move || {
+        let yol = veri.join(SLIDING_DOSYASI);
+        if !yol.exists() {
+            if let Err(e) = std::fs::write(yol, s) {
+                warn!("sliding sync sürümü kaydedilemedi: {e}");
+            }
+        }
+    })
+    .await;
 }
 
 async fn istemci_kur(veri: &Path, parola: &str, sunucu: SunucuGirdisi<'_>) -> Sonuc<Client> {
-    let depo = veri.join(DEPO_KLASORU);
-    std::fs::create_dir_all(&depo)?;
+    let veri_kopya = veri.to_owned();
+    let oku = matches!(sunucu, SunucuGirdisi::Url(_));
+    // Creating the store folder and reading the cached sliding-sync flag run on the blocking pool.
+    // Depo klasörünü oluşturma ve önbellekteki sliding-sync bayrağını okuma blocking havuzunda çalışır.
+    let (depo, surum) = tokio::task::spawn_blocking(move || -> Sonuc<(PathBuf, VersionBuilder)> {
+        let depo = veri_kopya.join(DEPO_KLASORU);
+        std::fs::create_dir_all(&depo)?;
+        let surum = if oku { sliding_oku(&veri_kopya) } else { VersionBuilder::DiscoverNative };
+        Ok((depo, surum))
+    })
+    .await
+    .map_err(|e| Hata::Depolama(e.to_string()))??;
     let mut b = Client::builder()
         .sqlite_store(&depo, Some(parola))
         // Use sliding sync (MSC4186) when the server advertises it; otherwise `Version::None` → classic sync fallback.
         // Sunucu bildiriyorsa sliding sync (MSC4186); bildirmiyorsa `Version::None` → klasik sync yedeği.
-        .sliding_sync_version_builder(match sunucu {
-            // Login: ask the server. Restore: use what we learned at login (no network wait). · Giriş: sunucuya sor. Geri yükleme: girişte öğrendiğimizi kullan (ağ beklemesi yok).
-            SunucuGirdisi::AdVeyaUrl(_) => VersionBuilder::DiscoverNative,
-            SunucuGirdisi::Url(_) => sliding_oku(veri),
-        })
+        .sliding_sync_version_builder(surum)
         // Servers with expiring tokens (matrix.org via MAS) need refresh; we persist the new tokens in `token_izle`.
         // Süresi dolan belirteç kullanan sunucular (MAS'lı matrix.org) yenileme ister; yeni belirteçleri `token_izle` kaydeder.
         .handle_refresh_tokens()
@@ -289,7 +349,7 @@ pub async fn sifreyle_giris(veri: &Path, sunucu: &str, kullanici: &str, sifre: &
     }
     // A leftover store from an old session must not mix with the new account.
     // Eski oturumdan kalan depo yeni hesapla karışmasın.
-    Kayit::sil(veri);
+    Kayit::sil_async(veri.to_owned()).await;
     let parola = rastgele_parola();
     let client = istemci_kur(veri, &parola, SunucuGirdisi::AdVeyaUrl(&sunucu)).await?;
 
@@ -302,15 +362,23 @@ pub async fn sifreyle_giris(veri: &Path, sunucu: &str, kullanici: &str, sifre: &
     if let Err(e) = sonuc {
         // Do not leave a half-created store behind. · Yarım kalmış depo bırakma.
         drop(client);
-        Kayit::sil(veri);
+        Kayit::sil_async(veri.to_owned()).await;
         return Err(e.into());
     }
 
     let oturum = auth.session().ok_or(Hata::OturumYok)?;
-    Kayit { sunucu_url: client.homeserver().to_string(), sunucu_adi: sunucu, parola, oturum, istemci_id: None }.kaydet(veri)?;
-    sliding_yaz(veri, &client);
+    let gizli_depo = Kayit {
+        sunucu_url: client.homeserver().to_string(),
+        sunucu_adi: sunucu.clone(),
+        parola,
+        oturum,
+        istemci_id: None,
+    }
+    .kaydet_async(veri.to_owned())
+    .await?;
+    sliding_yaz_async(veri.to_owned(), &client).await;
     info!("giriş başarılı");
-    let ben = ben_olustur(&client, veri);
+    let ben = ben_kur(&client, sunucu, gizli_depo);
     Ok((client, ben))
 }
 
@@ -333,7 +401,7 @@ pub async fn kesif_istemcisi(sunucu: &str) -> Sonuc<Client> {
 
 /// Turns tokens approved in the browser into this device's session. · Tarayıcıda onaylanan belirteçleri bu cihazın oturumu yapar.
 pub async fn oauth_giris(veri: &Path, sunucu_adi: &str, sunucu_url: &str, oturum: MatrixSession, istemci_id: String) -> Sonuc<(Client, Ben)> {
-    Kayit::sil(veri);
+    Kayit::sil_async(veri.to_owned()).await;
     let parola = rastgele_parola();
     // The server's sliding sync support is asked again (see `istemci_kur`: the remembered answer was just deleted). · Sunucunun sliding sync desteği yeniden sorulur (hatırlanan cevap az önce silindi).
     let sonuc = async {
@@ -345,16 +413,24 @@ pub async fn oauth_giris(veri: &Path, sunucu_adi: &str, sunucu_url: &str, oturum
     let client = match sonuc {
         Ok(c) => c,
         Err(e) => {
-            Kayit::sil(veri);
+            Kayit::sil_async(veri.to_owned()).await;
             return Err(e);
         }
     };
     // Tokens may already have been refreshed while starting. · Belirteçler açılırken yenilenmiş olabilir.
     let oturum = suanki_oturum(&client).unwrap_or(oturum);
-    Kayit { sunucu_url: sunucu_url.to_owned(), sunucu_adi: sunucu_adi.to_owned(), parola, oturum, istemci_id: Some(istemci_id) }.kaydet(veri)?;
-    sliding_yaz(veri, &client);
+    let gizli_depo = Kayit {
+        sunucu_url: sunucu_url.to_owned(),
+        sunucu_adi: sunucu_adi.to_owned(),
+        parola,
+        oturum,
+        istemci_id: Some(istemci_id),
+    }
+    .kaydet_async(veri.to_owned())
+    .await?;
+    sliding_yaz_async(veri.to_owned(), &client).await;
     info!("tarayıcı onaylı giriş başarılı");
-    let ben = ben_olustur(&client, veri);
+    let ben = ben_kur(&client, sunucu_adi.to_owned(), gizli_depo);
     Ok((client, ben))
 }
 
@@ -366,15 +442,14 @@ fn suanki_oturum(client: &Client) -> Option<MatrixSession> {
 /// Restores the saved session on startup. `Ok(None)` = nothing saved (show the login screen).
 /// Açılışta kayıtlı oturumu geri yükler. `Ok(None)` = kayıt yok (giriş ekranı gösterilir).
 pub async fn geri_yukle(veri: &Path) -> Sonuc<Option<(Client, Ben)>> {
-    let Some(kayit) = Kayit::yukle(veri)? else { return Ok(None) };
+    let Some((kayit, gizli_depo)) = Kayit::yukle_async(veri.to_owned()).await? else { return Ok(None) };
+    let sunucu_adi = kayit.sunucu_adi.clone();
     let client = istemci_kur(veri, &kayit.parola, SunucuGirdisi::Url(&kayit.sunucu_url)).await?;
     oturumu_ac(&client, kayit.oturum, kayit.istemci_id).await?;
     // Sessions from before this file existed learn it now (this start still asked the server). · Bu dosyadan önceki oturumlar şimdi öğrenir.
-    if !veri.join(SLIDING_DOSYASI).exists() {
-        sliding_yaz(veri, &client);
-    }
+    sliding_eksikse_yaz_async(veri.to_owned(), &client).await;
     info!("oturum geri yüklendi");
-    let ben = ben_olustur(&client, veri);
+    let ben = ben_kur(&client, sunucu_adi, gizli_depo);
     Ok(Some((client, ben)))
 }
 
@@ -384,16 +459,10 @@ pub async fn cikis(veri: &Path, client: &Client) {
     if let Err(e) = client.logout().await {
         warn!("sunucudan çıkış başarısız (yerel veri yine de silinecek): {e}");
     }
-    Kayit::sil(veri);
+    Kayit::sil_async(veri.to_owned()).await;
 }
 
-/// Identity info without network calls (display name is fetched lazily by the `ben` command).
-/// Ağ çağrısı yapmayan kimlik bilgisi (görünen ad `ben` komutunda tembelce alınır).
-pub fn ben_olustur(client: &Client, veri: &Path) -> Ben {
-    // Only the metadata file is read here: no secrets, no keyring prompt. · Burada yalnızca üst bilgi dosyası okunur: gizli bilgi yok, anahtarlık sorusu yok.
-    let dosya = Kayit::dosya_oku(veri).ok().flatten();
-    let sunucu = dosya.as_ref().map(|d| d.sunucu_adi.clone()).unwrap_or_else(|| client.homeserver().to_string());
-    let gizli_depo = dosya.map(|d| d.gizli).unwrap_or_else(varsayilan_gizli);
+fn ben_kur(client: &Client, sunucu: String, gizli_depo: String) -> Ben {
     Ben {
         kullanici_id: client.user_id().map(|u| u.to_string()).unwrap_or_default(),
         cihaz_id: client.device_id().map(|d| d.to_string()).unwrap_or_default(),
@@ -404,34 +473,72 @@ pub fn ben_olustur(client: &Client, veri: &Path) -> Ben {
     }
 }
 
+/// Identity info without network calls (display name is fetched lazily by the `ben` command).
+/// Ağ çağrısı yapmayan kimlik bilgisi (görünen ad `ben` komutunda tembelce alınır).
+pub fn ben_olustur(client: &Client, veri: &Path) -> Ben {
+    // Only the metadata file is read here: no secrets, no keyring prompt. · Burada yalnızca üst bilgi dosyası okunur: gizli bilgi yok, anahtarlık sorusu yok.
+    let dosya = Kayit::dosya_oku(veri).ok().flatten();
+    let sunucu = dosya.as_ref().map(|d| d.sunucu_adi.clone()).unwrap_or_else(|| client.homeserver().to_string());
+    let gizli_depo = dosya.map(|d| d.gizli).unwrap_or_else(varsayilan_gizli);
+    ben_kur(client, sunucu, gizli_depo)
+}
+
+/// Async version of `ben_olustur` so async commands do not block Tokio while reading `oturum.json`.
+/// `ben_olustur`'un async sürümü; async komutlar `oturum.json` okurken Tokio'yu bloklamasın.
+pub async fn ben_olustur_async(client: &Client, veri: PathBuf) -> Ben {
+    let dosya = tokio::task::spawn_blocking(move || Kayit::dosya_oku(&veri).ok().flatten()).await.ok().flatten();
+    let sunucu = dosya.as_ref().map(|d| d.sunucu_adi.clone()).unwrap_or_else(|| client.homeserver().to_string());
+    let gizli_depo = dosya.map(|d| d.gizli).unwrap_or_else(varsayilan_gizli);
+    ben_kur(client, sunucu, gizli_depo)
+}
+
 pub const OLAY_OTURUM_GECERSIZ: &str = "oturum-gecersiz";
+
+async fn belirtec_kaydet(veri: &Path, client: &Client) {
+    let Some(yeni) = suanki_oturum(client) else { return };
+    let veri = veri.to_owned();
+    let sonuc = tokio::task::spawn_blocking(move || -> Sonuc<()> {
+        if let Some((mut kayit, _)) = Kayit::yukle(&veri)? {
+            kayit.oturum = yeni;
+            kayit.kaydet(&veri)?;
+        }
+        Ok(())
+    })
+    .await;
+    match sonuc {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => warn!("yenilenen belirteç kaydedilemedi: {e}"),
+        Err(e) => warn!("belirteç kaydetme görevi çöktü: {e}"),
+    }
+}
 
 /// Persists refreshed tokens: without this a restart after a token refresh would log the user out.
 /// Yenilenen belirteçleri kaydeder: bu olmazsa belirteç yenilendikten sonraki yeniden başlatma kullanıcıyı çıkış yaptırırdı.
 pub fn token_izle(app: tauri::AppHandle, veri: PathBuf, client: Client) -> JoinHandle<()> {
     let mut rx = client.subscribe_to_session_changes();
     tokio::spawn(async move {
-        while let Ok(degisim) = rx.recv().await {
-            match degisim {
-                SessionChange::TokensRefreshed => {
-                    if let (Ok(Some(mut kayit)), Some(yeni)) = (Kayit::yukle(&veri), suanki_oturum(&client)) {
-                        kayit.oturum = yeni;
-                        if let Err(e) = kayit.kaydet(&veri) {
-                            warn!("yenilenen belirteç kaydedilemedi: {e}");
-                        }
-                    }
+        loop {
+            match rx.recv().await {
+                Ok(SessionChange::TokensRefreshed) => {
+                    belirtec_kaydet(&veri, &client).await;
                 }
                 // The device was signed out elsewhere (or deleted): syncing would retry forever and the screen would only say
                 // "cannot connect". Tell the UI, which logs out locally. A soft logout keeps the data and is left alone.
                 // Cihazın oturumu başka yerden kapatıldı (ya da silindi): eşitleme sonsuza dek yeniden dener, ekran yalnızca
                 // "bağlanılamıyor" derdi. Arayüze söyle, o yerel çıkış yapar. Yumuşak çıkış veriyi korur, dokunulmaz.
-                SessionChange::UnknownToken(d) => {
+                Ok(SessionChange::UnknownToken(d)) => {
                     warn!("sunucu oturumu geçersiz saydı (belirteç bilinmiyor, yumuşak: {})", d.soft_logout);
                     if !d.soft_logout {
                         use tauri::Emitter;
                         let _ = app.emit(OLAY_OTURUM_GECERSIZ, ());
                     }
                 }
+                // Missed broadcast events must not stop the watcher; save the current tokens in case a refresh was missed.
+                // Kaçırılan yayın olayları izleyiciyi durdurmamalı; yenileme kaçtıysa diye güncel belirteçleri kaydet.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    belirtec_kaydet(&veri, &client).await;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
     })
