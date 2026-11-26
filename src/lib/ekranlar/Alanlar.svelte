@@ -20,9 +20,11 @@
   import { geriKaydir } from "../geriKaydir";
   import { t } from "../i18n";
   import AlanGorunumu from "./AlanGorunumu.svelte";
+  import OdaKesfet from "../bilesenler/OdaKesfet.svelte";
 
   /** gomulu = shown inside a folder tab of the chat list (no big header) · gomulu = sohbet listesinin bir klasör sekmesinin içinde (büyük başlık yok) */
   let { gomulu = false }: { gomulu?: boolean } = $props();
+  let kesfetAcik = $state(false);
   // The graph lives in the state module (memory): coming back draws it at once. · Grafik durum modülünde (bellekte): geri gelince hemen çizilir.
   const grafik = $derived(alanlar.grafik);
   let kok: HTMLDivElement | undefined = $state();
@@ -49,7 +51,7 @@
   <div class="kok" class:itildi={alanlar.yigin.length > 0} inert={alanlar.yigin.length > 0} bind:this={kok}>
     {#if !gomulu}<Baslik baslik={t("alanlar.baslik")} />{/if}
     {#if liste.length === 0}
-      <BosDurum maskot="selam" baslik={t("alanlar.bosBaslik")} metin={t("alanlar.aciklama")} />
+      <BosDurum maskot="selam" baslik={t("alanlar.bosBaslik")} metin={t("alanlar.aciklama")} eylem={t("alanlar.kesfet")} onEylem={() => (kesfetAcik = true)} />
     {:else}
       <div class="liste" use:altKaydirma>
         {#each liste as a (a.id)}
@@ -65,6 +67,8 @@
     </div>
   {/each}
 </div>
+
+{#if kesfetAcik}<OdaKesfet ilkTur="alan" onkapat={() => (kesfetAcik = false)} />{/if}
 
 <style>
   .alanlar { position: relative; overflow: hidden; flex: 1; min-height: 0; display: flex; flex-direction: column; }

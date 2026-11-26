@@ -1,22 +1,30 @@
 //! Sound of native calls: microphone, playback mixer and capture of single applications.
-//! Everything goes through `parec` / `pacat` / `pactl` (in the GNOME runtime): the only tools that can record ONE application's stream.
+//! Linux: everything goes through `parec` / `pacat` / `pactl` (in the GNOME runtime): the only tools that can record ONE application's stream.
+//! Android: the microphone and the player are AudioRecord / AudioTrack (AramaSesi.kt, through android_jni); sharing an app's sound does not exist.
 //! Yerel aramaların sesi: mikrofon, çalma karıştırıcısı ve tek tek uygulamaların yakalanması.
-//! Hepsi `parec` / `pacat` / `pactl` ile (GNOME çalışma ortamında var): TEK uygulamanın akışını kaydedebilen araçlar bunlar.
+//! Linux: hepsi `parec` / `pacat` / `pactl` ile (GNOME çalışma ortamında var): TEK uygulamanın akışını kaydedebilen araçlar bunlar.
+//! Android: mikrofon ve çalar AudioRecord / AudioTrack'tir (AramaSesi.kt, android_jni üzerinden); uygulama sesi paylaşımı yok.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
+#[cfg(target_os = "linux")]
 use std::io::{Read, Write};
+#[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
+#[cfg(target_os = "linux")]
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(target_os = "linux")]
+use std::time::Instant;
 
 use libwebrtc::native::apm::AudioProcessingModule;
 
 pub const HIZ: u32 = 48_000;
 /// Samples per channel in 10 ms, the unit of the engine and of the echo canceller. · 10 ms'deki kanal başına örnek; motorun ve yankı gidericinin birimi.
 pub const KARE: usize = HIZ as usize / 100;
+#[cfg(target_os = "linux")]
 /// Our own streams are never offered or shared (that would send the call back into itself). · Kendi akışlarımız sunulmaz ve paylaşılmaz (arama kendine geri dönerdi).
 const BIZ: &str = "rubychat";
 /// A source that falls behind is cut back to this much, so delay cannot pile up. · Geride kalan kaynak buna indirilir; gecikme birikmesin.
@@ -33,8 +41,12 @@ struct Apm(AudioProcessingModule);
 // SAFETY: used only behind the Mutex below. · GÜVENLİK: yalnızca aşağıdaki Mutex'in arkasında kullanılır.
 unsafe impl Send for Apm {}
 
+#[cfg(target_os = "linux")]
 /// Kills the child when dropped, so no recorder survives the call. · Düşünce süreci öldürür; aramadan sonra kayıtçı kalmasın.
 struct Surec(Child);
+#[cfg(target_os = "linux")]
+type Calar = Surec;
+#[cfg(target_os = "linux")]
 impl Drop for Surec {
     fn drop(&mut self) {
         let _ = self.0.kill();
@@ -42,6 +54,7 @@ impl Drop for Surec {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn komut(ad: &str, args: &[String]) -> Command {
     let mut k = Command::new(ad);
     // C locale: numbers with a dot, English messages. · C yerel ayarı: noktalı sayılar, İngilizce iletiler.
@@ -49,6 +62,7 @@ fn komut(ad: &str, args: &[String]) -> Command {
     k
 }
 
+#[cfg(target_os = "linux")]
 fn bicim(kanal: u32, gecikme_ms: u32) -> Vec<String> {
     [
         "--raw".into(),
@@ -64,6 +78,7 @@ fn bicim(kanal: u32, gecikme_ms: u32) -> Vec<String> {
     .into()
 }
 
+#[cfg(target_os = "linux")]
 /// The same data as `pipe(2)` would buffer, but short: a full 64 KiB pipe would be a third of a second of delay.
 /// `pipe(2)` tamponu, ama kısa: dolu 64 KiB'lik boru üçte bir saniye gecikme demekti.
 fn boruyu_kisalt(fd: &impl AsRawFd) {
@@ -71,6 +86,7 @@ fn boruyu_kisalt(fd: &impl AsRawFd) {
     unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETPIPE_SZ, 4096) };
 }
 
+#[cfg(target_os = "linux")]
 fn ornekler(b: &[u8]) -> impl Iterator<Item = i16> + '_ {
     b.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]))
 }
@@ -152,7 +168,7 @@ pub struct Ses {
     dur: Arc<AtomicBool>,
     /// The player, held here so dropping `Ses` kills it: a write stuck on a stalled sound server then wakes with an error.
     /// Çalar; burada tutulur ki `Ses` düşünce ölsün: takılan ses sunucusunda bekleyen yazma o zaman hatayla uyanır.
-    calar: Arc<Mutex<Option<Surec>>>,
+    calar: Arc<Mutex<Option<Calar>>>,
 }
 
 impl Ses {
@@ -192,6 +208,7 @@ impl Drop for Ses {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn cal(karisim: &Mutex<Karistirici>, apm: &Mutex<Apm>, dur: &AtomicBool, calar: &Mutex<Option<Surec>>) -> std::io::Result<()> {
     let mut surec = Surec(komut("pacat", &bicim(2, 40)).stdin(Stdio::piped()).spawn()?);
     let mut giris = surec.0.stdin.take().ok_or(std::io::ErrorKind::BrokenPipe)?;
@@ -212,12 +229,14 @@ fn cal(karisim: &Mutex<Karistirici>, apm: &Mutex<Apm>, dur: &AtomicBool, calar: 
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 /// A running recording; dropping it stops it. · Süren kayıt; düşünce durur.
 pub struct Kayit {
     dur: Arc<AtomicBool>,
     surec: Arc<Mutex<Option<Surec>>>,
 }
 
+#[cfg(target_os = "linux")]
 impl Kayit {
     fn baslat(ek: Vec<String>, kanal: u32, gecikme: u32, mut al: impl FnMut(Vec<i16>) -> bool + Send + 'static) -> Kayit {
         let k = Kayit { dur: Arc::default(), surec: Arc::default() };
@@ -259,6 +278,7 @@ impl Kayit {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl Drop for Kayit {
     fn drop(&mut self) {
         self.dur.store(true, Relaxed);
@@ -270,6 +290,7 @@ impl Drop for Kayit {
 // Sounds of applications · Uygulamaların sesleri
 // ---------------------------------------------------------------------------------------------------------------------
 
+#[cfg(target_os = "linux")]
 fn akislari_oku(json: &str) -> BTreeMap<String, Vec<u32>> {
     let mut m: BTreeMap<String, Vec<u32>> = BTreeMap::new();
     let Ok(serde_json::Value::Array(l)) = serde_json::from_str(json) else { return m };
@@ -287,6 +308,7 @@ fn akislari_oku(json: &str) -> BTreeMap<String, Vec<u32>> {
     m
 }
 
+#[cfg(target_os = "linux")]
 /// Applications making sound now, with their streams. · Şu an ses çıkaran uygulamalar ve akışları.
 pub fn uygulamalar() -> BTreeMap<String, Vec<u32>> {
     let args: Vec<String> = ["-f", "json", "list", "sink-inputs"].map(String::from).into();
@@ -299,6 +321,7 @@ pub fn uygulamalar() -> BTreeMap<String, Vec<u32>> {
     }
 }
 
+#[cfg(target_os = "linux")]
 /// One application's sound, following its streams as they come and go (a new song is a new stream). Dropping it stops it.
 /// Bir uygulamanın sesi; akışları gelip gittikçe izler (yeni şarkı yeni akıştır). Düşünce durur.
 pub struct UygulamaSesi {
@@ -308,6 +331,7 @@ pub struct UygulamaSesi {
     kayitlar: Arc<Mutex<HashMap<u32, Kayit>>>,
 }
 
+#[cfg(target_os = "linux")]
 impl UygulamaSesi {
     pub fn baslat(ad: String, mut al: impl FnMut(Vec<i16>) -> bool + Send + 'static) -> UygulamaSesi {
         let dur = Arc::new(AtomicBool::new(false));
@@ -365,6 +389,7 @@ impl UygulamaSesi {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl Drop for UygulamaSesi {
     fn drop(&mut self) {
         self.dur.store(true, Relaxed);
@@ -372,6 +397,93 @@ impl Drop for UygulamaSesi {
     }
 }
 
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Android: AudioTrack / AudioRecord (AramaSesi.kt) · Android: AudioTrack / AudioRecord (AramaSesi.kt)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The open player; dropping it stops the track, which also wakes a write that is waiting. · Açık çalar; düşünce parça durur, bekleyen yazma da uyanır.
+#[cfg(target_os = "android")]
+struct Calar;
+#[cfg(target_os = "android")]
+impl Drop for Calar {
+    fn drop(&mut self) {
+        crate::android_jni::arama_sesi_cal_kapat();
+    }
+}
+
+#[cfg(target_os = "android")]
+fn cal(karisim: &Mutex<Karistirici>, apm: &Mutex<Apm>, dur: &AtomicBool, calar: &Mutex<Option<Calar>>) -> std::io::Result<()> {
+    let hata = |e: String| std::io::Error::other(e);
+    crate::android_jni::arama_sesi_cal_ac().map_err(hata)?;
+    *kilitle(calar) = Some(Calar);
+    if dur.load(Relaxed) {
+        *kilitle(calar) = None;
+        return Ok(());
+    }
+    // Same as pacat: the blocking write lets the device set the pace. · pacat gibi: bekleyen yazma tempoyu cihaza bıraktırır.
+    let sonuc = crate::android_jni::arama_sesi_cal_dongusu(dur, || {
+        let mut kare = kilitle(karisim).sonraki();
+        let cikan = kare.clone();
+        let _ = kilitle(apm).0.process_reverse_stream(&mut kare, HIZ as i32, 2);
+        cikan
+    });
+    *kilitle(calar) = None;
+    sonuc.map_err(hata)
+}
+
+/// The running microphone; dropping it stops it. · Süren mikrofon; düşünce durur.
+#[cfg(target_os = "android")]
+pub struct Kayit {
+    dur: Arc<AtomicBool>,
+}
+
+#[cfg(target_os = "android")]
+impl Kayit {
+    /// Only the microphone exists here (mono); `ek` (an application stream) is never asked for on Android. · Burada yalnız mikrofon var (mono).
+    fn baslat(_ek: Vec<String>, _kanal: u32, _gecikme: u32, mut al: impl FnMut(Vec<i16>) -> bool + Send + 'static) -> Kayit {
+        let k = Kayit { dur: Arc::default() };
+        let dur = k.dur.clone();
+        thread::spawn(move || {
+            while !dur.load(Relaxed) {
+                // Fails while the microphone permission is not granted yet: try again shortly. · Mikrofon izni henüz yokken başarısız olur: az sonra yeniden dene.
+                if let Err(e) = crate::android_jni::arama_sesi_kayit_dongusu(&dur, KARE, &mut al) {
+                    tracing::warn!("ses kaydı açılamadı: {e}");
+                }
+                if !dur.load(Relaxed) {
+                    thread::sleep(Duration::from_millis(300));
+                }
+            }
+        });
+        k
+    }
+}
+
+#[cfg(target_os = "android")]
+impl Drop for Kayit {
+    fn drop(&mut self) {
+        self.dur.store(true, Relaxed);
+        crate::android_jni::arama_sesi_kayit_kapat();
+    }
+}
+
+/// No per-application sound on Android. · Android'de uygulama başına ses yok.
+#[cfg(target_os = "android")]
+pub fn uygulamalar() -> BTreeMap<String, Vec<u32>> {
+    BTreeMap::new()
+}
+
+#[cfg(target_os = "android")]
+pub struct UygulamaSesi;
+
+#[cfg(target_os = "android")]
+impl UygulamaSesi {
+    pub fn baslat(_ad: String, _al: impl FnMut(Vec<i16>) -> bool + Send + 'static) -> UygulamaSesi {
+        UygulamaSesi
+    }
+}
+
+#[cfg(target_os = "linux")]
 #[cfg(test)]
 mod testler {
     use super::*;

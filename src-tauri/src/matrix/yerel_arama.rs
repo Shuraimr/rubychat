@@ -9,12 +9,16 @@ use crate::{durum::AppState, hata::{Hata, Sonuc}};
 
 #[cfg(all(feature = "yerel-arama", target_os = "linux"))]
 mod ekran;
-#[cfg(all(feature = "yerel-arama", target_os = "linux"))]
+// Android has no screen capture in libwebrtc: sharing says so and stops. · Android'de libwebrtc ekran yakalamaz: paylaşım bunu söyler ve durur.
+#[cfg(all(feature = "yerel-arama", target_os = "android"))]
+#[path = "yerel_arama/ekran_android.rs"]
+mod ekran;
+#[cfg(all(feature = "yerel-arama", any(target_os = "linux", target_os = "android")))]
 mod motor;
-#[cfg(all(feature = "yerel-arama", target_os = "linux"))]
+#[cfg(all(feature = "yerel-arama", any(target_os = "linux", target_os = "android")))]
 mod ses;
 
-#[cfg(not(all(feature = "yerel-arama", target_os = "linux")))]
+#[cfg(not(all(feature = "yerel-arama", any(target_os = "linux", target_os = "android"))))]
 mod motor {
     use super::*;
     pub const VAR: bool = false;

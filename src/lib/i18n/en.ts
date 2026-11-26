@@ -439,7 +439,7 @@ export const en: Record<Anahtar, string> = {
   "yeniSohbet.baslik": "New chat",
   "yeniSohbet.alan": "User ID",
   "yeniSohbet.yer": "@user:server",
-  "yeniSohbet.alt": "Enter the person's Matrix ID to start an encrypted direct chat.",
+  "yeniSohbet.alt": "If nobody shows up, type the full id. The chat is end-to-end encrypted.",
   "yeniSohbet.baslat": "Start chat",
   "yeniSohbet.gecersiz": "The ID must look like @user:server.",
   "kart.mesaj": "Message",

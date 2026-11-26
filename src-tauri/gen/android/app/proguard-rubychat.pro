@@ -8,3 +8,5 @@
 # Safety net: keep every app class (JNI names, inner classes, receivers referenced from the manifest).
 # Emniyet ağı: uygulamanın bütün sınıflarını koru (JNI adları, iç sınıflar, manifestteki alıcılar).
 -keep class dev.rubyyard.rubychat.** { *; }
+# libwebrtc's Java helpers, reached from native code by name. · Yerel koddan adıyla çağrılan libwebrtc Java yardımcıları.
+-keep class livekit.org.webrtc.** { *; }

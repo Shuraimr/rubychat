@@ -9,6 +9,7 @@ mod gizli_depo;
 mod hata;
 #[cfg(target_os = "linux")]
 mod masaustu_linux;
+mod kayit_penceresi;
 mod komutlar;
 mod matrix;
 mod medya;
@@ -88,6 +89,8 @@ pub fn run() {
         Ok(()) => tracing::info!("TLS doğrulayıcı hazır"),
         Err(e) => tracing::error!("TLS doğrulayıcı başlatılamadı: {e}"),
     }
+    #[cfg(all(feature = "yerel-arama", target_os = "android"))]
+    android_jni::webrtc_baslat();
 
     tauri::Builder::default()
         // System browser for account pages (MAS). · Hesap sayfaları için sistem tarayıcısı (MAS).
@@ -158,6 +161,8 @@ pub fn run() {
             komutlar::cihaz_girisi_baslat,
             komutlar::cihaz_girisi_bekle,
             komutlar::cihaz_girisi_iptal,
+            kayit_penceresi::kayit_penceresi_ac,
+            kayit_penceresi::kayit_penceresi_kapat,
             komutlar::pano_yaz,
             komutlar::pano_resim,
             matrix::uyeler::uyeleri_listele,
@@ -193,6 +198,8 @@ pub fn run() {
             matrix::alanlar::alanlari_al,
             matrix::alanlar::alan_icerigi,
             matrix::alanlar::alana_katil,
+            matrix::kesif::kullanici_ara,
+            matrix::kesif::odalari_kesfet,
             matrix::yerel_arama::yerel_arama_var,
             matrix::yerel_arama::yerel_arama_baslat,
             matrix::yerel_arama::yerel_arama_kapat,

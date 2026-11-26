@@ -9,7 +9,7 @@
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "cargo tauri",
-    "apk": "cargo tauri android build --apk --target aarch64",
+    "apk": "sh araclar/apk.sh",
     "apk:debug": "cargo tauri android build --debug --apk --target aarch64"
   },
   "devDependencies": {

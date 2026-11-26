@@ -58,3 +58,5 @@ export const ecGelen = (isle: (g: EcGelen) => void): Promise<UnlistenFn> => list
 export const ecBitti = (isle: (b: EcBitti) => void): Promise<UnlistenFn> => listen<EcBitti>("ec-bitti", (e) => isle(e.payload));
 export const ecAramaDurumu = (isle: (d: EcAramaDurumu) => void): Promise<UnlistenFn> =>
   listen<EcAramaDurumu>("ec-arama-durumu", (e) => isle(e.payload));
+/** The in-app sign-up window was closed by hand (desktop). · Uygulama içi kayıt penceresi elle kapatıldı (masaüstü). */
+export const kayitKapandi = (isle: () => void): Promise<UnlistenFn> => listen("kayit-kapandi", () => isle());

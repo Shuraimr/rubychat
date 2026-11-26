@@ -9,3 +9,6 @@ src-tauri/gen/schemas
 
 # Copied from node_modules at build time by vite.config.ts (Element Call embedded build)
 public/element-call
+
+# libwebrtc's Java half, copied from the downloaded prebuilt (araclar/apk.sh)
+src-tauri/gen/android/app/libs/libwebrtc.jar

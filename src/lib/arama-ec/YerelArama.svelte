@@ -16,6 +16,7 @@
   import { ec } from "./ec.svelte";
   import type { YerelKatilimci, YerelSes } from "./tipler";
   import YerelVideo from "./YerelVideo.svelte";
+  import { androidMi, sesCihaziSec, sesCihazlari, sesVarsayilan } from "./ses";
 
   const d = $derived(ec.yerelDurum);
   const kisiler = $derived(d?.katilimcilar ?? []);
@@ -28,6 +29,14 @@
   let uygulamalar = $state<string[]>([]);
   let secili = $state<string[]>([]);
   let tam = $state(false);
+  // Android: no screen sharing yet; the slot holds the speaker switch instead. · Android: henüz ekran paylaşımı yok; o yerde hoparlör anahtarı durur.
+  const android = androidMi();
+  let hoparlor = $state(android && !!sesCihazlari().find((c) => c.isSpeaker && c.id === sesVarsayilan(!ec.sesli || !ec.dm)));
+  function hoparlorDegis() {
+    const hedef = hoparlor ? sesVarsayilan(false) : sesCihazlari().find((c) => c.isSpeaker)?.id;
+    if (hedef) sesCihaziSec(hedef);
+    hoparlor = !hoparlor;
+  }
   let genislik = $state(0);
   const genis = $derived(genislik >= 800);
 
@@ -155,7 +164,11 @@
       <button class="tus" class:kapali={d?.mikrofonKapali} aria-pressed={d?.mikrofonKapali ?? false} disabled={!d} onclick={() => void yerelAramaSustur(!d?.mikrofonKapali)} aria-label={t(d?.mikrofonKapali ? "arama.sesAc" : "arama.sessiz")}>
         <Ikon ad={d?.mikrofonKapali ? "mikrofonKapali" : "mikrofon"} />
       </button>
-      <button class="tus" class:acik={d && d.paylasim !== "yok"} disabled={ec.asama !== "acik"} onclick={paylasAc} aria-label={t("yerel.paylas")}><Ikon ad="ekranPaylas" /></button>
+      {#if android}
+        <button class="tus" class:acik={hoparlor} aria-pressed={hoparlor} onclick={hoparlorDegis} aria-label={t("yerel.hoparlor")}><Ikon ad="hoparlor" /></button>
+      {:else}
+        <button class="tus" class:acik={d && d.paylasim !== "yok"} disabled={ec.asama !== "acik"} onclick={paylasAc} aria-label={t("yerel.paylas")}><Ikon ad="ekranPaylas" /></button>
+      {/if}
       <button class="tus" class:acik={panel} aria-pressed={panel} onclick={() => (panel = !panel)} aria-label={t("yerel.sesler")}><Ikon ad="sesler" /></button>
       <button class="tus son" onclick={() => void ec.kapat()} aria-label={t("arama.kapat")}><Ikon ad="telefonKapat" /></button>
     </div>

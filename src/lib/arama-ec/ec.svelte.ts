@@ -202,6 +202,12 @@ class EcArama {
       if (await yerelAramaVar().catch(() => false)) {
         if (this.asama !== "yukleniyor") return true;
         this.yerel = true;
+        // Android: communication mode, audio focus, microphone permission and the foreground service, then the default output
+        // (earpiece for a voice DM, speaker otherwise). · Android: iletişim modu, ses odağı, mikrofon izni ve ön plan servisi; sonra
+        // varsayılan çıkış (sesli birebir aramada ahize, yoksa hoparlör).
+        aramaSesiBaslat(oda.ad);
+        const cikis = sesVarsayilan(!oda.sesli || !oda.dm);
+        if (cikis) sesCihaziSec(cikis);
         this.ekranAc();
         await yerelAramaBaslat(oda.id, oda.dm, tur === "baslat");
         return true;

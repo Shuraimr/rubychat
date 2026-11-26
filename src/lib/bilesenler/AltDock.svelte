@@ -30,6 +30,7 @@
   import { istekler } from "../durum/istekler.svelte";
   import OdaOlustur from "./OdaOlustur.svelte";
   import YeniSohbet from "./YeniSohbet.svelte";
+  import OdaKesfet from "./OdaKesfet.svelte";
 
   let { gizli }: { gizli: boolean } = $props();
 
@@ -64,12 +65,13 @@
   // ---- "Yeni" menu: a layer, so back closes it · "Yeni" menüsü: katman, geri tuşu kapatır ----
   let yeniAcik = $state(false);
   let katman = 0;
-  let sayfa = $state<"kisi" | "grup" | "alan" | "katil" | null>(null);
-  const eylemler: { id: "kisi" | "grup" | "alan" | "katil"; ikon: IkonAdi }[] = [
+  // "kesfet" (public rooms + join by address) replaced the old "join by address". · "kesfet" (herkese açık odalar + adresle katılma) eski "adresle katıl"ın yerini aldı.
+  let sayfa = $state<"kisi" | "grup" | "alan" | "kesfet" | null>(null);
+  const eylemler: { id: "kisi" | "grup" | "alan" | "kesfet"; ikon: IkonAdi }[] = [
     { id: "kisi", ikon: "kisi" },
+    { id: "kesfet", ikon: "pusula" },
     { id: "grup", ikon: "sohbet" },
     { id: "alan", ikon: "izgara" },
-    { id: "katil", ikon: "ara" },
   ];
   function yeniDegis() {
     if (yeniAcik) return yeniKapat();
@@ -202,7 +204,7 @@
 </div>
 
 {#if menu}<BaglamMenusu x={menu.x} y={menu.y} eylemler={menu.eylemler} onkapat={() => (menu = null)} />{/if}
-{#if sayfa === "kisi"}<YeniSohbet onkapat={() => (sayfa = null)} />{:else if sayfa}<OdaOlustur tur={sayfa} onkapat={() => (sayfa = null)} />{/if}
+{#if sayfa === "kisi"}<YeniSohbet onkapat={() => (sayfa = null)} />{:else if sayfa === "kesfet"}<OdaKesfet onkapat={() => (sayfa = null)} />{:else if sayfa}<OdaOlustur tur={sayfa} onkapat={() => (sayfa = null)} />{/if}
 
 <style>
   .perde { position: absolute; inset: 0; z-index: 5; background: color-mix(in srgb, var(--zemin) 50%, transparent); opacity: 0; visibility: hidden; transition: opacity var(--sure-cikis) linear, visibility 0s var(--sure-cikis); }

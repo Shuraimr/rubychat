@@ -34,6 +34,8 @@ import type {
   Uye,
   VideoSikistirIstegi,
   VideoSonucu,
+  BulunanKisi,
+  KesifSayfasi,
 } from "./tipler";
 import type { EcAcIstegi, EcAcilis, EcAramaDurumu } from "../arama-ec/tipler";
 
@@ -217,3 +219,8 @@ export const panoResim = () => cagir<ArrayBuffer>("pano_resim");
 export const cihazGirisiBaslat = (sunucu: string) => cagir<CihazKodu>("cihaz_girisi_baslat", { sunucu });
 export const cihazGirisiBekle = () => cagir<Ben>("cihaz_girisi_bekle");
 export const cihazGirisiIptal = () => cagir<void>("cihaz_girisi_iptal");
+export const kayitPenceresiAc = (adres: string, baslik: string) => cagir<void>("kayit_penceresi_ac", { adres, baslik });
+export const kayitPenceresiKapat = () => cagir<void>("kayit_penceresi_kapat");
+export const kullaniciAra = (sorgu: string) => cagir<BulunanKisi[]>("kullanici_ara", { sorgu });
+export const odalariKesfet = (sunucu: string, sorgu: string, tur: "" | "oda" | "alan", sonraki: string | null) =>
+  cagir<KesifSayfasi>("odalari_kesfet", { sunucu, sorgu, tur, sonraki });

@@ -276,7 +276,7 @@ Svelte EcKatman (iframe: ec://localhost/element-call/index.html#?...)
 
 ## Yerel arama motoru (Linux, `yerel-arama` özelliği, 2026-11-26; DERLENDİ, GERÇEK ARAMADA DENENMEDİ)
 
-WebKitGTK'da `RTCPeerConnection` olmadığı için masaüstü Linux'ta aramalar webview yerine Rust'ta yürür. Android Element Call'da kalır.
+WebKitGTK'da `RTCPeerConnection` olmadığı için masaüstü Linux'ta aramalar webview yerine Rust'ta yürür. Android'de de aynı motor çalışır (aşağıda).
 
 ```
 YerelArama.svelte ──invoke──▶ matrix/yerel_arama.rs (komutlar) ──▶ motor.rs (aktör görevi, LiveKitCall sahibi)
@@ -295,3 +295,27 @@ YerelArama.svelte ──invoke──▶ matrix/yerel_arama.rs (komutlar) ──�
   `src-tauri/target/flatpak/webrtc` varsa indirme yapılmaz. Özellik kapalıyken `yerel_arama.rs` boş bir `motor` modülü kullanır, `yerel_arama_var` = false
   ve arayüz Element Call'a döner.
 - Figma: sayfa "25 · rubychat arama ekranı" (133:2). Kamera yayını YOK; Element'te uygulama ses adları görünmez (yalnızca izler).
+
+### Android'de yerel arama (2026-11-26; KODLANDI, CİHAZDA DENENMEDİ)
+
+Element Call webview'u yerine Android'de de aynı motor çalışır (`yerel-arama` özelliği APK'de açık, `npm run apk` = `araclar/apk.sh`).
+
+- **libwebrtc**: LiveKit'in hazır Android derlemesi (`webrtc-a545de4`, ~160 MB zip) `araclar/apk.sh` ile bir kez `src-tauri/target/webrtc/`'ye
+  iner ve `LK_CUSTOM_WEBRTC` ile kullanılır; Java yarısı `libwebrtc.jar` → `gen/android/app/libs/` (git'te yok, betik kopyalar).
+  `android_jni::webrtc_baslat()` açılışta JVM + Context'i libwebrtc'ye verir.
+- **Ses**: `ses.rs`'in Android yarısı `AramaSesi.kt` (AudioTrack 48 kHz stereo / AudioRecord VOICE_COMMUNICATION + telefonun yankı gidericisi);
+  Rust döngüleri `android_jni::arama_sesi_*` ile tek JNI bağlantısında bekleyerek okur/yazar (tempoyu cihaz belirler). Karıştırıcı ve WebRTC APM
+  Linux'la aynı. İletişim modu, ses odağı, mikrofon izni ve ön plan servisi arayüzden (`aramaSesiBaslat`, SesKoprusu) açılır.
+- **Ekran paylaşımı ve uygulama sesi YOK** (`ekran_android.rs` hemen hata verir); arama ekranında o düğmenin yerinde hoparlör anahtarı durur.
+
+## Kayıt ve keşif (2026-11-26)
+
+- **Uygulama içi kayıt** (`Kayit.svelte`): matrix.org gibi MAS sunucuları kaydı yalnızca kendi hesap sayfasında açar (captcha, e-posta, şartlar),
+  uygulamaların kendi formuna izin vermez. Bu yüzden cihazla giriş (`cihaz_giris.rs`) başlatılır, sayfası tarayıcı yerine uygulamanın içinde açılır:
+  masaüstünde ayrı pencere (`kayit_penceresi.rs`, IPC yetkisi yok), Android'de tam ekran WebView (`KayitPenceresi.kt`). Aynı sunucuda `/login`'e
+  ilk sıçrayış `/register`'a çevrilir; kişi izin verince giriş kendiliğinden tamamlanır ve pencere kapanır.
+- **Yeni sohbet** (`YeniSohbet.svelte`): yazdıkça kullanıcı dizini aranır (`kesif::kullanici_ara`), "ad" → `@ad:benim-sunucum` önerilir, boşken
+  son DM'ler listelenir. Geniş ekranda (dock "Yeni" menüsü yokken) sayfa Keşfet / Grup / Alan kısayollarını taşır.
+- **Odaları keşfet** (`OdaKesfet.svelte`, eski "Adresle odaya katıl"ın yerine): sunucunun herkese açık oda dizini (`kesif::odalari_kesfet`),
+  arama, Hepsi/Odalar/Alanlar, sunucu seçimi (benimki, matrix.org, yazılan). Katıl = `alana_katil` (via = dizinin sunucusu), kapı çalınan oda →
+  katılma isteği, zaten üyesi olunan oda → aç. Alanlar boşken "Alan keşfet".

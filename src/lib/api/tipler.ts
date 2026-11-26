@@ -44,7 +44,8 @@ export interface OdaOzeti {
   sabit: boolean;
 }
 
-export type EsitlemeDurumuAdi = "basliyor" | "calisiyor" | "hata" | "cevrimdisi";
+/** "oturum_kapali" = the server rejected this session for good · sunucu bu oturumu kesin reddetti */
+export type EsitlemeDurumuAdi = "basliyor" | "calisiyor" | "hata" | "cevrimdisi" | "oturum_kapali";
 export interface EsitlemeDurumu {
   durum: EsitlemeDurumuAdi;
   mesaj: string | null;
@@ -554,4 +555,29 @@ export interface CihazKodu {
   /** The page does not know the code yet: it must be typed · Sayfa kodu henüz bilmiyor: yazılmalı */
   kodYazilir: boolean;
   saniye: number;
+}
+
+/** A person from the server's user directory (kesif.rs) · Sunucunun kullanıcı dizininden bir kişi (kesif.rs) */
+export interface BulunanKisi {
+  kullaniciId: string;
+  ad: string | null;
+  avatarMxc: string | null;
+}
+/** A public room from a server's directory (kesif.rs) · Bir sunucunun dizininden herkese açık oda (kesif.rs) */
+export interface BulunanOda {
+  odaId: string;
+  adres: string | null;
+  ad: string | null;
+  konu: string | null;
+  avatarMxc: string | null;
+  uyeSayisi: number;
+  /** "acik" = join right away, "kapi" = ask to join · "acik" = hemen katıl, "kapi" = katılma isteği */
+  katilim: "acik" | "kapi";
+  alan: boolean;
+  uye: boolean;
+}
+export interface KesifSayfasi {
+  odalar: BulunanOda[];
+  sonraki: string | null;
+  sunucu: string;
 }

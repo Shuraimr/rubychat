@@ -387,7 +387,7 @@ export const tr = {
   "yeniSohbet.baslik": "Yeni sohbet",
   "yeniSohbet.alan": "Kullanıcı kimliği",
   "yeniSohbet.yer": "@kullanıcı:sunucu",
-  "yeniSohbet.alt": "Kişinin Matrix kimliğini yaz; şifreli bir birebir sohbet açılır.",
+  "yeniSohbet.alt": "Kişi bulunamazsa tam kimliğini yaz. Sohbet uçtan uca şifreli açılır.",
   "yeniSohbet.baslat": "Sohbeti başlat",
   "yeniSohbet.gecersiz": "Kimlik @kullanıcı:sunucu biçiminde olmalı.",
   "kart.mesaj": "Mesaj",

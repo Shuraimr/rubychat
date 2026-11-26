@@ -1,11 +1,11 @@
 <!--
   Login screen (design 22/11 and 22/12): the waving raccoon on a soft accent halo, "rubychat'e hoş geldin", username + password with
   floating labels, the server shown as one line ("Sunucu: matrix.org · Değiştir") that expands the server field, a big primary button,
-  SSO (placeholder, disabled) and the register hint. A failure that is not about the credentials (network, server) switches the whole
+  SSO (placeholder, disabled) and "Kayıt ol" (in-app sign-up, Kayit.svelte). A failure that is not about the credentials (network, server) switches the whole
   screen to the sad raccoon with a friendly title; the technical detail stays collapsed under "Ayrıntı" (selectable + copyable).
   Giriş ekranı (tasarım 22/11 ve 22/12): yumuşak vurgu halesinde el sallayan rakun, "rubychat'e hoş geldin", kayan etiketli kullanıcı adı +
   şifre, sunucu tek satır ("Sunucu: matrix.org · Değiştir"; dokununca sunucu alanı açılır), büyük birincil düğme, SSO (yer tutucu, devre
-  dışı) ve kayıt ipucu. Kimlik bilgisiyle ilgili olmayan bir hata (ağ, sunucu) bütün ekranı üzgün rakuna ve dost bir başlığa çevirir;
+  dışı) ve "Kayıt ol" (uygulama içi kayıt, Kayit.svelte). Kimlik bilgisiyle ilgili olmayan bir hata (ağ, sunucu) bütün ekranı üzgün rakuna ve dost bir başlığa çevirir;
   teknik ayrıntı "Ayrıntı" altında kapalı durur (seçilebilir + kopyalanabilir).
 -->
 <script lang="ts">
@@ -16,6 +16,7 @@
   import { t } from "../i18n";
   import Ikon from "../bilesenler/Ikon.svelte";
   import TelefonlaGiris from "./TelefonlaGiris.svelte";
+  import Kayit from "./Kayit.svelte";
   import Maskot from "../bilesenler/Maskot.svelte";
 
   // Came here to add an account: there is a way back. · Buraya hesap eklemeye gelindi: dönüş yolu var.
@@ -32,6 +33,7 @@
   let yerelHata = $state<string | null>(null);
   let ayrintiAcik = $state(false);
   let telefonla = $state(false);
+  let kayit = $state(false);
   // A full id typed above names its own server. · Yukarı yazılan tam kimlik kendi sunucusunu söyler.
   const girisSunucusu = $derived(/^@[^:]+:(.+)$/.exec(kullanici.trim())?.[1] ?? sunucu.trim());
 
@@ -72,6 +74,8 @@
 <main class="sayfa">
   {#if telefonla}
     <TelefonlaGiris sunucu={girisSunucusu} onkapat={() => (telefonla = false)} />
+  {:else if kayit}
+    <Kayit sunucu={sunucu.trim() || "matrix.org"} onkapat={() => (kayit = false)} />
   {:else if tamHata}
     <section class="kart merkez">
       <Maskot poz="hata" boyut={168} />
@@ -123,7 +127,7 @@
       </button>
       <button class="buton tonlu-yuzey buyuk" type="button" disabled={oturum.mesgul || !sunucu.trim()} onclick={() => (telefonla = true)}><Ikon ad="telefonCihaz" boyut={20} />{t("telefonla.dugme")}</button>
       {#if donulecek !== null}<button class="buton cizgili buyuk" type="button" disabled={oturum.mesgul} onclick={() => void oturum.hesapDegistir(donulecek).catch(() => bildirim.goster(t("hata.diger"), 4000, { tur: "hata" }))}>{t("hesaplar.geriDon")}</button>{/if}
-      <p class="kayit">{t("giris.kayitSatir")}</p>
+      <button class="kayit" type="button" disabled={oturum.mesgul} onclick={() => (kayit = true)}>{t("giris.kayitSatir")}</button>
     </form>
   {/if}
 </main>
@@ -151,7 +155,7 @@
   .sunucu-satir button { min-height: 44px; padding: 0 4px; color: var(--yazi); font-weight: 600; }
   .buyuk { height: 56px; border-radius: 28px; font-size: 1rem; }
   .tonlu-yuzey { background: var(--yuzey-2); color: var(--yazi); }
-  .kayit { text-align: center; color: var(--vurgu); font-weight: 600; font-size: .9375rem; padding: 8px 0; }
+  .kayit { align-self: center; min-height: 48px; padding: 0 16px; color: var(--vurgu); font-weight: 600; font-size: .9375rem; }
   .ayrinti-kutu { width: 100%; text-align: left; padding: 8px 12px; border-radius: 16px; background: color-mix(in srgb, var(--hata) 12%, var(--zemin)); }
   .ayrinti-baslik { min-height: 44px; display: inline-flex; align-items: center; gap: 4px; color: var(--hata); font-weight: 600; font-size: .875rem; }
   .ok { display: inline-flex; transition: transform var(--sure-hizli) var(--egri-cikis); }

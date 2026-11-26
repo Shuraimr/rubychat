@@ -192,3 +192,91 @@ pub fn medya_kaydet(yol: &str, ad: &str, mime: &str) -> Result<String, String> {
         metin(env, r.l()?)
     })
 }
+
+// ---- AramaSesi (native calls · yerel aramalar) ----
+// The loops run inside one `calistir`: the thread stays attached and the class is looked up once, not 100 times a second.
+// Döngüler tek bir `calistir` içinde döner: iş parçacığı bağlı kalır ve sınıf saniyede 100 kez değil, bir kez aranır.
+
+/// Hands the JVM and the Context to libwebrtc (its Java helpers live in libwebrtc.jar). Once, before the first call.
+/// JVM'i ve Context'i libwebrtc'ye verir (Java yardımcıları libwebrtc.jar'da). İlk aramadan önce bir kez.
+#[cfg(all(feature = "yerel-arama", target_os = "android"))]
+pub fn webrtc_baslat() {
+    let ctx = ndk_context::android_context();
+    // SAFETY: the live JavaVM and Context set up by tao. · GÜVENLİK: tao'nun kurduğu canlı JavaVM ve Context.
+    let Ok(vm) = (unsafe { JavaVM::from_raw(ctx.vm().cast()) }) else { return };
+    let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+    if !libwebrtc::android::initialize_android_context(&vm, &context) {
+        tracing::warn!("libwebrtc Android bağlamı kurulamadı");
+    }
+}
+
+/// Opens the player (AudioTrack, 48 kHz stereo, voice call use). · Çaları açar (AudioTrack, 48 kHz stereo, sesli arama kullanımı).
+pub fn arama_sesi_cal_ac() -> Result<(), String> {
+    let acildi = calistir("AramaSesi", |env, ctx, s| env.call_static_method(s, "calAc", "(Landroid/content/Context;)Z", &[JValue::Object(ctx)])?.z())?;
+    if acildi { Ok(()) } else { Err("AudioTrack açılamadı".into()) }
+}
+
+/// Stops the player; a write that waits returns. · Çaları durdurur; bekleyen yazma döner.
+pub fn arama_sesi_cal_kapat() {
+    let _ = calistir("AramaSesi", |env, _, s| env.call_static_method(s, "calKapat", "()V", &[]).map(|_| ()));
+}
+
+/// Writes `sonraki()` (10 ms interleaved stereo) until `dur`; each write blocks until the device took it.
+/// `dur` gelene dek `sonraki()`yi (10 ms iç içe stereo) yazar; her yazma cihaz alana dek bekler.
+pub fn arama_sesi_cal_dongusu(dur: &std::sync::atomic::AtomicBool, mut sonraki: impl FnMut() -> Vec<i16>) -> Result<(), String> {
+    use std::sync::atomic::Ordering::Relaxed;
+    calistir("AramaSesi", |env, _, s| {
+        let mut dizi = None;
+        let mut boy = 0;
+        while !dur.load(Relaxed) {
+            let kare = sonraki();
+            if dizi.is_none() || boy != kare.len() {
+                boy = kare.len();
+                dizi = Some(env.new_short_array(boy as i32)?);
+            }
+            let d = dizi.as_ref().expect("dizi");
+            env.set_short_array_region(d, 0, &kare)?;
+            let n = env.call_static_method(s, "yaz", "([SI)I", &[JValue::Object(d), JValue::Int(boy as i32)])?.i()?;
+            if n < 0 && !dur.load(Relaxed) {
+                return Ok(Err(format!("AudioTrack.write {n}")));
+            }
+        }
+        Ok(Ok(()))
+    })?
+}
+
+/// Opens the microphone (AudioRecord, voice communication source: the phone's own echo canceller) and hands `kare`-sample mono blocks to
+/// `al` until `dur` or `al` says false. Closes it at the end.
+/// Mikrofonu açar (AudioRecord, sesli iletişim kaynağı: telefonun kendi yankı gidericisi) ve `dur` ya da `al` false diyene dek `kare`
+/// örneklik mono blokları `al`a verir. Sonunda kapatır.
+pub fn arama_sesi_kayit_dongusu(dur: &std::sync::atomic::AtomicBool, kare: usize, al: &mut impl FnMut(Vec<i16>) -> bool) -> Result<(), String> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let sonuc = calistir("AramaSesi", |env, ctx, s| {
+        if !env.call_static_method(s, "kayitAc", "(Landroid/content/Context;)Z", &[JValue::Object(ctx)])?.z()? {
+            return Ok(Err("AudioRecord açılamadı (izin?)".to_owned()));
+        }
+        let dizi = env.new_short_array(kare as i32)?;
+        let mut v = vec![0i16; kare];
+        while !dur.load(Relaxed) {
+            let n = env.call_static_method(s, "oku", "([SI)I", &[JValue::Object(&dizi), JValue::Int(kare as i32)])?.i()?;
+            if n < 0 {
+                return Ok(if dur.load(Relaxed) { Ok(()) } else { Err(format!("AudioRecord.read {n}")) });
+            }
+            if n as usize != kare {
+                continue;
+            }
+            env.get_short_array_region(&dizi, 0, &mut v)?;
+            if !al(v.clone()) {
+                dur.store(true, Relaxed);
+            }
+        }
+        Ok(Ok(()))
+    });
+    arama_sesi_kayit_kapat();
+    sonuc?
+}
+
+/// Stops the microphone; a read that waits returns. · Mikrofonu durdurur; bekleyen okuma döner.
+pub fn arama_sesi_kayit_kapat() {
+    let _ = calistir("AramaSesi", |env, _, s| env.call_static_method(s, "kayitKapat", "()V", &[]).map(|_| ()));
+}

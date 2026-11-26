@@ -58,6 +58,26 @@ pub async fn odalari_yayinla(app: &AppHandle, client: &Client) {
 
 /// Starts syncing. Returns the `SyncService` (sliding-sync mode) and the background tasks to abort on logout.
 /// Eşitlemeyi başlatır. `SyncService`i (sliding sync kipinde) ve çıkışta durdurulacak arka plan görevlerini döndürür.
+/// Asks the server once (`whoami`) whether the session still exists. `Some(false)` only on a definite answer: a hard "unknown token"
+/// or a refresh token the server called `invalid_grant`. A network error is `None` (unknown), so a bad connection never signs anyone out.
+/// Oturumun hâlâ var olup olmadığını sunucuya bir kez sorar (`whoami`). `Some(false)` yalnızca kesin yanıtta: katı "bilinmeyen belirteç" ya
+/// da sunucunun `invalid_grant` dediği yenileme belirteci. Ağ hatası `None`dır (bilinmiyor); kötü bağlantı kimseyi çıkarmaz.
+async fn oturum_gecerli_mi(client: &Client) -> Option<bool> {
+    use matrix_sdk::ruma::api::error::ErrorKind;
+    match client.whoami().await {
+        Ok(_) => Some(true),
+        Err(e) => {
+            if let Some(ErrorKind::UnknownToken(d)) = e.client_api_error_kind() {
+                return Some(d.soft_logout);
+            }
+            if matches!(e, matrix_sdk::HttpError::RefreshToken(_)) && e.to_string().contains("invalid_grant") {
+                return Some(false);
+            }
+            None
+        }
+    }
+}
+
 pub async fn baslat(app: AppHandle, client: Client) -> Sonuc<(Option<Arc<SyncService>>, Vec<JoinHandle<()>>)> {
     let mut gorevler = Vec::new();
     durum_yayinla(&app, EsitlemeDurumuAdi::Basliyor, None);
@@ -80,10 +100,20 @@ pub async fn baslat(app: AppHandle, client: Client) -> Sonuc<(Option<Arc<SyncSer
         // arayüz sonsuza dek "bağlanıyor" diyordu.
         let mut durumlar = servis.state();
         servis.start().await;
-        let (app2, servis2) = (app.clone(), servis.clone());
+        let (app2, servis2, client2) = (app.clone(), servis.clone(), client.clone());
         gorevler.push(tokio::spawn(async move {
             let mut sonraki = Some(durumlar.get());
             while let Some(d) = sonraki {
+                // Offline mode only checks that the server answers, so a revoked session looked like "no connection" and retried
+                // twice a second. Ask once; a definite "no" stops the service and says so.
+                // Çevrimdışı kip yalnızca sunucunun yanıt verdiğine bakar; iptal edilmiş oturum "bağlantı yok" gibi görünüyor ve saniyede
+                // iki kez yeniden deniyordu. Bir kez sor; kesin "hayır" servisi durdurur ve bunu söyler.
+                if matches!(d, State::Offline | State::Error(_) | State::Terminated) && oturum_gecerli_mi(&client2).await == Some(false) {
+                    warn!("sunucu oturumu kesin reddetti: eşitleme durduruldu");
+                    servis2.stop().await;
+                    durum_yayinla(&app2, EsitlemeDurumuAdi::OturumKapali, None);
+                    break;
+                }
                 let dustu = matches!(d, State::Error(_) | State::Terminated);
                 match d {
                     State::Idle => durum_yayinla(&app2, EsitlemeDurumuAdi::Basliyor, None),
@@ -120,6 +150,10 @@ pub async fn baslat(app: AppHandle, client: Client) -> Sonuc<(Option<Arc<SyncSer
                     }
                     Err(e) => {
                         warn!("ilk sync başarısız: {e}");
+                        if oturum_gecerli_mi(&c).await == Some(false) {
+                            durum_yayinla(&app2, EsitlemeDurumuAdi::OturumKapali, None);
+                            break;
+                        }
                         durum_yayinla(&app2, EsitlemeDurumuAdi::Cevrimdisi, Some(e.to_string()));
                     }
                 }

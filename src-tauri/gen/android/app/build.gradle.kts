@@ -86,6 +86,9 @@ dependencies {
     implementation("androidx.media3:media3-common:1.8.0")
     implementation("androidx.media3:media3-transformer:1.8.0")
     implementation("androidx.media3:media3-effect:1.8.0")
+    // libwebrtc's Java half (BSD) for native calls: copied from LiveKit's prebuilt libwebrtc by araclar/apk.sh (not in git).
+    // Yerel aramalar için libwebrtc'nin Java yarısı (BSD): araclar/apk.sh LiveKit'in hazır libwebrtc'sinden kopyalar (git'te yok).
+    implementation(files("libs/libwebrtc.jar"))
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")

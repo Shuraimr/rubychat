@@ -8,7 +8,7 @@ Matrix istemcisi (rubyyard ailesi): Android öncelikli, masaüstü de çalışı
 - Tauri 2 + matrix-rust-sdk (`matrix-sdk` + `matrix-sdk-ui`, 0.19, rustls, SQLite) + Svelte 5 (rune'lar) + TypeScript + Vite.
 - Her şey nix kabuğunda: `nix develop -c <komut>` (Rust + Android hedefleri, Node 22, JDK17, Android SDK/NDK, webkitgtk, `cargo tauri`).
   Aracı başka yoldan kurma; eksikse `flake.nix`'e ekle.
-- Tauri CLI = `cargo tauri` (npm'de `@tauri-apps/cli` YOK). `npm run tauri dev` masaüstü geliştirme; `npm run apk` Android debug APK.
+- Tauri CLI = `cargo tauri` (npm'de `@tauri-apps/cli` YOK). `npm run tauri dev` masaüstü geliştirme; `npm run apk` Android APK (`araclar/apk.sh`: hazır libwebrtc'yi bir kez indirir, `yerel-arama` özelliğiyle derler).
 - Doğrulama: `nix develop -c npm run check` (0 hata), `nix develop -c npm run build`, `cd src-tauri && nix develop -c cargo check`,
   `nix develop -c cargo tauri build --debug --no-bundle` (masaüstü ikilisi bağlanmalı).
 - Yeni npm/crate eklemeden önce kullanıcıya sor; lisans AGPL-3.0-or-later ile uyumlu olmalı (MIT, BSD, ISC, Apache-2.0, LGPL).
@@ -29,7 +29,7 @@ src/lib/i18n/                t() + tr.ts
 src/styles/                  tokens.css (rubyyard değişkenleri), temel.css
 src-tauri/src/               lib, komutlar, durum, hata, tipler, gizli_depo (GizliDepo: keyring / Android Keystore), matrix/{oturum,esitleme,odalar,zaman,arama,sifreleme}, medya.rs (medya:// şeması)
                              matrix/hesaplar.rs (çoklu hesap, hesaplar.json), matrix/kuyruk.rs (gönderim kuyruğu: takılan mesaj, boyut sınırı)
-                             matrix/yerel_arama{.rs,/motor.rs,/ses.rs,/ekran.rs} (Linux yerel arama motoru; cargo özelliği `yerel-arama`)
+                             matrix/yerel_arama{.rs,/motor.rs,/ses.rs,/ekran.rs} (Linux + Android yerel arama motoru; cargo özelliği `yerel-arama`; Android sesi AramaSesi.kt)
 src/lib/arama-ec/            Element Call (iframe) + YerelArama.svelte / YerelVideo.svelte (yerel motorun arayüzü)
 motor/                       matrix-rust-rtc (AGPL) ağaç içi kopya + yama/livekit (stereo); yalnızca `yerel-arama` özelliğiyle derlenir
 src-tauri/gen/android/.../GizliKasa.kt  Android Keystore yardımcısı (Rust'tan JNI ile çağrılır; adı/imzası gizli_depo.rs ile eşleşmeli)

@@ -22,6 +22,8 @@
   import Sayfalayici from "../bilesenler/Sayfalayici.svelte";
   import SohbetAramasi from "./SohbetAramasi.svelte";
   import YeniSohbet from "../bilesenler/YeniSohbet.svelte";
+  import OdaKesfet from "../bilesenler/OdaKesfet.svelte";
+  import OdaOlustur from "../bilesenler/OdaOlustur.svelte";
   import { alanlar } from "../durum/alanlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { altKaydirma, kabuk } from "../durum/kabuk.svelte";
@@ -48,6 +50,8 @@
   }
 
   let yeniAcik = $state(false);
+
+  let digerSayfa = $state<"kesfet" | "grup" | "alan" | null>(null);
   // Long press on a row: pin it (quick switcher, top of the list) · Satıra uzun bas: sabitle (hızlı geçiş, listenin başı)
   let menu = $state<{ x: number; y: number; eylemler: MenuEylemi[] } | null>(null);
   function odaMenusu(o: OdaOzeti, x: number, y: number) {
@@ -203,7 +207,8 @@
 </div>
 
 {#if menu}<BaglamMenusu x={menu.x} y={menu.y} eylemler={menu.eylemler} onkapat={() => (menu = null)} />{/if}
-{#if yeniAcik}<YeniSohbet onkapat={() => (yeniAcik = false)} />{/if}
+{#if yeniAcik}<YeniSohbet onkapat={() => (yeniAcik = false)} kisayol={telefon ? undefined : (s) => { yeniAcik = false; digerSayfa = s; }} />{/if}
+{#if digerSayfa === "kesfet"}<OdaKesfet onkapat={() => (digerSayfa = null)} />{:else if digerSayfa}<OdaOlustur tur={digerSayfa} onkapat={() => (digerSayfa = null)} />{/if}
 
 {#if cipDuzenle}
   <AltSayfa baslik={t("sohbetler.cipBaslik")} onkapat={() => (cipDuzenle = false)}>

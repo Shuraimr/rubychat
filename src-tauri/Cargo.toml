@@ -74,8 +74,9 @@ webkit2gtk = "2.0.2"
 # Aynı gerekçe, kilit dosyasındaki sürüm: GTK panosu (src/masaustu_linux.rs). Yeni bir şey inmez.
 gtk = "0.18"
 keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
-# Native calls (feature `yerel-arama`, only in the Flatpak build): MatrixRTC engine + LiveKit/libwebrtc. The crates live in ../motor (AGPL).
-# Yerel aramalar (`yerel-arama` özelliği, yalnız Flatpak derlemesinde): MatrixRTC motoru + LiveKit/libwebrtc. Crate'ler ../motor'da (AGPL).
+# Native calls (feature `yerel-arama`: the Flatpak and the APK): MatrixRTC engine + LiveKit/libwebrtc. The crates live in ../motor (AGPL).
+# Yerel aramalar (`yerel-arama` özelliği: Flatpak ve APK): MatrixRTC motoru + LiveKit/libwebrtc. Crate'ler ../motor'da (AGPL).
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 matrix-rtc-call-sdk = { path = "../motor/crates/matrix-rtc-call-sdk", features = ["matrix-sdk"], optional = true }
 matrix-rtc-call = { path = "../motor/crates/matrix-rtc-call", optional = true }
 matrix-rtc-core = { path = "../motor/crates/matrix-rtc-core", optional = true }

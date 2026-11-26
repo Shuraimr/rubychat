@@ -263,6 +263,13 @@ class BaglantiKoprusu(private val etkinlik: MainActivity) {
     }
   }
 
+  /** In-app sign-up page (KayitPenceresi). · Uygulama içi kayıt sayfası (KayitPenceresi). */
+  @JavascriptInterface
+  fun kayitAc(url: String, baslik: String, zemin: String, yazi: String) = KayitPenceresi.ac(etkinlik, url, baslik, zemin, yazi)
+
+  @JavascriptInterface
+  fun kayitKapat() = KayitPenceresi.kapat(etkinlik)
+
   @JavascriptInterface
   fun uygulamalar(url: String): String {
     val dizi = JSONArray()
@@ -330,6 +337,11 @@ class MainActivity : TauriActivity() {
   /** "Kapat" on the ongoing-call notification → the web UI hangs up. · Süren arama bildirimindeki "Kapat" → web arayüzü kapatır. */
   fun aramaKapatIstegi() {
     web?.post { web?.evaluateJavascript("window.dispatchEvent(new CustomEvent('rubychat-arama-kapat'))", null) }
+  }
+
+  /** A plain window event for the web UI (no detail). · Web arayüzü için düz pencere olayı (ayrıntısız). */
+  fun olayGonder(ad: String) {
+    web?.post { web?.evaluateJavascript("window.dispatchEvent(new CustomEvent(" + JSONObject.quote(ad) + "))", null) }
   }
 
   fun bildirimIzniIste() {

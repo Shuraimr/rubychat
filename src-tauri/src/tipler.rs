@@ -87,6 +87,9 @@ pub enum EsitlemeDurumuAdi {
     Calisiyor,
     Hata,
     Cevrimdisi,
+    /// The server rejected this device's session for good (signed out elsewhere, revoked). Not a network problem: sync stops.
+    /// Sunucu bu cihazın oturumunu kesin reddetti (başka yerden kapatıldı, iptal edildi). Ağ sorunu değil: eşitleme durur.
+    OturumKapali,
 }
 
 #[derive(Serialize, Clone, Debug)]
