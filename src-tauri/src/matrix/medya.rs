@@ -291,9 +291,18 @@ fn dosya_adi_temizle(ad: &str) -> String {
 pub async fn gonder(app: &AppHandle, durum: &AppState, client: &Client, istek: MedyaGonderIstegi) -> Sonuc<()> {
     let zaman = zaman_al(durum, client, &istek.oda_id).await?;
     let yol = dosya_yolu(app, &istek.kimlik)?;
-    let baytlar = std::fs::read(&yol)?;
-    // Refuse here: once queued, a file the server rejects would hold up the whole room. · Burada geri çevir: kuyruğa girince, sunucunun reddettiği dosya bütün odayı bekletirdi.
-    crate::matrix::kuyruk::boyut_denetle(client, baytlar.len()).await?;
+    let mut sil = vec![istek.kimlik.clone()];
+    sil.extend(istek.kucuk_kimlik.clone());
+    // Refuse here, from the size on disk (not after reading a file that is too big into memory): once queued, a file the
+    // server rejects would hold up the whole room. The prepared files go too, nothing will send them.
+    // Burada, diskteki boyuttan geri çevir (çok büyük dosyayı belleğe okuduktan sonra değil): kuyruğa girince, sunucunun
+    // reddettiği dosya bütün odayı bekletirdi. Hazırlanan dosyalar da silinir, onları gönderecek bir şey yok.
+    let disk_boyutu = tokio::fs::metadata(&yol).await?.len() as usize;
+    if let Err(e) = crate::matrix::kuyruk::boyut_denetle(client, disk_boyutu).await {
+        temizle(app, &sil);
+        return Err(e);
+    }
+    let baytlar = tokio::fs::read(&yol).await?;
     let boyut = UInt::new(baytlar.len() as u64);
     let mime: mime::Mime = istek.mime.parse().unwrap_or(mime::APPLICATION_OCTET_STREAM);
     let (g, y) = (istek.genislik.map(UInt::from), istek.yukseklik.map(UInt::from));
@@ -329,8 +338,6 @@ pub async fn gonder(app: &AppHandle, durum: &AppState, client: &Client, istek: M
     let kaynak = AttachmentSource::Data { bytes: baytlar, filename: dosya_adi_temizle(&istek.dosya_adi) };
     zaman.send_attachment(kaynak, mime, ayar).use_send_queue().await?;
     // The SDK keeps its own copy in the media cache, ours can go. · SDK kendi kopyasını medya önbelleğinde tutar, bizimki silinebilir.
-    let mut sil = vec![istek.kimlik.clone()];
-    sil.extend(istek.kucuk_kimlik.clone());
     temizle(app, &sil);
     Ok(())
 }

@@ -130,6 +130,13 @@ pub fn bildirim_temizle(oda_id: &str) {
     });
 }
 
+/// Every notification of the app (see `Bildirimci.hepsiniTemizle`). · Uygulamanın bütün bildirimleri.
+pub fn bildirim_hepsini_temizle() {
+    let _ = calistir("Bildirimci", |env, ctx, sinif| {
+        env.call_static_method(sinif, "hepsiniTemizle", "(Landroid/content/Context;)V", &[JValue::Object(ctx)]).map(|_| ())
+    });
+}
+
 /// Is the Android activity started (visible)? Unknown = true, so we never swallow a notification by mistake in the wrong direction.
 /// Android etkinliği başlamış (görünür) mı? Bilinmiyorsa true.
 pub fn on_planda_mi() -> bool {

@@ -81,6 +81,8 @@
         try {
           const b = await yerelAramaKare(ad, sira);
           if (dur) break;
+          // Nothing new yet (a still screen): ask again with the same number. · Henüz yeni bir şey yok (durağan ekran): aynı numarayla yeniden sor.
+          if (b.byteLength === 4) continue;
           if (b.byteLength < 12) {
             // The sharer stopped and started again: numbers begin anew. · Paylaşan durup yeniden başladı: numaralar baştan.
             sira = 0;

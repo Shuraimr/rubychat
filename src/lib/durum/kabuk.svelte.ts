@@ -14,6 +14,7 @@ class Kabuk {
 
   sifirla() {
     this.altGizli = false;
+    this.aramaOdakta = false;
     this.ilerleme = 0;
   }
 }

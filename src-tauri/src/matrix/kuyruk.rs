@@ -29,7 +29,16 @@ pub fn izle(client: Client) -> JoinHandle<()> {
                 // A wedged message stays at the head, so re-opening is harmless: the rest goes out once it is removed. · Takılan mesaj başta
                 // kalır; açmanın zararı yok, o kaldırılınca gerisi gider.
                 Ok(h) => h.room_id,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                // Errors were missed, so some rooms may sit with their queue off: re-open all of them after a pause.
+                // Hatalar kaçırıldı; bazı odaların kuyruğu kapalı kalmış olabilir: biraz sonra hepsini yeniden aç.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    let c = client.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                        c.send_queue().set_enabled(true).await;
+                    });
+                    continue;
+                }
                 Err(_) => break,
             };
             // Back off while it keeps failing, so a dead network is not hammered. · Hata sürdükçe aralığı aç; ölü ağ dövülmesin.

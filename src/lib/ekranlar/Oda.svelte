@@ -140,7 +140,7 @@
   });
   onDestroy(() => {
     clearTimeout(okunduZamanlayici);
-    zaman.kapat();
+    void zaman.kapat(odaId);
   });
 
   const GERCEK = new Set(["metin", "resim", "diger", "sifre_cozulemedi", "cikartma", "anket", "silindi"]);

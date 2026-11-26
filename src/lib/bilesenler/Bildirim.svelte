@@ -24,7 +24,9 @@
   /* Inverse surface, like a Material snackbar: it must read as "above the app" in both themes. · Ters yüzey, Material snackbar gibi: iki temada da "uygulamanın üstünde" okunmalı. */
   .bildirim {
     position: fixed; left: 1rem; right: 1rem; z-index: 50; transform-origin: 50% 100%;
-    bottom: calc(var(--alt-yer) + 12px + env(safe-area-inset-bottom));
+    /* The bars already include the safe area; only with no bar does the toast need it itself.
+       Çubuklar güvenli alanı zaten içerir; çubuk yokken bildirim onu kendisi ister. */
+    bottom: calc(max(var(--alt-yer), env(safe-area-inset-bottom)) + 12px);
     max-width: 26rem; min-height: 3.25rem; margin: 0 auto; padding: .25rem .5rem .25rem 1rem; border-radius: 1rem;
     display: flex; align-items: center; gap: .75rem; background: var(--yazi); color: var(--zemin); box-shadow: var(--kat-2); font-size: .875rem;
   }

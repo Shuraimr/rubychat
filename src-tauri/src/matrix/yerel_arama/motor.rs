@@ -160,9 +160,18 @@ pub async fn kare(anahtar: String, sonra: u64) -> Vec<u8> {
         return vec![];
     };
     let mut rx = kanal.subscribe();
-    let bulunan = match tokio::time::timeout(Duration::from_secs(1), rx.wait_for(|(no, k)| *no > sonra && k.is_some())).await {
-        Ok(Ok(v)) => v.clone(),
-        _ => return vec![],
+    let sonuc = tokio::time::timeout(Duration::from_secs(1), rx.wait_for(|(no, k)| *no > sonra && k.is_some()))
+        .await
+        .map(|r| r.map(|v| v.clone()).map_err(|_| ()));
+    let bulunan = match sonuc {
+        Ok(Ok(v)) => v,
+        // No new frame in time (a still screen): 4 bytes = "keep your number". Only numbers that went backwards mean the
+        // sharer started again; then the empty answer makes the viewer start from 0. Without this a still picture was sent
+        // again every second. · Zamanında yeni kare yok (durağan ekran): 4 bayt = "numaranı koru". Yalnızca geriye giden numara
+        // paylaşanın yeniden başladığı demektir; o zaman boş yanıt izleyiciyi 0'dan başlatır. Bu olmasa durağan görüntü her
+        // saniye yeniden gönderilirdi.
+        Ok(Err(_)) => return vec![],
+        Err(_) => return if rx.borrow().0 < sonra { vec![] } else { vec![0; 4] },
     };
     let (no, Some(k)) = bulunan else { return vec![] };
     paketle(no as u32, &k).unwrap_or_default()
@@ -252,6 +261,21 @@ fn bitti(app: &AppHandle, oda_id: &str, neden: &'static str) {
     let _ = app.emit(OLAY, d);
 }
 
+/// Hanging up while still connecting. The membership (and the ring) may already be on the server, and dropping the join would
+/// leave it there until it expires, so the phone on the other side keeps ringing: let the join finish briefly, then leave.
+/// Bağlanırken kapatmak. Üyelik (ve zil) sunucuya çoktan gitmiş olabilir; katılmayı düşürmek onu süresi dolana dek orada bırakır,
+/// karşı tarafın telefonu çalmayı sürdürür: katılmanın kısaca bitmesini bekle, sonra ayrıl.
+async fn katilmadan_ayril<F>(katilma: std::pin::Pin<&mut F>)
+where
+    F: std::future::Future<Output = Result<LiveKitCall, matrix_rtc_call_sdk::livekit::LiveKitCallError>>,
+{
+    if let Ok(Ok(call)) = tokio::time::timeout(Duration::from_secs(8), katilma).await {
+        if let Ok(Err(e)) = tokio::time::timeout(Duration::from_secs(8), call.leave()).await {
+            tracing::warn!("bağlanırken ayrılma: {e}");
+        }
+    }
+}
+
 async fn yurut(
     app: AppHandle, oda: matrix_sdk::Room, dm: bool, ara: bool, ses: Ses,
     tx: mpsc::UnboundedSender<Istek>, mut rx: mpsc::UnboundedReceiver<Istek>,
@@ -280,10 +304,16 @@ async fn yurut(
                     }
                 },
                 i = rx.recv() => match i {
-                    Some(Istek::Kapat(b)) => return ("biz", Some(b)),
+                    Some(Istek::Kapat(b)) => {
+                        katilmadan_ayril(katilma).await;
+                        return ("biz", Some(b));
+                    }
                     Some(Istek::Sustur(k)) => kapali = k,
                     Some(_) => {}
-                    None => return ("biz", None),
+                    None => {
+                        katilmadan_ayril(katilma).await;
+                        return ("biz", None);
+                    }
                 },
             }
         };
@@ -323,6 +353,9 @@ impl Arama {
         // Publishing waits for our own connection; it must not stop the loop. · Yayın kendi bağlantımızı bekler; döngüyü durdurmamalı.
         let mut tik = tokio::time::interval(Duration::from_millis(500));
         tik.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // The screen shows the call before the microphone is published (that waits for the server). · Ekran, mikrofon yayınlanmadan
+        // (sunucuyu bekler) önce aramayı gösterir.
+        self.bildir().await;
         self.mikrofonu_yayinla().await;
         loop {
             tokio::select! {
@@ -392,7 +425,11 @@ impl Arama {
 
     async fn mikrofonu_yayinla(&mut self) {
         // Muted until the recorder runs, so there is no open-mic window. · Kayıt başlayana kadar sessiz; açık mikrofon aralığı olmasın.
-        let r = self.call.publish(PublishOptions::microphone().muted()).await.map_err(|e| e.to_string());
+        // Bounded: a stuck publish must not stop the loop (hang-up included). · Sınırlı: takılan yayın döngüyü (kapatma dahil) durdurmamalı.
+        let r = match tokio::time::timeout(Duration::from_secs(10), self.call.publish(PublishOptions::microphone().muted())).await {
+            Ok(r) => r.map_err(|e| e.to_string()),
+            Err(_) => Err("zaman aşımı".to_owned()),
+        };
         let _ = self.tx.send(Istek::MikrofonHazir(r));
     }
 
@@ -565,17 +602,25 @@ impl Arama {
         let icerik = serde_json::json!({ "room_id": self.oda.room_id(), "names": adlar });
         let Ok(ham) = Raw::new(&icerik).map(|r| r.cast_unchecked::<AnyToDeviceEventContent>()) else { return };
         let sifre = self.oda.client().encryption();
+        // Only devices we know get the names, and only once it was really sent; the others are tried again on the next tick
+        // (a newcomer's keys arrive a little later). · Adlar yalnızca bilinen cihazlara gider ve yalnızca gerçekten gönderilince
+        // işaretlenir; ötekiler sonraki tikte yeniden denenir (yeni gelenin anahtarları biraz sonra gelir).
         let mut cihazlar = vec![];
+        let mut bulunan = vec![];
         for (k, c) in &hedefler {
-            if let Ok(k) = UserId::parse(k) {
-                if let Ok(Some(d)) = sifre.get_device(&k, <&DeviceId>::from(c.as_str())).await {
+            if let Ok(ki) = UserId::parse(k) {
+                if let Ok(Some(d)) = sifre.get_device(&ki, <&DeviceId>::from(c.as_str())).await {
                     cihazlar.push(d);
+                    bulunan.push((k.clone(), c.clone()));
                 }
             }
         }
-        self.ad_gonderilen.extend(hedefler);
-        if let Err(e) = sifre.encrypt_and_send_raw_to_device(cihazlar.iter().collect(), AD_OLAYI, ham, CollectStrategy::IdentityBasedStrategy).await {
-            tracing::warn!("uygulama adları gönderilemedi: {e}");
+        if cihazlar.is_empty() {
+            return;
+        }
+        match sifre.encrypt_and_send_raw_to_device(cihazlar.iter().collect(), AD_OLAYI, ham, CollectStrategy::IdentityBasedStrategy).await {
+            Ok(_) => self.ad_gonderilen.extend(bulunan),
+            Err(e) => tracing::warn!("uygulama adları gönderilemedi: {e}"),
         }
     }
 

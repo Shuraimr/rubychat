@@ -77,6 +77,8 @@ const SAYFA_ARASI: Duration = Duration::from_millis(300);
 /// Backfill waits this long after start so it never competes with the first sync and the UI.
 /// Doldurma açılıştan sonra bu kadar bekler; ilk eşitleme ve arayüzle yarışmasın.
 const DOLDURMA_GECIKMESI: Duration = Duration::from_secs(10);
+/// How many starts a page with undecryptable messages waits for its keys · Çözülemeyen mesajlı bir sayfanın anahtarlarını kaç açılış beklediği
+const COZULEMEYEN_DENEME: u8 = 3;
 const ILERLEME_DOSYASI: &str = "ilerleme.json";
 const ANALIZCI_ADI: &str = "tr";
 
@@ -263,6 +265,10 @@ struct OdaIlerlemesi {
     token: Option<String>,
     bitti: bool,
     sayi: u32,
+    /// Starts at which a page still had undecryptable messages (keys not there yet); after a few, they are given up.
+    /// Bir sayfada hâlâ çözülemeyen mesaj bulunan açılış sayısı (anahtarlar henüz yok); birkaçından sonra vazgeçilir.
+    #[serde(default)]
+    cozulemeyen: u8,
 }
 
 type IlerlemeHaritasi = HashMap<String, OdaIlerlemesi>;
@@ -758,9 +764,14 @@ async fn dolgu_gorevi(client: Client, dizin: Arc<Dizin>, yol: PathBuf) {
                 }
             };
             ardisik_hata = 0;
+            let mut cozulemedi = false;
             for olay in &sayfa.chunk {
                 let Ok(json) = serde_json::from_str::<Json>(olay.raw().json().get()) else { continue };
-                if json.get("type").and_then(|t| t.as_str()) != Some("m.room.message") {
+                let tur = json.get("type").and_then(|t| t.as_str());
+                if tur == Some("m.room.encrypted") {
+                    cozulemedi = true;
+                }
+                if tur != Some("m.room.message") {
                     continue;
                 }
                 let gonderen = json.get("sender").and_then(|s| s.as_str()).unwrap_or_default().to_owned();
@@ -772,8 +783,16 @@ async fn dolgu_gorevi(client: Client, dizin: Arc<Dizin>, yol: PathBuf) {
                     dizin.komut(Komut::Ekle(b));
                 }
             }
+            // Keys often arrive later (recovery key, another device): do not move past this page yet, try again at the next start.
+            // Anahtarlar çoğu zaman sonra gelir (kurtarma anahtarı, öteki cihaz): bu sayfayı henüz geçme, sonraki açılışta yeniden dene.
+            if cozulemedi && k.cozulemeyen < COZULEMEYEN_DENEME {
+                k.cozulemeyen += 1;
+                dizin.komut(Komut::Ilerleme(oda_id.clone(), k.clone()));
+                break;
+            }
             k.sayi += sayfa.chunk.len() as u32;
             k.token = sayfa.end.clone();
+            k.cozulemeyen = 0;
             k.bitti = sayfa.end.is_none() || sayfa.chunk.is_empty();
             dizin.komut(Komut::Ilerleme(oda_id.clone(), k.clone()));
             if k.bitti {

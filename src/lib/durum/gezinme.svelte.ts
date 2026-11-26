@@ -74,14 +74,26 @@ class Gezinme {
       }
       if (s?.arama) return;
       const simdi = s?.kat ?? 0;
+      let kapanan = 0;
       while (this.#katmanlar.length > 0 && this.#katmanlar[this.#katmanlar.length - 1].id > simdi) {
         const ust = this.#katmanlar.pop()!;
         if (ust.kapat() === false) {
           // Refused: put it back and restore its history entry so back does nothing visible. · Reddedildi: geri koy ve history girdisini yenile; geri hiçbir şey göstermesin.
           this.#katmanlar.push(ust);
           history.pushState({ kat: ust.id }, "");
+          kapanan = -1;
           break;
         }
+        kapanan++;
+      }
+      // We landed on the entry of a layer that already closed while it was not on top (its entry could not be removed then).
+      // Such a press would do nothing visible: close the top layer instead, or go on back when none is open.
+      // Üstte değilken kapanmış bir katmanın girdisine düştük (o zaman girdisi silinemezdi). Böyle bir basış görünür hiçbir
+      // şey yapmazdı: bunun yerine en üstteki katmanı kapat, açık katman yoksa geri gitmeyi sürdür.
+      if (kapanan === 0 && simdi > 0 && !this.#katmanlar.some((k) => k.id === simdi)) {
+        const ust = this.#katmanlar.pop();
+        if (!ust) history.back();
+        else if (ust.kapat() === false) this.#katmanlar.push(ust);
       }
     });
 
@@ -264,6 +276,8 @@ class Gezinme {
     this.acikOdaId = null;
     this.benAlt = null;
     this.#katmanlar = [];
+    this.#bekleyenEklemeler = [];
+    this.#geriBekleyen = 0;
     this.#odaKatmani = 0;
     this.#benAltKatmani = 0;
     this.#sekmeKatmani = 0;

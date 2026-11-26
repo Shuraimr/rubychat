@@ -278,6 +278,15 @@ object Bildirimci {
     nm.cancel(odaId.hashCode() + 1)
   }
 
+  /** Removes every notification and forgets all history (logout, account switch: none may be answered as the next account). */
+  /** Bütün bildirimleri kaldırır ve tüm geçmişi unutur (çıkış, hesap değişimi: hiçbiri sonraki hesap adına yanıtlanmamalı). */
+  @JvmStatic
+  fun hepsiniTemizle(ctx: Context) {
+    synchronized(gecmis) { gecmis.clear() }
+    synchronized(odaAdlari) { odaAdlari.clear() }
+    NotificationManagerCompat.from(ctx).cancelAll()
+  }
+
   /** After an inline reply: add our own line so the card shows it and the reply spinner stops. */
   /** Satır içi yanıttan sonra: kendi satırımızı ekle; kart onu göstersin ve yanıt dönen simgesi dursun. */
   fun yanitEklendi(ctx: Context, odaId: String, metin: String) {

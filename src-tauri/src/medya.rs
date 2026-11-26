@@ -13,6 +13,7 @@ use matrix_sdk::{
     },
 };
 use tauri::{http::{Request, Response}, AppHandle, Manager};
+use std::sync::{Arc, Mutex};
 
 use crate::durum::AppState;
 
@@ -67,10 +68,19 @@ async fn kayitli_sun(app: &AppHandle, istek: &Request<Vec<u8>>, id: &str) -> Res
     let kayit = state.medya_kaynaklari.lock().ok().and_then(|k| k.harita.get(id).cloned());
     let Some(kayit) = kayit else { return yanit(404, "text/plain", vec![]) };
     let Ok(client) = state.client().await else { return yanit(401, "text/plain", vec![]) };
-    let params = MediaRequestParameters { source: kayit.kaynak, format: MediaFormat::File };
-    let bayt = match client.media().get_media_content(&params, true).await {
-        Ok(b) => b,
-        Err(_) => return yanit(404, "text/plain", vec![]),
+    let bayt = match son_dosya_al(id) {
+        Some(b) => b,
+        None => {
+            let params = MediaRequestParameters { source: kayit.kaynak, format: MediaFormat::File };
+            match client.media().get_media_content(&params, true).await {
+                Ok(b) => {
+                    let b = Arc::new(b);
+                    son_dosya_koy(id, b.clone());
+                    b
+                }
+                Err(_) => return yanit(404, "text/plain", vec![]),
+            }
+        }
     };
     let tur = kayit
         .mime
@@ -89,8 +99,16 @@ async fn kayitli_sun(app: &AppHandle, istek: &Request<Vec<u8>>, id: &str) -> Res
         .and_then(|v| v.split(',').next())
         .and_then(|v| {
             let (a, b) = v.split_once('-')?;
-            let bas: usize = a.trim().parse().ok()?;
-            let son: usize = if b.trim().is_empty() { toplam.saturating_sub(1) } else { b.trim().parse().ok()? };
+            let (a, b) = (a.trim(), b.trim());
+            // "bytes=-N" = the last N bytes (players ask for the end of an MP4 this way). · "bytes=-N" = son N bayt (oynatıcılar MP4'ün sonunu böyle ister).
+            if a.is_empty() {
+                let n: usize = b.parse().ok()?;
+                return Some((toplam.saturating_sub(n), toplam.saturating_sub(1)));
+            }
+            let bas: usize = a.parse().ok()?;
+            // An open end gets a slice, not the rest of a possibly huge file; the player asks for the next one.
+            // Açık uç bir dilim alır, olası dev dosyanın kalanını değil; oynatıcı sonrakini ister.
+            let son: usize = if b.is_empty() { bas.saturating_add(ACIK_UC_DILIM - 1) } else { b.parse().ok()? };
             Some((bas, son.min(toplam.saturating_sub(1))))
         });
     match aralik {
@@ -112,9 +130,32 @@ async fn kayitli_sun(app: &AppHandle, istek: &Request<Vec<u8>>, id: &str) -> Res
             .header("Content-Type", tur)
             .header("Accept-Ranges", "bytes")
             .header("Cache-Control", "private, max-age=86400")
-            .body(bayt)
+            .body(Arc::unwrap_or_clone(bayt))
             .unwrap_or_else(|_| Response::new(Vec::new())),
     }
+}
+
+/// Size of the answer to an open-ended range · Açık uçlu aralığa verilen yanıtın boyu
+const ACIK_UC_DILIM: usize = 4 * 1024 * 1024;
+
+/// The last whole file served, decrypted. A video player asks for many ranges of the same file; without this every one of
+/// them would read and decrypt the whole file again (twice its size in memory each time). Emptied at logout.
+/// Sunulan son tam dosya, çözülmüş hâlde. Video oynatıcı aynı dosyadan çok sayıda aralık ister; bu olmasa her biri dosyanın
+/// tamamını yeniden okuyup çözerdi (her seferinde boyunun iki katı bellek). Çıkışta boşaltılır.
+static SON_DOSYA: Mutex<Option<(String, Arc<Vec<u8>>)>> = Mutex::new(None);
+
+fn son_dosya_al(id: &str) -> Option<Arc<Vec<u8>>> {
+    let s = SON_DOSYA.lock().unwrap_or_else(|e| e.into_inner());
+    s.as_ref().filter(|(i, _)| i == id).map(|(_, b)| b.clone())
+}
+
+fn son_dosya_koy(id: &str, b: Arc<Vec<u8>>) {
+    *SON_DOSYA.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.to_owned(), b));
+}
+
+/// Forgets the decrypted file (logout, account switch). · Çözülmüş dosyayı unutur (çıkış, hesap değişimi).
+pub fn temizle() {
+    *SON_DOSYA.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 pub async fn sun(app: &AppHandle, istek: Request<Vec<u8>>) -> Response<Vec<u8>> {

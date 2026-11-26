@@ -7,10 +7,18 @@ export function altYeriOlc(): () => void {
   const gozlemci = new ResizeObserver(guncelle);
   const izlenen = new Set<Element>();
 
+  // The space is measured up to the highest VISIBLE bar's top, not as a sum: a sheet that opens over the dock covers it, and
+  // summing both pushed toasts off the top of the screen. Hidden bars (a minimised call, a layer under `inert`) do not count.
+  // Yer, toplam olarak değil GÖRÜNEN en yüksek çubuğun üstüne kadar ölçülür: dock'un üstüne açılan sayfa onu örter, ikisini
+  // toplamak bildirimleri ekranın üstünden dışarı itiyordu. Gizli çubuklar (küçültülmüş arama, `inert` altındaki katman) sayılmaz.
   function guncelle() {
-    let toplam = 0;
-    document.querySelectorAll("[data-alt-cubuk]").forEach((e) => (toplam += e.getBoundingClientRect().height));
-    kok.style.setProperty("--alt-yer", `${Math.round(toplam)}px`);
+    let ust = window.innerHeight;
+    document.querySelectorAll("[data-alt-cubuk]").forEach((e) => {
+      const r = e.getBoundingClientRect();
+      if (r.height <= 0 || e.closest("[inert]") || getComputedStyle(e).visibility === "hidden") return;
+      ust = Math.min(ust, r.top);
+    });
+    kok.style.setProperty("--alt-yer", `${Math.max(0, Math.round(window.innerHeight - ust))}px`);
   }
 
   function tara() {
@@ -21,10 +29,12 @@ export function altYeriOlc(): () => void {
   }
 
   const degisim = new MutationObserver(tara);
-  degisim.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-alt-cubuk"] });
+  degisim.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-alt-cubuk", "inert"] });
+  window.addEventListener("resize", guncelle);
   tara();
   return () => {
     gozlemci.disconnect();
     degisim.disconnect();
+    window.removeEventListener("resize", guncelle);
   };
 }

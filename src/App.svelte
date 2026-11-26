@@ -20,6 +20,7 @@
   import HizliGecis from "./lib/bilesenler/HizliGecis.svelte";
   import BaglantiOnay from "./lib/bilesenler/BaglantiOnay.svelte";
   import { kabuk } from "./lib/durum/kabuk.svelte";
+  import { paketler } from "./lib/emoji/paketler.svelte";
   import { tercihler } from "./lib/durum/tercihler.svelte";
   import AramaCubugu from "./lib/bilesenler/AramaCubugu.svelte";
   import EcCubuk from "./lib/arama-ec/EcCubuk.svelte";
@@ -126,6 +127,8 @@
       zaman.bellekSil();
       onYukle.sil();
       kabuk.sifirla();
+      // The next account must not see this one's emoji and sticker packs. · Sonraki hesap bunun emoji ve çıkartma paketlerini görmemeli.
+      paketler.temizle();
     }
   });
 </script>

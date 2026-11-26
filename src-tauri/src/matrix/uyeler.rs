@@ -236,10 +236,14 @@ pub async fn oda_olustur(durum: State<'_, AppState>, ad: String, alan: bool) -> 
         icerik.room_type = Some(RoomType::Space);
         istek.creation_content = Some(Raw::new(&icerik).map_err(|e| Hata::Diger(e.to_string()))?);
     }
-    let oda = client.create_room(istek).await.map_err(|e| Hata::Matrix(e.to_string()))?;
     if !alan {
-        oda.enable_encryption().await.map_err(|e| Hata::Matrix(e.to_string()))?;
+        // Encryption is part of the creation request, so the group can never exist unencrypted (a second request could fail
+        // and leave it so). · Şifreleme oluşturma isteğinin parçası; grup hiçbir an şifresiz var olamaz (ikinci bir istek
+        // başarısız olup onu öyle bırakabilirdi).
+        use matrix_sdk::ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
+        istek.initial_state = vec![InitialStateEvent::with_empty_state_key(RoomEncryptionEventContent::with_recommended_defaults()).to_raw_any()];
     }
+    let oda = client.create_room(istek).await.map_err(|e| Hata::Matrix(e.to_string()))?;
     Ok(oda.room_id().to_string())
 }
 

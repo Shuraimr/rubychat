@@ -52,9 +52,11 @@
   // yazı büyütülmüş olabilir; tahmin taşardı); o ana dek görünmez kalır.
   const karolar = $derived(eylemler.filter((e) => e.karo));
   const satirlar = $derived(eylemler.filter((e) => !e.karo));
+  // The menu goes first: an action that opens a new layer must open it on top of the stack, not under the closing menu.
+  // Önce menü kapanır: yeni katman açan eylem onu kapanan menünün altına değil, yığının üstüne açmalı.
   function yap(e: MenuEylemi) {
-    e.calistir();
     gezinme.katmanKapat(katmanId);
+    e.calistir();
   }
   let w = $state(0);
   let h = $state(0);

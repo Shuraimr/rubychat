@@ -203,6 +203,7 @@ export const tr = {
   "ben.aramalar": "Aramalar",
   "ben.gurultu": "Gürültü engeli",
   "ben.gurultuAlt": "Aramalarda arka plan sesini azaltır",
+  "oturum.gecersiz": "Sunucu bu cihazın oturumunu tanımıyor; başka bir yerden kapatılmış olabilir. Çıkış yapıp yeniden gir.",
   "ben.cikis": "Çıkış yap",
   "ben.cikisYapiliyor": "Çıkış yapılıyor…",
 

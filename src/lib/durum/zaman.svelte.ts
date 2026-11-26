@@ -55,7 +55,9 @@ class Zaman {
     this.hata = null;
     const olc = acilisOlc(this.onbellekten);
     onYukle.odaAcildi(odaId);
-    this.#abone = await zamanGuncellendi((g) => {
+    // Another room may be opened while we wait for a listener: then this one is dropped at once, not left running.
+    // Dinleyici beklenirken başka oda açılabilir: o zaman bu hemen bırakılır, çalışır hâlde unutulmaz.
+    const abone = await zamanGuncellendi((g) => {
       if (g.odaId !== this.#aktifId) return;
       this.onbellekten = false;
       this.ogeler = g.ogeler;
@@ -66,9 +68,13 @@ class Zaman {
       this.eskiYukleniyor = false;
       this.yukleniyor = false;
     });
-    this.#yaziyorAbone = await yaziyorGuncellendi((g) => {
+    if (this.#aktifId !== odaId) return abone();
+    this.#abone = abone;
+    const yaziyor = await yaziyorGuncellendi((g) => {
       if (g.odaId === this.#aktifId) this.yazanlar = g.kisiler;
     });
+    if (this.#aktifId !== odaId) return yaziyor();
+    this.#yaziyorAbone = yaziyor;
     try {
       const bilgi = await odayiAc(odaId);
       if (this.#aktifId === odaId) this.bilgi = bilgi;
@@ -82,7 +88,11 @@ class Zaman {
     }
   }
 
-  async kapat() {
+  /** `beklenen`: close only if that room is still the open one. A room screen that leaves late (after its exit animation)
+   * must not close the room opened meanwhile. · `beklenen`: yalnızca o oda hâlâ açıksa kapat. Geç ayrılan (çıkış
+   * animasyonundan sonra) bir oda ekranı bu arada açılan odayı kapatmamalı. */
+  async kapat(beklenen?: string) {
+    if (beklenen !== undefined && this.#aktifId !== beklenen) return;
     const eski = this.#aktifId;
     if (eski && this.ogeler.length > 0) {
       // Upload progress and unsent echoes belong to the live list. · Yükleme ilerlemesi ve gitmemiş yankılar canlı listenindir.

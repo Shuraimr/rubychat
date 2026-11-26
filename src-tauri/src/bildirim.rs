@@ -160,6 +160,16 @@ pub fn oda_acildi(oda_id: &str) {
     }
 }
 
+/// Logout or account switch: no notification of the old account may stay (its text, or a reply sent as the next account).
+/// Çıkış ya da hesap değişimi: eski hesabın hiçbir bildirimi kalmamalı (metni ya da sonraki hesap adına gönderilen yanıt).
+pub fn hepsini_temizle() {
+    if cfg!(target_os = "android") {
+        android_jni::bildirim_hepsini_temizle();
+    }
+    #[cfg(target_os = "linux")]
+    tauri::async_runtime::spawn_blocking(crate::masaustu_linux::bildirim_hepsini_temizle);
+}
+
 pub fn izin_var() -> bool {
     if cfg!(target_os = "android") { android_jni::bildirim_izni_var() } else { true }
 }

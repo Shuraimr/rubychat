@@ -404,9 +404,11 @@ pub fn ben_olustur(client: &Client, veri: &Path) -> Ben {
     }
 }
 
+pub const OLAY_OTURUM_GECERSIZ: &str = "oturum-gecersiz";
+
 /// Persists refreshed tokens: without this a restart after a token refresh would log the user out.
 /// Yenilenen belirteçleri kaydeder: bu olmazsa belirteç yenilendikten sonraki yeniden başlatma kullanıcıyı çıkış yaptırırdı.
-pub fn token_izle(veri: PathBuf, client: Client) -> JoinHandle<()> {
+pub fn token_izle(app: tauri::AppHandle, veri: PathBuf, client: Client) -> JoinHandle<()> {
     let mut rx = client.subscribe_to_session_changes();
     tokio::spawn(async move {
         while let Ok(degisim) = rx.recv().await {
@@ -419,7 +421,17 @@ pub fn token_izle(veri: PathBuf, client: Client) -> JoinHandle<()> {
                         }
                     }
                 }
-                SessionChange::UnknownToken(_) => warn!("sunucu oturumu geçersiz saydı (belirteç bilinmiyor)"),
+                // The device was signed out elsewhere (or deleted): syncing would retry forever and the screen would only say
+                // "cannot connect". Tell the UI, which logs out locally. A soft logout keeps the data and is left alone.
+                // Cihazın oturumu başka yerden kapatıldı (ya da silindi): eşitleme sonsuza dek yeniden dener, ekran yalnızca
+                // "bağlanılamıyor" derdi. Arayüze söyle, o yerel çıkış yapar. Yumuşak çıkış veriyi korur, dokunulmaz.
+                SessionChange::UnknownToken(d) => {
+                    warn!("sunucu oturumu geçersiz saydı (belirteç bilinmiyor, yumuşak: {})", d.soft_logout);
+                    if !d.soft_logout {
+                        use tauri::Emitter;
+                        let _ = app.emit(OLAY_OTURUM_GECERSIZ, ());
+                    }
+                }
             }
         }
     })

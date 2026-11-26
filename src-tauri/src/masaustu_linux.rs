@@ -103,13 +103,27 @@ pub fn bildirim_goster(oda_id: &str, baslik: &str, metin: &str) {
     d.insert("body", metin);
     d.insert("default-action", "ac");
     let arg = Variant::tuple_from_iter([oda_id.to_variant(), d.end()]);
-    if let Err(e) = portal("AddNotification", &arg) {
-        warn!("bildirim gösterilemedi: {e}");
+    match portal("AddNotification", &arg) {
+        Ok(_) => {
+            GOSTERILEN.lock().unwrap_or_else(|e| e.into_inner()).insert(oda_id.to_owned());
+        }
+        Err(e) => warn!("bildirim gösterilemedi: {e}"),
     }
 }
 
+/// Rooms with a notification on screen; the portal cannot list them back. · Ekranda bildirimi olan odalar; portal bunları geri listeleyemez.
+static GOSTERILEN: std::sync::Mutex<std::collections::BTreeSet<String>> = std::sync::Mutex::new(std::collections::BTreeSet::new());
+
 pub fn bildirim_temizle(oda_id: &str) {
+    GOSTERILEN.lock().unwrap_or_else(|e| e.into_inner()).remove(oda_id);
     let _ = portal("RemoveNotification", &(oda_id,).to_variant());
+}
+
+pub fn bildirim_hepsini_temizle() {
+    let odalar = std::mem::take(&mut *GOSTERILEN.lock().unwrap_or_else(|e| e.into_inner()));
+    for oda in odalar {
+        let _ = portal("RemoveNotification", &(oda.as_str(),).to_variant());
+    }
 }
 
 // ---- Clipboard · Pano ----

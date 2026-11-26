@@ -39,6 +39,14 @@ fn sicak() -> std::sync::MutexGuard<'static, VecDeque<(OwnedRoomId, Arc<Timeline
     SICAK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Whether the room belongs to the account signed in right now. · Oda şu an girişli hesaba mı ait.
+async fn ayni_hesap(app: &AppHandle, room: &matrix_sdk::Room) -> bool {
+    match app.state::<AppState>().client().await {
+        Ok(c) => c.user_id() == Some(room.own_user_id()),
+        Err(_) => false,
+    }
+}
+
 /// Takes the warm timeline of a room, if there is one. · Odanın sıcak çizelgesini (varsa) alır.
 pub fn al(id: &RoomId) -> Option<Arc<Timeline>> {
     let mut s = sicak();
@@ -124,11 +132,17 @@ pub async fn odalari_hazirla(app: AppHandle, durum: State<'_, AppState>, idler: 
                     }
                 }
             }
-            // Logged out or opened meanwhile. · Bu arada çıkıldı ya da oda açıldı.
-            if SICAK_KAPALI.load(Ordering::SeqCst) || app.state::<AppState>().zamanlar.lock().await.contains_key(&id) {
+            // Logged out, switched account or opened meanwhile. After an account switch the pool is open again for the NEW
+            // account, so the closed flag alone is not enough: the timeline must belong to the account in use now.
+            // Bu arada çıkıldı, hesap değişti ya da oda açıldı. Hesap değişince havuz YENİ hesap için yeniden açılır; yalnızca
+            // kapalı bayrağı yetmez: çizelge şu an kullanılan hesaba ait olmalı.
+            if SICAK_KAPALI.load(Ordering::SeqCst) || !ayni_hesap(&app, &room).await || app.state::<AppState>().zamanlar.lock().await.contains_key(&id) {
                 return;
             }
             let hazir = zaman::hazir_kur(&app, &room, &zaman).await;
+            if SICAK_KAPALI.load(Ordering::SeqCst) || !ayni_hesap(&app, &room).await {
+                return;
+            }
             koy(id, zaman);
             let _ = app.emit(OLAY_HAZIR, hazir);
             info!("ön yükleme: oda {} ms'de hazır", bas.elapsed().as_millis());

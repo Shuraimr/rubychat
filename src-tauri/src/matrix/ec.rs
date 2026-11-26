@@ -297,7 +297,9 @@ pub async fn ec_ac(
     // but not in the SDK's config struct, so we append them. They default to true in EC; we state it so a later EC default change cannot silently turn them off.
     // Bütün parametreler URL parçasında (sunucuya gitmez). `echoCancellation` / `noiseSuppression` EC'nin UrlParams.ts'inde var ama
     // SDK'nın yapılandırma yapısında yok; biz ekleriz. EC'de varsayılan true; EC'nin ileride varsayılanı değişip sessizce kapanmasın diye açıkça yazarız.
-    let parca = url.fragment().unwrap_or("").replace("lang=en-US", "lang=tr").replace("lang=en-us", "lang=tr");
+    // Element Call follows the app's language. · Element Call uygulamanın dilini izler.
+    let dil = if crate::dil::en() { "lang=en-US" } else { "lang=tr" };
+    let parca = url.fragment().unwrap_or("").replace("lang=en-US", dil).replace("lang=en-us", dil);
     url.set_fragment(Some(&format!("{parca}&echoCancellation=true&noiseSuppression=true")));
 
     let (surucu, handle) = WidgetDriver::new(widget);
@@ -485,13 +487,21 @@ pub fn linux_medya_ac(app: &AppHandle) {
             // Copy from script (document.execCommand) is refused otherwise. · Yoksa betikten kopyalama reddedilir.
             ayar.set_javascript_can_access_clipboard(true);
         }
-        // Allow microphone / camera / screen capture requests. The signal does not tell us the requesting origin, but the app CSP
-        // lets this webview load ONLY our own origins (app + `ec`), so every request comes from our code.
-        // Mikrofon / kamera / ekran yakalama isteklerine izin ver. Sinyal isteyen kaynağı söylemez; ama uygulama CSP'si bu webview'in
-        // YALNIZCA kendi kaynaklarımızı (uygulama + `ec`) yüklemesine izin verir; yani her istek bizim kodumuzdan gelir.
+        // Microphone / camera / screen capture requests. The signal does not tell us the requesting origin, and other frames
+        // (link previews) can be loaded too, so they are allowed only while an Element Call widget is open: it is the only part
+        // of the app that captures from the webview on Linux (the app's own calls run natively).
+        // Mikrofon / kamera / ekran yakalama istekleri. Sinyal isteyen kaynağı söylemez ve başka çerçeveler (bağlantı önizlemeleri)
+        // de yüklenebilir; bu yüzden yalnızca bir Element Call widget'ı açıkken izin verilir: Linux'ta webview'den yakalayan tek
+        // parça odur (uygulamanın kendi aramaları yerel yürür).
         wv.connect_permission_request(|_, istek| {
             if istek.is::<UserMediaPermissionRequest>() {
-                istek.allow();
+                let ec_acik = !oturumlar().lock().map(|o| o.is_empty()).unwrap_or(true);
+                if ec_acik {
+                    istek.allow();
+                } else {
+                    tracing::warn!("Element Call açık değilken gelen medya izni reddedildi");
+                    istek.deny();
+                }
                 true
             } else {
                 false

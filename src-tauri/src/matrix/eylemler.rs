@@ -152,6 +152,25 @@ pub async fn mesaj_ilet(durum: State<'_, AppState>, kaynak_oda_id: String, olay_
     let id = EventId::parse(&olay_id)?;
     let oge = zaman.item_by_event_id(&id).await.ok_or_else(|| Hata::Diger("mesaj bulunamadı".into()))?;
     let mesaj = oge.content().as_message().ok_or_else(|| Hata::Diger("bu mesaj iletilemez".into()))?;
+    // Encrypted media keeps its keys inside the event; an unencrypted room would publish them, and other clients cannot show
+    // such a file there. So it is decrypted and uploaded again as an ordinary attachment of the target room.
+    // Şifreli medyanın anahtarları olayın içinde durur; şifresiz oda onları açığa yazardı ve öteki istemciler orada böyle bir
+    // dosyayı gösteremez. Bu yüzden çözülüp hedef odanın sıradan bir eki olarak yeniden yüklenir.
+    if let Some((kaynak, tur, ad)) = sifreli_medya(mesaj.msgtype()) {
+        if !hedef.latest_encryption_state().await.map(|d| d.is_encrypted()).unwrap_or(true) {
+            use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
+            let params = MediaRequestParameters { source: kaynak, format: MediaFormat::File };
+            let veri = client.media().get_media_content(&params, true).await.map_err(|e| Hata::Matrix(e.to_string()))?;
+            crate::matrix::kuyruk::boyut_denetle(&client, veri.len()).await?;
+            let tur: mime::Mime = tur.and_then(|m| m.parse().ok()).unwrap_or(mime::APPLICATION_OCTET_STREAM);
+            hedef
+                .send_queue()
+                .send_attachment(ad, tur, veri, Default::default())
+                .await
+                .map_err(|e| Hata::Matrix(e.to_string()))?;
+            return Ok(());
+        }
+    }
     let icerik = RoomMessageEventContent::new(mesaj.msgtype().clone());
     hedef
         .send_queue()
@@ -159,6 +178,20 @@ pub async fn mesaj_ilet(durum: State<'_, AppState>, kaynak_oda_id: String, olay_
         .await
         .map_err(|e| Hata::Matrix(e.to_string()))?;
     Ok(())
+}
+
+/// Source, type and file name of an encrypted media message; None for anything else.
+/// Şifreli bir medya mesajının kaynağı, türü ve dosya adı; başka her şey için None.
+fn sifreli_medya(t: &matrix_sdk::ruma::events::room::message::MessageType) -> Option<(matrix_sdk::ruma::events::room::MediaSource, Option<String>, String)> {
+    use matrix_sdk::ruma::events::room::{message::MessageType as M, MediaSource};
+    let (kaynak, mime, ad) = match t {
+        M::Image(c) => (&c.source, c.info.as_ref().and_then(|i| i.mimetype.clone()), c.filename().to_owned()),
+        M::Video(c) => (&c.source, c.info.as_ref().and_then(|i| i.mimetype.clone()), c.filename().to_owned()),
+        M::Audio(c) => (&c.source, c.info.as_ref().and_then(|i| i.mimetype.clone()), c.filename().to_owned()),
+        M::File(c) => (&c.source, c.info.as_ref().and_then(|i| i.mimetype.clone()), c.filename().to_owned()),
+        _ => return None,
+    };
+    matches!(kaynak, MediaSource::Encrypted(_)).then(|| (kaynak.clone(), mime, ad))
 }
 
 // ---- Stickers · Çıkartmalar ----

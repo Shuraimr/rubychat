@@ -40,8 +40,9 @@
     queueMicrotask(() => alan?.focus());
   });
   onDestroy(() => {
-    if (katman) gezinme.katmanBirak(katman);
+    // Top one first, so each history entry can be removed. · Önce üstteki; her history girdisi silinebilsin.
     if (listeKatmani) gezinme.katmanBirak(listeKatmani);
+    if (katman) gezinme.katmanBirak(katman);
     motor.temizle();
     aktifOlay = null;
     sorgu = "";

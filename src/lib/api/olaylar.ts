@@ -18,6 +18,9 @@ import type { EcAramaDurumu, YerelDurum, EcBitti, EcGelen } from "../arama-ec/ti
 export const odalarGuncellendi = (isle: (odalar: OdaOzeti[]) => void): Promise<UnlistenFn> =>
   listen<OdaOzeti[]>("odalar-guncellendi", (e) => isle(e.payload));
 
+/** The server no longer knows this device's session (signed out elsewhere). · Sunucu bu cihazın oturumunu artık tanımıyor (başka yerden çıkış yapıldı). */
+export const oturumGecersiz = (isle: () => void): Promise<UnlistenFn> => listen("oturum-gecersiz", () => isle());
+
 export const esitlemeDurumu = (isle: (d: EsitlemeDurumu) => void): Promise<UnlistenFn> =>
   listen<EsitlemeDurumu>("esitleme-durumu", (e) => isle(e.payload));
 

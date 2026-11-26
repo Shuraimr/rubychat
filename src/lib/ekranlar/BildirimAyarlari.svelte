@@ -15,8 +15,12 @@
   import { gezinme } from "../durum/gezinme.svelte";
   import { tercihler } from "../durum/tercihler.svelte";
   import { t } from "../i18n";
+  import { androidMi } from "../arama-ec/ses";
 
   let izin = $state<BildirimIzni | null>(null);
+  // Only Android has a settings page to open and the note about it; on the desktop the row did nothing.
+  // Açılacak ayar sayfası ve onunla ilgili not yalnızca Android'de var; masaüstünde satır hiçbir şey yapmıyordu.
+  const android = androidMi();
   let pilMuaf = $state(pilMuafMi());
   // Coming back from the system page: the answer may have changed. · Sistem sayfasından dönüşte cevap değişmiş olabilir.
   $effect(() => {
@@ -46,13 +50,13 @@
           <span class="ay-metin"><strong>{t("ayar.bildirimIzin")}</strong><span>{izinAd}</span></span>
           {#if izin === "verilmedi"}<button class="buton birincil ayrac" onclick={izinVer}>{t("ayar.bildirimIzinAc")}</button>{/if}
         </div>
-        {#if izin !== "desteklenmiyor"}
+        {#if android && izin !== "desteklenmiyor"}
           <button class="ay-satir dugme" onclick={() => void bildirimAyarlariniAc().catch(() => {})}>
             <span class="ay-metin"><strong>{t("ayar.sistemAyarlari")}</strong></span><Ikon ad="sagOk" boyut={20} />
           </button>
         {/if}
       </div>
-      <p class="ay-not">{t("ayar.notBildirim")}</p>
+      {#if android}<p class="ay-not">{t("ayar.notBildirim")}</p>{/if}
     </section>
 
     {#if arkaPlanVar()}

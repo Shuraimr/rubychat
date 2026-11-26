@@ -150,17 +150,20 @@ pub struct Ses {
     pub karisim: Arc<Mutex<Karistirici>>,
     apm: Arc<Mutex<Apm>>,
     dur: Arc<AtomicBool>,
+    /// The player, held here so dropping `Ses` kills it: a write stuck on a stalled sound server then wakes with an error.
+    /// Çalar; burada tutulur ki `Ses` düşünce ölsün: takılan ses sunucusunda bekleyen yazma o zaman hatayla uyanır.
+    calar: Arc<Mutex<Option<Surec>>>,
 }
 
 impl Ses {
     pub fn baslat() -> Ses {
         let mut apm = AudioProcessingModule::new(true, true, true, true);
         let _ = apm.set_stream_delay_ms(80);
-        let s = Ses { karisim: Arc::default(), apm: Arc::new(Mutex::new(Apm(apm))), dur: Arc::default() };
-        let (karisim, apm, dur) = (s.karisim.clone(), s.apm.clone(), s.dur.clone());
+        let s = Ses { karisim: Arc::default(), apm: Arc::new(Mutex::new(Apm(apm))), dur: Arc::default(), calar: Arc::default() };
+        let (karisim, apm, dur, calar) = (s.karisim.clone(), s.apm.clone(), s.dur.clone(), s.calar.clone());
         thread::spawn(move || {
             while !dur.load(Relaxed) {
-                if let Err(e) = cal(&karisim, &apm, &dur) {
+                if let Err(e) = cal(&karisim, &apm, &dur, &calar) {
                     tracing::warn!("arama sesi çalınamadı: {e}");
                     thread::sleep(Duration::from_millis(500));
                 }
@@ -185,13 +188,20 @@ impl Ses {
 impl Drop for Ses {
     fn drop(&mut self) {
         self.dur.store(true, Relaxed);
+        *kilitle(&self.calar) = None;
     }
 }
 
-fn cal(karisim: &Mutex<Karistirici>, apm: &Mutex<Apm>, dur: &AtomicBool) -> std::io::Result<()> {
+fn cal(karisim: &Mutex<Karistirici>, apm: &Mutex<Apm>, dur: &AtomicBool, calar: &Mutex<Option<Surec>>) -> std::io::Result<()> {
     let mut surec = Surec(komut("pacat", &bicim(2, 40)).stdin(Stdio::piped()).spawn()?);
     let mut giris = surec.0.stdin.take().ok_or(std::io::ErrorKind::BrokenPipe)?;
     boruyu_kisalt(&giris);
+    *kilitle(calar) = Some(surec);
+    // Dropped meanwhile: do not start a player nobody will stop. · Bu arada düştü: kimsenin durdurmayacağı çaları başlatma.
+    if dur.load(Relaxed) {
+        *kilitle(calar) = None;
+        return Ok(());
+    }
     // The write blocks until the sound card has played: the card sets the pace. · Yazma, ses kartı çalana kadar bekler: tempoyu kart belirler.
     while !dur.load(Relaxed) {
         let mut kare = kilitle(karisim).sonraki();
@@ -293,20 +303,29 @@ pub fn uygulamalar() -> BTreeMap<String, Vec<u32>> {
 /// Bir uygulamanın sesi; akışları gelip gittikçe izler (yeni şarkı yeni akıştır). Düşünce durur.
 pub struct UygulamaSesi {
     dur: Arc<AtomicBool>,
+    /// Held here too so dropping stops the recorders at once, not after the watcher's next round.
+    /// Burada da tutulur ki düşünce kayıtlar izleyicinin sonraki turunu beklemeden hemen dursun.
+    kayitlar: Arc<Mutex<HashMap<u32, Kayit>>>,
 }
 
 impl UygulamaSesi {
     pub fn baslat(ad: String, mut al: impl FnMut(Vec<i16>) -> bool + Send + 'static) -> UygulamaSesi {
         let dur = Arc::new(AtomicBool::new(false));
         let d = dur.clone();
+        let kayitlar_dis: Arc<Mutex<HashMap<u32, Kayit>>> = Arc::default();
+        let izle_kayitlar = kayitlar_dis.clone();
         thread::spawn(move || {
             let karisim: Arc<Mutex<Karistirici>> = Arc::default();
             let izle_dur = d.clone();
             let izle_karisim = karisim.clone();
             thread::spawn(move || {
-                let mut kayitlar: HashMap<u32, Kayit> = HashMap::new();
                 while !izle_dur.load(Relaxed) {
                     let simdi = uygulamalar().remove(&ad).unwrap_or_default();
+                    // Dropped while pactl ran: start nothing new. · pactl sürerken düştü: yeni bir şey başlatma.
+                    if izle_dur.load(Relaxed) {
+                        break;
+                    }
+                    let mut kayitlar = kilitle(&izle_kayitlar);
                     kayitlar.retain(|no, _| simdi.contains(no));
                     for no in simdi {
                         kayitlar.entry(no).or_insert_with(|| {
@@ -318,6 +337,7 @@ impl UygulamaSesi {
                         });
                     }
                     kilitle(&izle_karisim).kaynaklar.retain(|ad, _| ad.parse().is_ok_and(|no| kayitlar.contains_key(&no)));
+                    drop(kayitlar);
                     for _ in 0..10 {
                         if izle_dur.load(Relaxed) {
                             break;
@@ -341,13 +361,14 @@ impl UygulamaSesi {
                 }
             }
         });
-        UygulamaSesi { dur }
+        UygulamaSesi { dur, kayitlar: kayitlar_dis }
     }
 }
 
 impl Drop for UygulamaSesi {
     fn drop(&mut self) {
         self.dur.store(true, Relaxed);
+        kilitle(&self.kayitlar).clear();
     }
 }
 

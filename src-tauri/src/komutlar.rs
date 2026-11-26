@@ -59,7 +59,7 @@ async fn oturumu_baslat(app: &AppHandle, durum: &AppState, client: matrix_sdk::C
     let (dizin, kalici) = match parkli.take() {
         Some(p) => (p.dizin, p.kalici),
         None => {
-            let mut kalici = vec![oturum::token_izle(veri.clone(), client.clone()), crate::matrix::kuyruk::izle(client.clone())];
+            let mut kalici = vec![oturum::token_izle(app.clone(), veri.clone(), client.clone()), crate::matrix::kuyruk::izle(client.clone())];
             // The search index is optional: a failure must not stop the login. · Arama dizini isteğe bağlıdır: hata girişi durdurmamalı.
             let d = match dizin::baslat(&client, &veri).await {
                 Ok((d, g)) => {
@@ -88,10 +88,33 @@ async fn oturumu_birak(durum: &AppState) -> Option<ParkliOturum> {
     *durum.alan_servisi.lock().await = None;
     *durum.turn.lock().await = None;
     sifreleme::temizle(durum).await;
+    // Nothing of this account may leak into the next one: media keys, call history, notifications, the decrypted file.
+    // Bu hesaba ait hiçbir şey sonrakine sızmamalı: medya anahtarları, arama geçmişi, bildirimler, çözülmüş dosya.
+    *durum.medya_kaynaklari.lock().unwrap_or_else(|e| e.into_inner()) = Default::default();
+    durum.arama_gecmisi.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    crate::medya::temizle();
+    crate::bildirim::hepsini_temizle();
     let o = durum.oturum.write().await.take()?;
     esitleme::durdur(o.esitleme, o.gorevler).await;
     let dizin = durum.dizin.lock().unwrap_or_else(|e| e.into_inner()).take();
     Some(ParkliOturum { client: o.client, dizin, kalici: o.kalici })
+}
+
+/// A parked session of the account in use that failed to wake up must stop before its folder is reused or deleted
+/// (a new login wipes it, a logout removes it). · Kullanımdaki hesabın uyanamamış park oturumu, klasörü yeniden kullanılmadan
+/// ya da silinmeden önce durmalı (yeni giriş onu siler, çıkış kaldırır).
+async fn aktif_parki_al(app: &AppHandle, durum: &AppState) -> Option<ParkliOturum> {
+    let aktif = Hesaplar::oku(&kok_dizin(app).ok()?).aktif;
+    durum.parklar.lock().await.remove(&aktif)
+}
+
+async fn parki_kapat(p: ParkliOturum) {
+    for g in p.kalici {
+        g.abort();
+    }
+    if let Some(d) = p.dizin {
+        d.durdur().await;
+    }
 }
 
 #[tauri::command]
@@ -127,8 +150,13 @@ pub async fn hesap_degistir(app: AppHandle, durum: State<'_, AppState>, id: Opti
 #[tauri::command]
 pub async fn giris(app: AppHandle, durum: State<'_, AppState>, istek: GirisIstegi) -> Sonuc<Ben> {
     let _kilit = durum.kilit.lock().await;
+    if let Some(p) = aktif_parki_al(&app, &durum).await {
+        parki_kapat(p).await;
+    }
     let veri = veri_dizini(&app)?;
     let (client, ben) = oturum::sifreyle_giris(&veri, &istek.sunucu, &istek.kullanici, &istek.sifre).await?;
+    // A phone login still waiting would otherwise go on asking the server. · Yoksa bekleyen telefonla giriş sunucuya sormayı sürdürürdü.
+    cihaz_giris::iptal();
     oturumu_baslat(&app, &durum, client, &mut None).await?;
     hesabi_kaydet(&app, &ben);
     Ok(ben)
@@ -149,6 +177,9 @@ pub async fn cihaz_girisi_bekle(app: AppHandle, durum: State<'_, AppState>) -> S
     if durum.oturum.read().await.is_some() {
         return Err(Hata::Diger("iptal".into()));
     }
+    if let Some(p) = aktif_parki_al(&app, &durum).await {
+        parki_kapat(p).await;
+    }
     let veri = veri_dizini(&app)?;
     let (client, ben) = cihaz_giris::bitir(&veri, onay).await?;
     oturumu_baslat(&app, &durum, client, &mut None).await?;
@@ -161,6 +192,8 @@ pub fn cihaz_girisi_iptal() {
     cihaz_giris::iptal();
 }
 
+static ILK_GERI_YUKLEME_YAPILDI: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[tauri::command]
 pub async fn oturumu_geri_yukle(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<Option<Ben>> {
     let _kilit = durum.kilit.lock().await;
@@ -170,6 +203,16 @@ pub async fn oturumu_geri_yukle(app: AppHandle, durum: State<'_, AppState>) -> S
         let veri = veri_dizini(&app)?;
         let client = durum.client().await?;
         return Ok(Some(oturum::ben_olustur(&client, &veri)));
+    }
+    // First start of the process on an empty place left by an unfinished "add account": go back to a real account.
+    // Sürecin ilk açılışı, yarım kalmış "hesap ekle"nin boş yerinde: gerçek bir hesaba dön.
+    if !ILK_GERI_YUKLEME_YAPILDI.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        let kok = kok_dizin(&app)?;
+        let mut h = Hesaplar::oku(&kok);
+        if !h.liste.is_empty() && !h.liste.iter().any(|x| x.id == h.aktif) {
+            h.aktif = h.liste[0].id.clone();
+            h.yaz(&kok)?;
+        }
     }
     let veri = veri_dizini(&app)?;
     let aktif = Hesaplar::oku(&kok_dizin(&app)?).aktif;
@@ -199,15 +242,16 @@ pub async fn cikis(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<()> {
     let _kilit = durum.kilit.lock().await;
     let kok = kok_dizin(&app)?;
     let veri = veri_dizini(&app)?;
-    if let Some(p) = oturumu_birak(&durum).await {
-        for g in p.kalici {
-            g.abort();
-        }
+    let acik = oturumu_birak(&durum).await;
+    let p = match acik {
+        Some(p) => Some(p),
+        None => aktif_parki_al(&app, &durum).await,
+    };
+    if let Some(p) = p {
+        let client = p.client.clone();
         // The writer must release the index files before `oturum::cikis` deletes the folder. · Yazıcı, `oturum::cikis` klasörü silmeden önce dizin dosyalarını bırakmalı.
-        if let Some(d) = p.dizin {
-            d.durdur().await;
-        }
-        oturum::cikis(&veri, &p.client).await;
+        parki_kapat(p).await;
+        oturum::cikis(&veri, &client).await;
     } else {
         warn!("çıkış istendi ama açık oturum yok");
     }
@@ -218,6 +262,9 @@ pub async fn cikis(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<()> {
 
 #[tauri::command]
 pub async fn ben(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<Ben> {
+    // Noted before the network wait: if the account changes meanwhile, this answer must not land on the other one's entry.
+    // Ağ beklemesinden önce not edilir: bu arada hesap değişirse bu yanıt ötekinin kaydına yazılmamalı.
+    let aktif_bas = Hesaplar::oku(&kok_dizin(&app)?).aktif;
     let client = durum.client().await?;
     let mut ben = oturum::ben_olustur(&client, &veri_dizini(&app)?);
     // Display name needs the network; a short timeout keeps the screen responsive when offline.
@@ -233,7 +280,9 @@ pub async fn ben(app: AppHandle, durum: State<'_, AppState>) -> Sonuc<Ben> {
         None => hesap.get_cached_avatar_url().await.ok().flatten(),
     };
     ben.avatar_mxc = avatar.map(|a| a.to_string());
-    hesabi_kaydet(&app, &ben);
+    if Hesaplar::oku(&kok_dizin(&app)?).aktif == aktif_bas && durum.client().await.is_ok_and(|c| c.user_id() == client.user_id()) {
+        hesabi_kaydet(&app, &ben);
+    }
     Ok(ben)
 }
 

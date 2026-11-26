@@ -54,6 +54,9 @@ impl Hesaplar {
     pub fn kaydet(&mut self, ben: &Ben) {
         let aktif = self.aktif.clone();
         match self.liste.iter_mut().find(|h| h.id == aktif) {
+            // Another person's entry: never overwrite it (a late answer of the account used before). · Başka birinin kaydı:
+            // asla üstüne yazma (önceki hesabın geç gelen yanıtı).
+            Some(h) if !h.kullanici_id.is_empty() && h.kullanici_id != ben.kullanici_id => {}
             Some(h) => {
                 h.kullanici_id = ben.kullanici_id.clone();
                 h.sunucu = ben.sunucu.clone();

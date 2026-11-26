@@ -505,6 +505,9 @@
   ];
 
   function tus(e: KeyboardEvent) {
+    // The back stack already used this Escape (it closed the crop view): it must not close the whole sheet too.
+    // Geri yığını bu Escape'i zaten kullandı (kırpmayı kapattı): bütün sayfayı da kapatmamalı.
+    if (e.defaultPrevented) return;
     if (e.key === "Escape") {
       if (ekran === "kirp") kirpIptal();
       else kapat();

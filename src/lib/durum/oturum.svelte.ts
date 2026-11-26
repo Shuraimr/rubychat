@@ -2,6 +2,9 @@
 // Oturum durumu (Svelte 5 rune'ları). "Kim giriş yaptı" sorusunun tek kaynağı.
 import * as komutlar from "../api/komutlar";
 import type { Ben, GirisIstegi, Hata } from "../api/tipler";
+import { oturumGecersiz } from "../api/olaylar";
+import { bildirim } from "./bildirim.svelte";
+import { t } from "../i18n";
 
 /** Our own name + avatar: shown instantly from the last run, refreshed once per app start. · Kendi adımız + avatarımız: son çalıştırmadan anında gösterilir, her açılışta bir kez yenilenir. */
 export interface Profil {
@@ -21,7 +24,7 @@ function profilOku(): Profil | null {
 /** What this device remembers of the account in use (not of the rooms, whose ids are unique anyway) · Cihazın kullanımdaki hesaptan hatırladıkları (odalar değil; kimlikleri zaten benzersiz) */
 function hesapIziSil() {
   try {
-    for (const a of [PROFIL_ANAHTARI, "rubychat.ziyaret"]) localStorage.removeItem(a);
+    for (const a of [PROFIL_ANAHTARI, "rubychat.ziyaret", "rubychat.sonAramalar", "rubychat.sonOdalar"]) localStorage.removeItem(a);
   } catch {
     /* ignore · yok say */
   }
@@ -67,6 +70,16 @@ class Oturum {
 
   /** On app start: try to restore the saved session. · Uygulama açılırken kayıtlı oturumu geri yüklemeyi dener. */
   async baslat() {
+    // Probably signed out from another device: say so instead of "cannot connect" forever. The user decides, because the SDK
+    // also reports this when a token refresh merely failed on a bad network, and logging out deletes the local history.
+    // Büyük olasılıkla başka cihazdan çıkış yapıldı: sonsuza dek "bağlanılamıyor" demek yerine bunu söyle. Karar kullanıcının;
+    // çünkü SDK bunu belirteç yenileme yalnızca kötü ağda başarısız olduğunda da bildirir ve çıkış yerel geçmişi siler.
+    let sonUyari = 0;
+    void oturumGecersiz(() => {
+      if (!this.ben || this.mesgul || Date.now() - sonUyari < 5 * 60_000) return;
+      sonUyari = Date.now();
+      bildirim.goster(t("oturum.gecersiz"), 60_000, { tur: "hata", eylem: { etiket: t("ben.cikis"), calistir: () => void this.cikis() } });
+    });
     try {
       this.ben = await komutlar.oturumuGeriYukle();
     } catch (e) {

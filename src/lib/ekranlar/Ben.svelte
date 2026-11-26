@@ -14,6 +14,7 @@
   import Ikon from "../bilesenler/Ikon.svelte";
   import { arama } from "../durum/arama.svelte";
   import { ayarlar } from "../durum/ayarlar.svelte";
+  import { duzen } from "../durum/duzen.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { oturum } from "../durum/oturum.svelte";
   import { sifreleme } from "../durum/sifreleme.svelte";
@@ -58,6 +59,9 @@
   const ad = $derived(gorunenAd ?? oturum.ben?.kullaniciId ?? "");
   const g = $derived(sifreleme.durum);
   const raySiz = $derived(gezinme.sekil === "telefon");
+  // The compact desktop strip has no Görünüm button (the rail does): then it lives here, or it could not be reached at all.
+  // Kompakt masaüstü şeridinde Görünüm düğmesi yok (rayda var): o zaman burada durur, yoksa hiç ulaşılamazdı.
+  const gorunumBurada = $derived(raySiz || (duzen.kompakt && !gezinme.yatay));
   // Desktop only: phones have no hardware shortcut keys. · Yalnızca masaüstü: telefonda donanım kısayol tuşları yok.
   const masaustu = window.matchMedia("(any-hover: hover) and (any-pointer: fine)").matches;
   const temaAdi = $derived(ayarlar.tema === "koyu" ? t("gorunum.koyu") : ayarlar.tema === "acik" ? t("gorunum.acik") : t("gorunum.sistem"));
@@ -100,7 +104,7 @@
     </div>
 
     <div class="ay-kart">
-      {#if raySiz}
+      {#if gorunumBurada}
         <button class="ay-satir dugme" data-dalga onclick={() => altAc("gorunum")}>
           <span class="ay-simge" style:--r="var(--tas-safir)"><Ikon ad="palet" boyut={20} /></span>
           <span class="ay-metin"><strong>{t("gorunum.baslik")}</strong><span>{t("ben.gorunumAlt", { tema: temaAdi })}</span></span>

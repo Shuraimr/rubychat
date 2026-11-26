@@ -255,6 +255,7 @@ export const en: Record<Anahtar, string> = {
   "ben.aramalar": "Calls",
   "ben.gurultu": "Noise filter",
   "ben.gurultuAlt": "Less background noise in calls",
+  "oturum.gecersiz": "The server no longer accepts this session; it may have been signed out elsewhere. Sign out and sign in again.",
   "ben.cikis": "Sign out",
   "ben.cikisYapiliyor": "Signing out…",
 

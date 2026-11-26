@@ -141,7 +141,13 @@ pub async fn baslat(sunucu: &str) -> Sonuc<CihazKodu> {
     let (iyi, g) = yolla(&client, kod_adresi.as_str(), FORM, form(&[("client_id", &kayitli.client_id), ("scope", &kapsam)])).await?;
     let k: KodYaniti = coz(iyi, &g)?;
 
-    *BEKLEYEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Bekleyen {
+    // A newer start (or a cancel) came while this one was on the network: it must not overwrite that one's wait.
+    // Bu ağdayken daha yeni bir başlatma (ya da iptal) geldi: onun beklemesinin üstüne yazmamalı.
+    let mut bekleyen = BEKLEYEN.lock().unwrap_or_else(|e| e.into_inner());
+    if SIRA.load(Ordering::SeqCst) != sira {
+        return Err(Hata::Diger("iptal".into()));
+    }
+    *bekleyen = Some(Bekleyen {
         sira,
         client,
         sunucu,
@@ -152,6 +158,7 @@ pub async fn baslat(sunucu: &str) -> Sonuc<CihazKodu> {
         aralik: k.interval.unwrap_or(5).clamp(1, 60),
         bitis: Instant::now() + Duration::from_secs(k.expires_in),
     });
+    drop(bekleyen);
     let kod_yazilir = k.verification_uri_complete.is_none();
     Ok(CihazKodu { kod: k.user_code, adres: k.verification_uri_complete.unwrap_or(k.verification_uri), kod_yazilir, saniye: k.expires_in })
 }
