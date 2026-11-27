@@ -65,3 +65,7 @@ export const kayitKapandi = (isle: () => void): Promise<UnlistenFn> => listen("k
 /** Download progress of an in-app update (`guncelleme-ilerleme`). · Uygulama içi güncelleme indirme ilerlemesi (`guncelleme-ilerleme`). */
 export const guncellemeIlerlemesiniDinle = (isle: (o: GuncellemeIlerleme) => void): Promise<UnlistenFn> =>
   listen<GuncellemeIlerleme>("guncelleme-ilerleme", (e) => isle(e.payload));
+
+/** Incoming Matrix link opened by the OS (desktop D-Bus Open / cold-start argv). · İşletim sisteminden gelen Matrix bağlantısı (masaüstü D-Bus Open). */
+export const matrisBaglantiGeldi = (isle: (url: string) => void): Promise<UnlistenFn> =>
+  listen<string>("rubychat-baglanti", (e) => isle(e.payload));

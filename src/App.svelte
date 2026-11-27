@@ -21,6 +21,8 @@
   import IstekKatmani from "./lib/bilesenler/IstekKatmani.svelte";
   import HizliGecis from "./lib/bilesenler/HizliGecis.svelte";
   import BaglantiOnay from "./lib/bilesenler/BaglantiOnay.svelte";
+  import OdaOnizlemeSayfasi from "./lib/bilesenler/OdaOnizlemeSayfasi.svelte";
+  import { matrisBaglanti, matrisBaglantiBaslat } from "./lib/durum/matrisBaglanti.svelte";
   import { kabuk } from "./lib/durum/kabuk.svelte";
   import { paketler } from "./lib/emoji/paketler.svelte";
   import { tercihler } from "./lib/durum/tercihler.svelte";
@@ -79,7 +81,7 @@
   onMount(() => {
     // Register keyboard shortcuts before gezinme so Esc drops message selection before closing a room on narrow viewports.
     // Klavye kısayollarını gezinme'den önce kaydet; dar ekranda Esc odayı kapatmadan önce mesaj seçimini bıraksın.
-    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat(), klavyeBaslat()];
+    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat(), klavyeBaslat(), matrisBaglantiBaslat()];
     // Desktop: Ctrl+Q quits for real, since the close button only hides the window while it runs in the background.
     // Masaüstü: Ctrl+Q gerçekten çıkar; arka planda çalışırken kapatma düğmesi pencereyi yalnızca gizler.
     if (masaustuLinux) {
@@ -133,6 +135,13 @@
   });
   $effect(() => {
     onYukle.guncelle(odalar.liste, odalar.ilkListeGeldi && odalar.esitleme.durum === "calisiyor");
+  });
+
+  // Drain any Matrix link that arrived before login or initial sync finished · Giriş ya da ilk eşitleme bitmeden gelen Matrix bağlantısını işle
+  $effect(() => {
+    if (matrisBaglanti.hazir && matrisBaglanti.bekleyen) {
+      untrack(() => matrisBaglanti.bekleyeniIsle());
+    }
   });
 
   // Mirror pending incoming invitations into the notification center without duplicating them.
@@ -197,6 +206,7 @@
       arama.durdur();
       gezinme.sifirla();
       alanlar.sifirla();
+      matrisBaglanti.kapat();
       zaman.bellekSil();
       onYukle.sil();
       kabuk.sifirla();
@@ -295,6 +305,17 @@
 {#if oturum.ben}<EcKatman />{/if}
 <KullaniciKarti />
 {#if oturum.ben}<IstekKatmani />{/if}
+{#if oturum.ben && matrisBaglanti.onizleme}
+  <OdaOnizlemeSayfasi
+    oda={matrisBaglanti.onizleme.oda}
+    kimlik={matrisBaglanti.onizleme.kimlik}
+    yukleniyor={matrisBaglanti.onizleme.yukleniyor}
+    onizlemeYok={matrisBaglanti.onizleme.hata}
+    mesgul={matrisBaglanti.onizleme.katiliyor}
+    onkatil={() => matrisBaglanti.katil()}
+    onkapat={() => matrisBaglanti.kapat()}
+  />
+{/if}
 <BaglantiOnay />
 {#if oturum.ben}<HizliGecis />{/if}
 {#if oturum.ben && klavye.palet}<OdaPaleti />{/if}

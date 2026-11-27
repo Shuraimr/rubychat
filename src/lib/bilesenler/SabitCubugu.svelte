@@ -52,7 +52,7 @@
     <span class="igne" aria-hidden="true"><Ikon ad="sabitle" boyut={16} /></span>
     <span class="metin">
       {#if guncel}
-        {#if guncel.gonderenAd}<strong>{guncel.gonderenAd}:</strong> {/if}{guncel.metin ?? t("sabit.mesaj")}
+        {#if guncel.gonderenAd}<strong>{guncel.gonderenAd}:</strong>{" "}{/if}{guncel.metin ?? t("sabit.mesaj")}
       {:else}
         {t("sabit.yukleniyor")}
       {/if}

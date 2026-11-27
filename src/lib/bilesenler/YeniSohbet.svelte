@@ -17,9 +17,16 @@
   import AltSayfa from "./AltSayfa.svelte";
   import Avatar from "./Avatar.svelte";
   import Ikon from "./Ikon.svelte";
+  import { duzen } from "../durum/duzen.svelte";
 
-  // `kisayol`: on wide screens there is no dock "Yeni" menu, so the sheet carries its other entries. · Geniş ekranda dock'taki "Yeni" menüsü yok; sayfa diğer girişleri taşır.
+  // `kisayol`: on wide screens there is no dock "Yeni" menu, so the sheet carries group and space creation. Discover lives on the side rail;
+  // only the compact layout (room strip instead of the rail) keeps it here, so it is never in two places and never missing.
+  // `kisayol`: geniş ekranda dock'taki "Yeni" menüsü yok; sayfa grup ve alan oluşturmayı taşır. Keşfet yan raydadır; yalnızca kompakt
+  // düzen (ray yerine oda şeridi) onu burada tutar: hiçbir zaman iki yerde olmaz, hiçbir zaman da kaybolmaz.
   let { onkapat: ustKapat, kisayol }: { onkapat: () => void; kisayol?: (s: "kesfet" | "grup" | "alan") => void } = $props();
+  const kisayollar = $derived(
+    (duzen.kompakt ? [["kesfet", "pusula"], ["grup", "sohbet"], ["alan", "izgara"]] : [["grup", "sohbet"], ["alan", "izgara"]]) as ["kesfet" | "grup" | "alan", "pusula" | "sohbet" | "izgara"][],
+  );
   let sorgu = $state("");
   let sonuclar = $state<BulunanKisi[]>([]);
   let araniyor = $state(false);
@@ -108,7 +115,7 @@
 
     {#if kisayol && !sorgu.trim()}
       <ul class="liste">
-        {#each [["kesfet", "pusula"], ["grup", "sohbet"], ["alan", "izgara"]] as const as [id, ikon] (id)}
+        {#each kisayollar as [id, ikon] (id)}
           <li><button class="satir" type="button" onclick={() => kisayol(id)}><span class="yer"><Ikon ad={ikon} boyut={22} /></span><span class="metin"><b>{t(`dock.${id}`)}</b></span></button></li>
         {/each}
       </ul>

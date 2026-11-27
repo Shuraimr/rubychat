@@ -121,6 +121,7 @@ pub async fn ozetle(room: &Room) -> OdaOzeti {
     let dm = room.is_direct().await.unwrap_or(false);
     OdaOzeti {
         id: room.room_id().to_string(),
+        takma_ad: room.canonical_alias().map(|a| a.to_string()),
         avatar_mxc: avatar_mxc(room, dm).await,
         avatar_harf: bas_harf(&ad),
         ad,

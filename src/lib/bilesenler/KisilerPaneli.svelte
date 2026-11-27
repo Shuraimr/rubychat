@@ -242,7 +242,7 @@
   {#if dm && karsiId && bilgi}
     <div class="govde dm-govde">
       <div class="profil-kimlik">
-        <Avatar harf={karsiAd.charAt(0).toUpperCase() || "#"} mxc={karsiAvatar} boyut={80} />
+        <Avatar harf={karsiAd.charAt(0).toUpperCase() || "#"} mxc={karsiAvatar} boyut={80} anahtar={karsiId} />
         <h3>{karsiAd}</h3>
         <button class="mxid" onclick={() => void kopyala(karsiId)} aria-label={t("kart.kimlikKopyala")}>
           <span>{karsiId}</span>
@@ -282,7 +282,7 @@
           <div class="ortak-liste">
             {#each ortakOdalar as o (o.id)}
               <button class="ortak-satir" data-kisi-satir data-dalga onclick={() => gezinme.odaAc(o.id)}>
-                <Avatar harf={o.avatarHarf} mxc={o.avatarMxc} boyut={32} />
+                <Avatar harf={o.avatarHarf} mxc={o.avatarMxc} boyut={32} anahtar={o.id} />
                 <span class="ortak-ad">{o.ad}</span>
               </button>
             {/each}
@@ -399,7 +399,7 @@
     onclick={() => kullaniciKartiAc(u.kullaniciId, odaId, u.ad, u.avatarMxc)}
   >
     <span class="av-kap">
-      <Avatar harf={u.ad.charAt(0).toUpperCase() || "#"} mxc={u.avatarMxc} boyut={36} />
+      <Avatar harf={u.ad.charAt(0).toUpperCase() || "#"} mxc={u.avatarMxc} boyut={36} anahtar={u.kullaniciId} />
       {#if cevrimici}<span class="nokta" aria-hidden="true"></span>{/if}
     </span>
     <span class="metin">

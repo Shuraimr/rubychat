@@ -51,7 +51,7 @@
 
 <div class="satir" class:acilabilir class:menulu={!!uzun && menuDugmesi} use:uzunBasma={{ ac: (x, y) => uzun?.(x, y), sure: 350, etkin: !!uzun }}>
   <button class="govde" data-dalga onclick={ac} disabled={!acilabilir} aria-label={oge.ad}>
-    <Avatar harf={oge.avatarHarf} mxc={oge.avatarMxc} boyut={48} />
+    <Avatar harf={oge.avatarHarf} mxc={oge.avatarMxc} boyut={48} anahtar={oge.id} />
     <span class="orta">
       <span class="ust">
         <span class="ad">{oge.ad}</span>

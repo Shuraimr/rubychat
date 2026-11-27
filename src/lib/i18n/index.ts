@@ -19,6 +19,15 @@ export function dilSecimi(): DilSecimi {
 }
 
 function coz(): Dil {
+  // Dev-only showcase mode (?vitrin&dil=en|tr) overrides UI language without touching saved preferences.
+  // Yalnızca geliştirmedeki vitrin kipi (?vitrin&dil=en|tr) kayıtlı tercihe dokunmadan arayüz dilini belirler.
+  if (import.meta.env.DEV && typeof location !== "undefined") {
+    const p = new URLSearchParams(location.search);
+    if (p.has("vitrin")) {
+      const d = p.get("dil");
+      if (d === "tr" || d === "en") return d;
+    }
+  }
   const s = dilSecimi();
   if (s !== "sistem") return s;
   const nav = typeof navigator !== "undefined" ? navigator.language || "" : "";

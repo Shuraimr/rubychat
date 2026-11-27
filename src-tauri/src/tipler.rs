@@ -21,6 +21,8 @@ pub struct Ben {
 #[serde(rename_all = "camelCase")]
 pub struct OdaOzeti {
     pub id: String,
+    /// Canonical alias (`#room:server`) if the room has one · Odanın varsa kanonik takma adı (`#oda:sunucu`)
+    pub takma_ad: Option<String>,
     pub ad: String,
     pub avatar_harf: String,
     /// `mxc://` URI of the room avatar (for DMs: the other person's avatar). The UI turns it into a `medya` URL.

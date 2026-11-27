@@ -89,7 +89,7 @@
   {/if}
   <div class="on" class:suruk={surukle} style:transform="translate3d({x}px, 0, 0)" onpointerdown={asagi} onpointermove={oyna} onpointerup={birak} onpointercancel={birak} role="presentation">
     <button class="satir" data-dalga onclick={tikla}>
-      <Avatar harf={uye.ad.charAt(0).toUpperCase() || "#"} mxc={uye.avatarMxc} boyut={48} />
+      <Avatar harf={uye.ad.charAt(0).toUpperCase() || "#"} mxc={uye.avatarMxc} boyut={48} anahtar={uye.kullaniciId} />
       <span class="orta"><strong>{uye.ad}</strong><small>{uye.kullaniciId}</small></span>
       {#if sag}{@render sag()}
       {:else if rolAdi(uye.guc) === "yonetici"}<span class="rol yonetici">{t("uyeler.yoneticiRol")}</span>

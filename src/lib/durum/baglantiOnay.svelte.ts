@@ -5,8 +5,10 @@
 import { disariAc } from "../disAc";
 import { uzunBasma } from "../dokunma";
 import { t } from "../i18n";
+import { matrisBaglantiCoz } from "../matrisBaglanti";
 import { baglantiTercihi, siteOf } from "./baglantiTercihi.svelte";
 import { bildirim } from "./bildirim.svelte";
+import { baglantiAc as matrisBaglantiAc } from "./matrisBaglanti.svelte";
 
 class BaglantiOnay {
   url = $state<string | null>(null);
@@ -21,6 +23,12 @@ export function baglantiSayfasi(url: string, supheli = false) {
 }
 /** @param gorunen the text of the link, if it is not the address itself · bağlantının yazısı, adresin kendisi değilse */
 export function baglantiAc(url: string, gorunen?: string) {
+  // Matrix links (matrix.to / matrix:) open inside rubychat before external-link confirmation.
+  // Matrix bağlantıları (matrix.to / matrix:) dış bağlantı onayından önce rubychat içinde açılır.
+  if (matrisBaglantiCoz(url)) {
+    void matrisBaglantiAc(url);
+    return;
+  }
   const site = siteOf(url);
   // Only a text that itself looks like an address can lie about it ("github.com" → another site). · Yalnızca adres gibi duran yazı yalan söyleyebilir ("github.com" → başka site).
   const yazilan = gorunen?.match(/(?:https?:\/\/)?((?:[\p{L}\p{N}-]+\.)+\p{L}{2,})/iu)?.[1];

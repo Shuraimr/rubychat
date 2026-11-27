@@ -9,9 +9,8 @@
 <script lang="ts">
   import { duzMetin, type Dugum } from "../bicim/temizle";
   import { baglantiAc, baglantiBas } from "../durum/baglantiOnay.svelte";
-  import { gezinme } from "../durum/gezinme.svelte";
   import { kullaniciKartiAc } from "../durum/kullaniciKarti.svelte";
-  import { odalar } from "../durum/odalar.svelte";
+  import { baglantiAc as matrisBaglantiAc } from "../durum/matrisBaglanti.svelte";
   import { oturum } from "../durum/oturum.svelte";
   import { t } from "../i18n";
   import { gorselUrl } from "../medya";
@@ -21,16 +20,14 @@
 
   let acik = $state(false);
 
-  function pillAc(tur: "kullanici" | "oda", kimlik: string, ad: string) {
+  function pillAc(tur: "kullanici" | "oda", kimlik: string, ad: string, href?: string) {
     if (tur === "kullanici") {
       kullaniciKartiAc(kimlik, odaId, ad.replace(/^@/, "") || undefined);
       return;
     }
-    // A room link: open it when I am in that room (by id or alias), otherwise fall back to the leaving-rubychat confirm.
-    // Oda bağlantısı: o odadaysam aç (kimlik ya da takma adla), değilse rubychat'ten ayrılma onayına düş.
-    const oda = odalar.liste.find((o) => o.id === kimlik);
-    if (oda && !oda.alan && !oda.davet) gezinme.odaAc(oda.id);
-    else baglantiAc(`https://matrix.to/#/${encodeURIComponent(kimlik)}`);
+    // Room / space link: open joined rooms directly (including event jump) or preview unjoined ones in-app.
+    // Oda / alan bağlantısı: katılınmış odaları doğrudan açar (olay atlamasıyla) ya da katılınmamışları uygulama içinde önizler.
+    void matrisBaglantiAc(href ?? `https://matrix.to/#/${encodeURIComponent(kimlik)}`);
   }
 </script>
 
@@ -61,7 +58,7 @@
       class="pill"
       class:ben={pill.tur === "kullanici" && pill.kimlik === oturum.ben?.kullaniciId}
       type="button"
-      onclick={() => pillAc(pill.tur, pill.kimlik, duzMetin(d.cocuk))}
+      onclick={() => pillAc(pill.tur, pill.kimlik, duzMetin(d.cocuk), d.href)}
     >{@render cocuklar(d.cocuk)}</button>
   {:else}
     {@const href = d.href}

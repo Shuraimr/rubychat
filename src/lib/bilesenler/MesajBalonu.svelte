@@ -34,6 +34,7 @@
   import { sifreleme } from "../durum/sifreleme.svelte";
   import { zaman } from "../durum/zaman.svelte";
   import { t } from "../i18n";
+  import { kisiRenk } from "../kisiRenk";
   import { saatYaz } from "../zaman-bicim";
   import AnketKarti from "./AnketKarti.svelte";
   import Avatar from "./Avatar.svelte";
@@ -99,6 +100,8 @@
 
   const ilkMi = $derived(konum === "tek" || konum === "ilk");
   const sonMu = $derived(konum === "tek" || konum === "son");
+  // Match sender-name ink to the sender's avatar gem colour · Gönderen adı rengini gönderenin avatar taş rengiyle eşle
+  const gonderenRenk = $derived(oge.gonderen ? `var(--kisi-${kisiRenk(oge.gonderen)}-isim)` : undefined);
 
   // Kinds the media work draws. A string set on purpose: the media agent will add "video"/"dosya" to ZamanTuru later.
   // Medya işinin çizdiği türler. Bilerek string kümesi: medya işi ileride ZamanTuru'na "video"/"dosya" ekleyecek.
@@ -177,7 +180,7 @@
   >
     <span class="yanit-ipucu" aria-hidden="true"><Ikon ad="yanitla" boyut={20} /></span>
     {#if !oge.kendi}
-      <span class="avatar-yer">{#if sonMu}<button class="avatar-dugme" aria-label={oge.gonderenAd} onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}><Avatar harf={oge.gonderenAd.charAt(0).toUpperCase() || "#"} mxc={oge.gonderenAvatarMxc} boyut={32} /></button>{/if}</span>
+      <span class="avatar-yer">{#if sonMu}<button class="avatar-dugme" aria-label={oge.gonderenAd} onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}><Avatar harf={oge.gonderenAd.charAt(0).toUpperCase() || "#"} mxc={oge.gonderenAvatarMxc} boyut={32} anahtar={oge.gonderen} /></button>{/if}</span>
     {/if}
     <div class="kolon">
       {#if kalp}{#key kalp}<span class="kalp" aria-hidden="true"><svg viewBox="0 0 24 24" width="56" height="56"><path fill="currentColor" d="M12 21s-8.5-5.2-8.5-11.4A4.9 4.9 0 0 1 12 6.6a4.9 4.9 0 0 1 8.5 3C20.500 15.800 12 21 12 21Z"/></svg></span>{/key}{/if}
@@ -186,7 +189,7 @@
         <!-- Çıkartmanın balonu yok: yalnızca resim ve küçük bir saat çipi -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="cikartma-kap" use:uzunBasma={{ ac: (x, y) => menuAc(x, y, oge) }}>
-          {#if !oge.kendi && gonderenGoster && ilkMi}<button class="gonderen" onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}>{oge.gonderenAd}</button>{/if}
+          {#if !oge.kendi && gonderenGoster && ilkMi}<button class="gonderen" style:color={gonderenRenk} onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}>{oge.gonderenAd}</button>{/if}
           {#if oge.yanit}<div class="cikartma-yanit"><YanitAlintisi yanit={oge.yanit} git={(id) => odaId && void mesajaGit(odaId, id)} /></div>{/if}
           <CikartmaGorsel {oge} />
           {@render saatSatiri("cikartma-saat")}
@@ -201,7 +204,7 @@
           class:eslesme
           use:uzunBasma={{ ac: (x, y) => menuAc(x, y, oge) }}
         >
-          {#if !oge.kendi && gonderenGoster && ilkMi}<button class="gonderen" onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}>{oge.gonderenAd}</button>{/if}
+          {#if !oge.kendi && gonderenGoster && ilkMi}<button class="gonderen" style:color={gonderenRenk} onclick={() => kullaniciKartiAc(oge.gonderen, odaId, oge.gonderenAd, oge.gonderenAvatarMxc)}>{oge.gonderenAd}</button>{/if}
 
           {#if yanitAlintisiVar && oge.yanit}<YanitAlintisi yanit={oge.yanit} git={(id) => odaId && void mesajaGit(odaId, id)} />{/if}
 

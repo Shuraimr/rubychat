@@ -561,6 +561,16 @@ pub fn bildirim_bekleyen_oda() -> Option<String> {
     if cfg!(target_os = "android") { crate::android_jni::bekleyen_oda() } else { None }
 }
 
+/// Matrix links passed to the desktop app on cold start (consumed once). Returns empty on other platforms.
+/// Masaüstü uygulamasına soğuk açılışta verilen Matrix bağlantıları (bir kez tüketilir). Öteki platformlarda boş döner.
+#[tauri::command]
+pub fn bekleyen_baglantilari_al() -> Vec<String> {
+    #[cfg(target_os = "linux")]
+    return crate::masaustu_linux::bekleyen_baglantilari_al();
+    #[cfg(not(target_os = "linux"))]
+    Vec::new()
+}
+
 /// The webview tells us when the window is hidden / shown again (desktop banner logic; Android uses its own lifecycle).
 /// Webview pencere gizlenince / yeniden görününce bildirir (masaüstü şerit mantığı; Android kendi yaşam döngüsünü kullanır).
 #[tauri::command]

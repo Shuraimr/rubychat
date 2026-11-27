@@ -800,7 +800,7 @@
           <!-- Tap = room info, long press = customize sheet (both tactile) · Dokun = oda bilgisi, uzun bas = özelleştir sayfası (ikisi de dokunsal) -->
           {#if bilgi}
             <button class="kimlik" aria-label={t("oda.bilgiAc")} onclick={() => (bilgiAcik = true)} use:uzunBasma={{ ac: () => (ozellestirAcik = true) }}>
-              <Avatar harf={bilgi.avatarHarf} mxc={bilgi.avatarMxc} boyut={40} />
+              <Avatar harf={bilgi.avatarHarf} mxc={bilgi.avatarMxc} boyut={40} anahtar={bilgi.id} />
               <span class="adlar">
                 <span class="ad-satir"><span class="ad">{bilgi.ad}</span>{#if bilgi.sifreli}<span class="kilit" role="img" aria-label={t("oda.sifreli")}><Ikon ad="kilit" boyut={14} /></span>{/if}</span>
                 {@render altSatir()}
@@ -859,7 +859,7 @@
 
         {#if bilgi}
           <button class="kapsul kapsul-kimlik" aria-label={t("oda.bilgiAc")} onclick={() => (bilgiAcik = true)} use:uzunBasma={{ ac: () => (ozellestirAcik = true) }}>
-            <Avatar harf={bilgi.avatarHarf} mxc={bilgi.avatarMxc} boyut={32} />
+            <Avatar harf={bilgi.avatarHarf} mxc={bilgi.avatarMxc} boyut={32} anahtar={bilgi.id} />
             <span class="adlar">
               <span class="ad-satir"><span class="ad">{bilgi.ad}</span>{#if bilgi.sifreli}<span class="kilit" role="img" aria-label={t("oda.sifreli")}><Ikon ad="kilit" boyut={13} /></span>{/if}</span>
               {@render altSatir()}
@@ -1007,7 +1007,7 @@
   {#if yuzYigini.length > 0}
     <span class="yuz-yigini" aria-hidden="true">
       {#each yuzYigini as y (y.id)}
-        <span class="yuz-oge"><Avatar harf={y.harf} mxc={y.mxc} {boyut} yaricap={Math.round(boyut * 0.28)} /></span>
+        <span class="yuz-oge"><Avatar harf={y.harf} mxc={y.mxc} {boyut} yaricap={Math.round(boyut * 0.28)} anahtar={y.id} /></span>
       {/each}
     </span>
   {:else}
@@ -1130,6 +1130,10 @@
     min-height: 46px;
   }
   .kapsul.geri { width: 46px; min-width: 46px; }
+  /* With an unread count the back capsule widens and shows the count beside the arrow instead of on top of it.
+     Okunmamış sayısı varken geri kapsülü genişler; sayı okun üstüne binmez, yanında durur. */
+  .kapsul.geri:has(.geri-rozet) { width: auto; padding: 0 12px 0 8px; gap: 2px; }
+  .kapsul.geri .geri-rozet { position: static; border: 0; box-sizing: border-box; }
   .kapsul-kimlik {
     flex: 0 1 auto;
     min-width: 0;

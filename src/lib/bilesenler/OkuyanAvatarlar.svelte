@@ -16,7 +16,7 @@
 
 {#if kisiler.length > 0}
   <button class="okuyanlar" onclick={ac} aria-label={t("okundu.kimler", { n: kisiler.length })}>
-    {#each gorunen as k (k.id)}<Avatar harf={k.ad.charAt(0).toUpperCase() || "#"} mxc={k.avatarMxc} boyut={16} yaricap={5} />{/each}
+    {#each gorunen as k (k.id)}<Avatar harf={k.ad.charAt(0).toUpperCase() || "#"} mxc={k.avatarMxc} boyut={16} yaricap={5} anahtar={k.id} />{/each}
     {#if fazla > 0}<span class="fazla">+{fazla}</span>{/if}
   </button>
 {/if}

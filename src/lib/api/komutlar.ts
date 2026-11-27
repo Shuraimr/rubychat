@@ -40,6 +40,7 @@ import type {
   VideoSikistirIstegi,
   VideoSonucu,
   BulunanKisi,
+  BulunanOda,
   KesifSayfasi,
   GuncellemeBilgisi,
   RaporSatiri,
@@ -114,6 +115,10 @@ export const alanlariAl = () => cagir<AlanOgesi[]>("alanlari_al");
 export const alanIcerigi = (alanId: string) => cagir<AlanIcerigi>("alan_icerigi", { alanId });
 /** Joins by room id or alias through the given servers; returns the room id · Verilen sunucular üzerinden oda kimliği ya da takma adla katılır; oda kimliğini döndürür */
 export const alanaKatil = (kimlik: string, via: string[]) => cagir<string>("alana_katil", { kimlik, via });
+/** Previews a room or space by id or alias before joining (matrix.to / matrix: links) · Katılmadan önce kimlik ya da takma adla oda/alan önizler */
+export const baglantiOnizle = (kimlik: string, via: string[]) => cagir<BulunanOda>("baglanti_onizle", { kimlik, via });
+/** Cold-start Matrix links passed on the desktop command line (consumed once) · Masaüstünde komut satırından gelen soğuk açılış Matrix bağlantıları (bir kez tüketilir) */
+export const bekleyenBaglantilariAl = () => cagir<string[]>("bekleyen_baglantilari_al");
 // ---- Space management and room settings · Alan yönetimi ve oda ayarları ----
 /** What I may do in a space · Bir alanda neler yapabileceğim */
 export const alanYetkim = (alanId: string) => cagir<AlanYetkim>("alan_yetkim", { alanId });

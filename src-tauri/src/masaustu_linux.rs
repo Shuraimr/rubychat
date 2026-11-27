@@ -5,7 +5,7 @@
 //!  - tek çalışan kopya: aynı şifreleme deposundaki iki süreç birbirinin anahtarlarını bozardı; ikinci açılış ilk pencereyi gösterir.
 //!  - masaüstü portalıyla sistem bildirimi; Flatpak içinde ek izin istemez.
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tracing::warn;
 use webkit2gtk::{
     gio::{self, BusType, Cancellable, DBusCallFlags, DBusConnection, DBusNodeInfo, DBusSignalFlags},
@@ -50,12 +50,51 @@ pub(crate) fn veriyolu() -> Result<DBusConnection, glib::Error> {
     gio::bus_get_sync(BusType::Session, Cancellable::NONE)
 }
 
-/// Call first. `false` = another copy is running and was asked to show itself: exit.
-/// Önce çağır. `false` = başka kopya çalışıyor ve kendini göstermesi istendi: çık.
+/// Matrix links received before the webview started listening (`None` once the UI drained them).
+/// Webview dinlemeye başlamadan gelen Matrix bağlantıları (arayüz tüketince `None` olur).
+static BEKLEYEN_BAGLANTILAR: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(Some(Vec::new()));
+
+fn baglanti_mi(s: &str) -> bool {
+    let k = s.trim();
+    k.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("matrix:"))
+        || k.get(..18).is_some_and(|p| p.eq_ignore_ascii_case("https://matrix.to/"))
+        || k.get(..17).is_some_and(|p| p.eq_ignore_ascii_case("http://matrix.to/"))
+}
+
+fn argv_baglantilari() -> Vec<String> {
+    std::env::args().skip(1).filter(|a| baglanti_mi(a)).collect()
+}
+
+fn baglanti_yay(app: &AppHandle, uri: String) {
+    let mut kilit = BEKLEYEN_BAGLANTILAR.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(bekleyen) = kilit.as_mut() {
+        bekleyen.push(uri);
+        return;
+    }
+    drop(kilit);
+    let _ = app.emit("rubychat-baglanti", uri);
+}
+
+/// Marks the web UI ready for incoming links and returns any cold-start argv / early D-Bus links once.
+/// Web arayüzünü gelen bağlantılara hazır sayar ve soğuk açılış argv / erken D-Bus bağlantılarını bir kez döndürür.
+pub fn bekleyen_baglantilari_al() -> Vec<String> {
+    BEKLEYEN_BAGLANTILAR.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default()
+}
+
+/// Call first. `false` = another copy is running and was asked to show itself (or open the argv links): exit.
+/// Önce çağır. `false` = başka kopya çalışıyor ve kendini göstermesi (ya da argv bağlantılarını açması) istendi: çık.
 pub fn ilk_kopya_mi() -> bool {
     // The Wayland app id; it must match the .desktop file, or the window has no icon. · Wayland uygulama kimliği; .desktop dosyasıyla aynı olmalı, yoksa pencerenin simgesi olmaz.
     glib::set_prgname(Some(KIMLIK));
-    let Ok(yol) = veriyolu() else { return true };
+    let uris = argv_baglantilari();
+    let Ok(yol) = veriyolu() else {
+        if !uris.is_empty() {
+            if let Some(bekleyen) = BEKLEYEN_BAGLANTILAR.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                bekleyen.extend(uris);
+            }
+        }
+        return true;
+    };
     // 4 = do not wait in the queue; the answer 3 = somebody else owns the name. · 4 = sırada bekleme; 3 yanıtı = ad başkasında.
     let istek = (ad(), 4u32).to_variant();
     let yanit = yol.call_sync(
@@ -75,7 +114,22 @@ pub fn ilk_kopya_mi() -> bool {
         // from another unique name, while calls to our own app-id name are always allowed.
         // Yayın sinyali yerine iyi bilinen adımıza doğrudan yöntem çağrısı: Flatpak'ın xdg-dbus-proxy'si başka benzersiz addan gelen
         // yayın sinyallerini düşürür, oysa kendi uygulama kimliğimize yapılan çağrılara her zaman izin verilir.
-        if let Err(e) = yol.call_sync(
+        if !uris.is_empty() {
+            let arg = Variant::tuple_from_iter([uris.to_variant(), VariantDict::new(None).end()]);
+            if let Err(e) = yol.call_sync(
+                Some(&ad()),
+                YOL,
+                FDO_UYGULAMA,
+                "Open",
+                Some(&arg),
+                None,
+                DBusCallFlags::NONE,
+                3000,
+                Cancellable::NONE,
+            ) {
+                warn!("mevcut kopyaya Open çağrısı başarısız: {e}");
+            }
+        } else if let Err(e) = yol.call_sync(
             Some(&ad()),
             YOL,
             PENCERE_ARAYUZ,
@@ -89,6 +143,11 @@ pub fn ilk_kopya_mi() -> bool {
             warn!("mevcut kopyaya Goster çağrısı başarısız: {e}");
         }
         return false;
+    }
+    if !uris.is_empty() {
+        if let Some(bekleyen) = BEKLEYEN_BAGLANTILAR.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            bekleyen.extend(uris);
+        }
     }
     // The name lives as long as the connection. · Ad, bağlantı yaşadıkça durur.
     std::mem::forget(yol);
@@ -166,8 +225,21 @@ pub fn dinle(app: &AppHandle) {
                     .register_object(
                         YOL,
                         &arayuz,
-                        move |_, _, _, _, yontem, _, cagri| match yontem {
-                        "Activate" | "Open" | "ActivateAction" => {
+                        move |_, _, _, _, yontem, parametre, cagri| match yontem {
+                        "Open" => {
+                            pencereyi_goster_ana_iplikte(&a);
+                            if parametre.n_children() > 0 {
+                                if let Some(uris) = parametre.child_value(0).get::<Vec<String>>() {
+                                    for uri in uris {
+                                        if baglanti_mi(&uri) {
+                                            baglanti_yay(&a, uri);
+                                        }
+                                    }
+                                }
+                            }
+                            cagri.return_value(None);
+                        }
+                        "Activate" | "ActivateAction" => {
                             pencereyi_goster_ana_iplikte(&a);
                             cagri.return_value(None);
                         }

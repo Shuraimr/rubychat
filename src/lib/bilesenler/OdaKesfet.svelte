@@ -10,8 +10,8 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { alanIcerigi, alanaKatil, odalariKesfet, odaOnizleme } from "../api/komutlar";
-  import type { BulunanOda, OnizlemeMesaji } from "../api/tipler";
+  import { alanIcerigi, alanaKatil, odalariKesfet } from "../api/komutlar";
+  import type { BulunanOda } from "../api/tipler";
   import { alanlar } from "../durum/alanlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { istekAc } from "../durum/istekler.svelte";
@@ -20,11 +20,11 @@
   import { tercihler } from "../durum/tercihler.svelte";
   import { t } from "../i18n";
   import { hataBildir } from "../mesaj/eylemler";
-  import { goreliZaman } from "../zaman-bicim";
   import AltSayfa from "./AltSayfa.svelte";
   import Avatar from "./Avatar.svelte";
   import Ikon from "./Ikon.svelte";
   import Maskot from "./Maskot.svelte";
+  import OdaOnizlemeSayfasi from "./OdaOnizlemeSayfasi.svelte";
 
   let { onkapat, ilkTur = "" }: { onkapat: () => void; ilkTur?: "" | "oda" | "alan" } = $props();
 
@@ -54,9 +54,6 @@
 
   // Room preview sheet state · Oda önizleme alt sayfası durumu
   let onizlenen = $state<BulunanOda | null>(null);
-  let onizlemeMesajlar = $state<OnizlemeMesaji[]>([]);
-  let onizlemeYukleniyor = $state(false);
-  let onizlemeIstekNo = 0;
 
   // #alias:server, !id:server, or a Room v12 id (`!hash`, no server part). · #takma:sunucu, !kimlik:sunucu ya da Room v12 kimliği (`!özet`, sunucu kısmı yok).
   const adres = $derived(/^(#[^\s:]+:[^\s]+|![^\s:]+(:[^\s]+)?)$/.test(sorgu.trim()) ? sorgu.trim() : null);
@@ -178,25 +175,6 @@
 
   function onizle(o: BulunanOda) {
     onizlenen = o;
-    onizlemeMesajlar = [];
-    const bu = ++onizlemeIstekNo;
-    if (o.alan) {
-      onizlemeYukleniyor = false;
-      return;
-    }
-    onizlemeYukleniyor = true;
-    // `oda_onizleme` currently returns cached messages for joined rooms and errors for unjoined ones; fail quietly to the closed-history note.
-    // `oda_onizleme` şu an katılınmış odaların önbellekteki mesajlarını döner, katılınmayanlarda hata verir; sessizce önizlemeye kapalı notuna düş.
-    void odaOnizleme(o.odaId, 3)
-      .then((m) => {
-        if (bu === onizlemeIstekNo) onizlemeMesajlar = m.slice(-3);
-      })
-      .catch(() => {
-        if (bu === onizlemeIstekNo) onizlemeMesajlar = [];
-      })
-      .finally(() => {
-        if (bu === onizlemeIstekNo) onizlemeYukleniyor = false;
-      });
   }
 
   async function adresleKatil() {
@@ -320,7 +298,7 @@
               onclick={() => onizle(o)}
               aria-label={t("kesfet.onizle", { ad })}
             >
-              <Avatar harf={ad.replace(/^[#!]/, "").slice(0, 1).toUpperCase()} mxc={o.avatarMxc} boyut={44} />
+              <Avatar harf={ad.replace(/^[#!]/, "").slice(0, 1).toUpperCase()} mxc={o.avatarMxc} boyut={44} anahtar={o.odaId} />
               <div class="metin">
                 <b>{ad}{#if o.alan}<span class="etiket">{t("kesfet.alanEtiket")}</span>{/if}</b>
                 <small>{t("kesfet.uye", { n: sayi(o.uyeSayisi) })}{#if o.adres && o.adres !== ad} · {o.adres}{/if}</small>
@@ -346,56 +324,12 @@
 </AltSayfa>
 
 {#if onizlenen}
-  {@const o = onizlenen}
-  {@const ad = o.ad ?? o.adres ?? o.odaId}
-  <AltSayfa baslik={ad} onkapat={() => (onizlenen = null)}>
-    <div class="oniz-ust">
-      <Avatar harf={ad.replace(/^[#!]/, "").slice(0, 1).toUpperCase()} mxc={o.avatarMxc} boyut={56} />
-      <div class="oniz-kimlik">
-        <strong>{ad}{#if o.alan}<span class="etiket">{t("kesfet.alanEtiket")}</span>{/if}</strong>
-        <span>{#if o.adres}{o.adres} · {/if}{t("kesfet.uye", { n: sayi(o.uyeSayisi) })}</span>
-      </div>
-    </div>
-
-    {#if o.konu}
-      <p class="oniz-konu">{o.konu}</p>
-    {/if}
-
-    {#if !o.alan}
-      {#if onizlemeYukleniyor}
-        <p class="oniz-not"><span class="yuklenme"></span>{t("kesfet.onizlemeYukleniyor")}</p>
-      {:else if onizlemeMesajlar.length > 0}
-        <section class="oniz-mesajlar">
-          <h3>{t("kesfet.sonMesajlar")}</h3>
-          <div class="oniz-kutu">
-            {#each onizlemeMesajlar as m (m.olayId)}
-              <div class="oniz-satir">
-                <div class="oniz-meta">
-                  <strong>{m.gonderenAd}</strong>
-                  <span>{goreliZaman(m.zaman)}</span>
-                </div>
-                <p>{m.metin}</p>
-              </div>
-            {/each}
-          </div>
-        </section>
-      {:else}
-        <p class="oniz-not">{t("kesfet.onizlemeKapali")}</p>
-      {/if}
-    {/if}
-
-    {#snippet altlik()}
-      <button
-        class="buton {o.uye ? 'tonlu' : 'birincil'}"
-        type="button"
-        disabled={!!mesgul}
-        onclick={() => void katil(o)}
-      >
-        {#if mesgul === o.odaId}<span class="yuklenme"></span>{/if}
-        {o.uye ? t("kesfet.ac") : o.katilim === "kapi" ? t("kesfet.iste") : t("kesfet.katil")}
-      </button>
-    {/snippet}
-  </AltSayfa>
+  <OdaOnizlemeSayfasi
+    oda={onizlenen}
+    mesgul={mesgul === onizlenen.odaId}
+    onkatil={() => { if (onizlenen) void katil(onizlenen); }}
+    onkapat={() => (onizlenen = null)}
+  />
 {/if}
 
 <style>
@@ -505,88 +439,4 @@
   .kucuk { flex: none; width: auto; min-height: 44px; min-width: 72px; padding: 0 14px; align-self: center; }
   .bos { padding: 24px 8px; font-size: .875rem; color: var(--yazi-2); text-align: center; }
   .devam { display: flex; justify-content: center; }
-
-  /* Room preview sheet · Oda önizleme alt sayfası */
-  .oniz-ust {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-  .oniz-kimlik {
-    flex: 1;
-    min-width: 0;
-    display: grid;
-    gap: 4px;
-  }
-  .oniz-kimlik strong {
-    font-family: var(--baslik-tipi);
-    font-size: 1.0625rem;
-    font-weight: 600;
-    line-height: 1.3;
-    overflow-wrap: anywhere;
-  }
-  .oniz-kimlik span {
-    font-size: .8125rem;
-    color: var(--yazi-2);
-    overflow-wrap: anywhere;
-  }
-  .oniz-konu {
-    font-size: .9375rem;
-    line-height: 1.5;
-    color: var(--yazi);
-    overflow-wrap: anywhere;
-  }
-  .oniz-mesajlar {
-    display: grid;
-    gap: 8px;
-  }
-  .oniz-mesajlar h3 {
-    font-size: .75rem;
-    font-weight: 700;
-    letter-spacing: .06em;
-    color: var(--yazi-2);
-  }
-  .oniz-kutu {
-    background: var(--yuzey-2);
-    border: 1px solid var(--kenar-ince);
-    border-radius: 16px;
-    overflow: hidden;
-  }
-  .oniz-satir {
-    padding: 10px 14px;
-    display: grid;
-    gap: 4px;
-  }
-  .oniz-satir + .oniz-satir {
-    border-top: 1px solid var(--kenar-ince);
-  }
-  .oniz-meta {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .oniz-meta strong {
-    font-size: .8125rem;
-    font-weight: 600;
-    color: var(--yazi);
-  }
-  .oniz-meta span {
-    font-size: .75rem;
-    color: var(--yazi-2);
-    flex: none;
-  }
-  .oniz-satir p {
-    font-size: .875rem;
-    line-height: 1.4;
-    color: var(--yazi-2);
-    overflow-wrap: anywhere;
-  }
-  .oniz-not {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: .875rem;
-    color: var(--yazi-2);
-  }
 </style>

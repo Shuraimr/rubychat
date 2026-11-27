@@ -112,7 +112,7 @@
 {#if hedef}
   <AltSayfa baslik={ad} onkapat={kapat}>
     <div class="kimlik">
-      <Avatar harf={ad.charAt(0).toUpperCase() || "#"} mxc={avatarMxc} boyut={72} />
+      <Avatar harf={ad.charAt(0).toUpperCase() || "#"} mxc={avatarMxc} boyut={72} anahtar={hedef.kullaniciId} />
       <div class="adlar">
         <strong>{ad}</strong>
         <button class="mxid" onclick={kopyala} aria-label={t("kart.kimlikKopyala")}>{hedef.kullaniciId}<Ikon ad="kopya" boyut={14} /></button>

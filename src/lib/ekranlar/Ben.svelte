@@ -28,6 +28,7 @@
   import { sifreleme } from "../durum/sifreleme.svelte";
   import { tercihler } from "../durum/tercihler.svelte";
   import { titret } from "../dokunma";
+  import { matrisLinkAcikMi, matrisLinkAyariAc, matrisLinkAyariVar } from "../disAc";
   import { geriKaydir } from "../geriKaydir";
   import { kayCik, kayGir } from "../gecis";
   import { t } from "../i18n";
@@ -91,6 +92,15 @@
   const surum = $derived(guncelleme.mevcutSurum || yerSurum);
   const rubychatUye = $derived(rubychatUyeMi());
   let alanKatiliyor = $state(false);
+  // Android 12+: row to open "Open by default" settings for matrix.to links · Android 12+: matrix.to bağlantıları için "Varsayılan olarak aç" satırı
+  const matrisLinkVar = matrisLinkAyariVar();
+  let matrisLinkAcik = $state(matrisLinkVar ? matrisLinkAcikMi() : false);
+  $effect(() => {
+    if (!matrisLinkVar) return;
+    const bak = () => (matrisLinkAcik = matrisLinkAcikMi());
+    document.addEventListener("visibilitychange", bak);
+    return () => document.removeEventListener("visibilitychange", bak);
+  });
 
   onMount(() => {
     if (!guncelleme.mevcutSurum) {
@@ -169,6 +179,16 @@
         <span class="ay-metin"><strong>{t("ben.gurultu")}</strong><span>{t("ben.gurultuAlt")}</span></span>
         <Anahtar acik={arama.gurultuAcik} degis={(v) => arama.gurultuAyarla(v)} etiket={t("ben.gurultu")} />
       </div>
+      {#if matrisLinkVar}
+        <button class="ay-satir dugme" data-dalga onclick={() => { titret("tik"); matrisLinkAyariAc(); }}>
+          <span class="ay-simge" style:--r="var(--tas-safir)"><Ikon ad="baglanti" boyut={20} /></span>
+          <span class="ay-metin">
+            <strong>{t("matrisBaglanti.ayarBaslik")}</strong>
+            <span class="durum {matrisLinkAcik ? 'tamam' : 'notr'}">{matrisLinkAcik ? t("durum.acik") : t("durum.kapali")}</span>
+          </span>
+          <Ikon ad="sagOk" boyut={20} />
+        </button>
+      {/if}
     </div>
 
     <div class="ay-kart">

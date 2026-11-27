@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.verify.domain.DomainVerificationManager
+import android.content.pm.verify.domain.DomainVerificationUserState
 import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -293,6 +295,45 @@ class BaglantiKoprusu(private val etkinlik: MainActivity) {
     } catch (_: Exception) {
     }
   }
+
+  /** Marks the web UI ready for incoming links and returns any cold-start link once. · Web arayüzünü gelen bağlantılara hazır sayar ve soğuk açılış bağlantısını bir kez döndürür. */
+  @JavascriptInterface
+  fun bekleyenBaglanti(): String = etkinlik.bekleyenBaglantiAl()
+
+  /** Android 12+ (API 31+): the user can enable opening matrix.to links in rubychat by default. · Android 12+ (API 31+): kullanıcı matrix.to bağlantılarının rubychat'te açılmasını seçebilir. */
+  @JavascriptInterface
+  fun matrisLinkDestegi(): Boolean = Build.VERSION.SDK_INT >= 31
+
+  /** Android 12+: true when matrix.to is selected or verified for rubychat. · Android 12+: matrix.to rubychat için seçili ya da doğrulanmışsa true. */
+  @JavascriptInterface
+  fun matrisLinkAcik(): Boolean {
+    if (Build.VERSION.SDK_INT < 31) return false
+    return try {
+      val mgr = etkinlik.getSystemService(DomainVerificationManager::class.java) ?: return false
+      val durum = mgr.getDomainVerificationUserState(etkinlik.packageName) ?: return false
+      if (!durum.isLinkHandlingAllowed) return false
+      val hal = durum.hostToStateMap["matrix.to"]
+      hal == DomainVerificationUserState.DOMAIN_STATE_SELECTED || hal == DomainVerificationUserState.DOMAIN_STATE_VERIFIED
+    } catch (_: Exception) {
+      false
+    }
+  }
+
+  /** Opens Android's "Open by default" settings page for rubychat. · rubychat için Android'in "Varsayılan olarak aç" ayar sayfasını açar. */
+  @JavascriptInterface
+  fun matrisLinkAyariAc() {
+    if (Build.VERSION.SDK_INT < 31) return
+    val paket = Uri.parse("package:" + etkinlik.packageName)
+    try {
+      etkinlik.startActivity(Intent(Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS, paket))
+    } catch (_: Exception) {
+      // Vendor ROMs occasionally omit the direct action; fall back to App Details. · Bazı üretici ROM'ları doğrudan eylemi koymaz; uygulama ayrıntılarına düş.
+      try {
+        etkinlik.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, paket))
+      } catch (_: Exception) {
+      }
+    }
+  }
 }
 
 /** JNI entry for libwebrtc's one-time init (android_jni.rs). · libwebrtc'nin tek seferlik başlatması için JNI girişi (android_jni.rs). */
@@ -302,6 +343,8 @@ object WebrtcKoprusu {
 
 class MainActivity : TauriActivity() {
   private var web: WebView? = null
+  private var bekleyenBaglanti: String? = null
+  @Volatile private var baglantiHazir = false
 
   // Notification permission dialog (Android 13+). Registered here, at construction, because it must exist before STARTED.
   // Bildirim izni penceresi (Android 13+). Burada, kurulurken kaydedilir; STARTED olmadan önce var olmalı.
@@ -360,6 +403,7 @@ class MainActivity : TauriActivity() {
     // Yerel aramalar: libwebrtc Java sınıflarını bir Java iş parçacığından bulmalı (bkz. android_jni.rs). super.onCreate'ten sonra kütüphane yüklüdür.
     WebrtcKoprusu.baslat(applicationContext)
     aktif = this
+    baglantiHazir = false
     Bildirimci.sayfaSifirla()
     niyetIsle(intent)
   }
@@ -414,13 +458,42 @@ class MainActivity : TauriActivity() {
     )
   }
 
+  /** Returns and clears any Matrix link received before the web UI mounted, and marks the UI ready for future intents. · Web arayüzü kurulmadan gelen Matrix bağlantısını bir kez döndürür ve sonraki niyetler için arayüzü hazır işaretler. */
+  @Synchronized
+  fun bekleyenBaglantiAl(): String {
+    baglantiHazir = true
+    val url = bekleyenBaglanti ?: return ""
+    bekleyenBaglanti = null
+    return url
+  }
+
+  @Synchronized
+  private fun baglantiGonder(url: String) {
+    val w = web
+    if (baglantiHazir && w != null) {
+      w.post {
+        w.evaluateJavascript("window.dispatchEvent(new CustomEvent('rubychat-baglanti',{detail:" + JSONObject.quote(url) + "}))", null)
+      }
+    } else {
+      bekleyenBaglanti = url
+    }
+  }
+
   /**
-   * A tapped notification carries the room id. If the page is already running we tell it with a window event
-   * (`rubychat-oda-ac`, detail = room id); on a cold start the id waits until the UI asks for it (Rust `bildirim_bekleyen_oda`).
-   * Dokunulan bildirim oda kimliğini taşır. Sayfa zaten çalışıyorsa pencere olayıyla (`rubychat-oda-ac`, detail = oda kimliği)
-   * haber veririz; soğuk açılışta kimlik, arayüz isteyene (Rust `bildirim_bekleyen_oda`) kadar bekler.
+   * Handles incoming links (matrix.to / matrix:) and tapped notifications (room id).
+   * If the page is already listening, dispatches a window event; on cold start, queues the value until the UI asks for it.
+   * Gelen bağlantıları (matrix.to / matrix:) ve dokunulan bildirimleri (oda kimliği) işler.
+   * Sayfa zaten dinliyorsa pencere olayı yollar; soğuk açılışta arayüz isteyene kadar bekletir.
    */
   private fun niyetIsle(niyet: Intent?) {
+    if (niyet?.action == Intent.ACTION_VIEW) {
+      val url = niyet.dataString
+      if (!url.isNullOrBlank()) {
+        niyet.data = null
+        baglantiGonder(url)
+        return
+      }
+    }
     val oda = niyet?.getStringExtra(Bildirimci.EK_ODA) ?: return
     niyet?.removeExtra(Bildirimci.EK_ODA)
     Bildirimci.odaIstendi(oda) { id ->

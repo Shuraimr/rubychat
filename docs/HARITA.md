@@ -33,6 +33,8 @@ kendi baş yorumlarından üretildi; yeni dosya eklersen baş yorumunu yaz, kata
 | Klavye kısayolu | komut tablosu `src/lib/klavyeKisayol.svelte.ts` (tek kaynak: çalıştırma + ipucu + yardım) |
 | Mesaj gruplama | `src/lib/gruplama.ts` (`ayniGrup`, `GRUP_ARALIGI`) |
 | Dış bağlantı | `src/lib/disAc.ts` (onaylı açma) |
+| Kişi/oda rengi | `Avatar` `anahtar={matrixKimligi}` → `--kisi-N-*` (`src/lib/kisiRenk.ts`); kendi avatarın anahtarsız (`--ton`) |
+| Arka uçsuz deneme, ekran görüntüsü | vitrin kipi: `npm run dev` → `/?vitrin` (`&dil=en`); sahte veri `src/vitrin/veri.ts`, komut cevapları `src/vitrin/kur.ts` (yeni komut eklersen orada da cevapla) |
 
 ## Sık görev → dosyalar
 | Görev | Önce bunları aç |
@@ -55,7 +57,7 @@ kendi baş yorumlarından üretildi; yeni dosya eklersen baş yorumunu yaz, kata
 | `AlanGorunumu.svelte` | 503 | One space: its child rooms and sub-spaces from the server's `/hierarchy` (so rooms I have NOT joined are listed too, with name, topic and | `adim, gomulu = false` |
 | `Alanlar.svelte` | 80 | Spaces tab. Lists the spaces I have joined that are not inside another joined space (sub-spaces are reached through their parent); | `gomulu = false` |
 | `Arama.svelte` | 157 | Call screen (design section 11). Phone: full screen. Tablet: a centred card inside the room column (the parent is `position: relative`). |  |
-| `Ben.svelte` | 316 | "Me": account card, a settings list (Görünüm, noise suppression, Güvenlik with a status chip, logout) and the account details. |  |
+| `Ben.svelte` | 336 | "Me": account card, a settings list (Görünüm, noise suppression, Güvenlik with a status chip, logout) and the account details. |  |
 | `BildirimAyarlari.svelte` | 92 | Ben › Bildirimler: the system permission (card + link to Android settings) and the in-app banner options (on/off, preview, vibration). |  |
 | `Giris.svelte` | 166 | Login screen (design 22/11 and 22/12): the waving raccoon on a soft accent halo, "rubychat'e hoş geldin", username + password with |  |
 | `Gorunum.svelte` | 275 | Görünüm (appearance) page: live preview, theme, AMOLED black, accent (rubyyard gems + a custom colour), font, text size, reduced motion. |  |
@@ -66,7 +68,7 @@ kendi baş yorumlarından üretildi; yeni dosya eklersen baş yorumunu yaz, kata
 | `Istekler.svelte` | 144 | "İstekler": one card per invitation (who invites, what the room is, decline / accept), the people waiting at the door of my rooms, |  |
 | `Kayit.svelte` | 164 | In-app sign-up. OAuth (MAS) servers such as matrix.org only allow sign-up on their own account page, so the device login is started |  |
 | `KlavyeAyarlari.svelte` | 90 | Ben › Klavye kısayolları (desktop only): main switch for Vim & modeless Ctrl shortcuts, hint strip switch (when main is on), |  |
-| `Oda.svelte` | 986 | One open room: header (back, avatar, name, encryption chip, call button in 1:1 rooms), timeline and the composer. | `odaId` |
+| `Oda.svelte` | 1200 | One open room: header (back, avatar, name, encryption chip, call button in 1:1 rooms), timeline and the composer. | `odaId` |
 | `OdaAyarlari.svelte` | 668 | Shared settings screen for both rooms and spaces (full-screen sub-screen on phones, side panel on wide screens where OdaBilgisi opens). | `hedef` |
 | `OdaBilgisi.svelte` | 145 | Room info (design 22/03 → tap on the room header): avatar, name, encryption chip with the small lock mascot, quick actions, and the rows |  |
 | `ProfilDuzenle.svelte` | 135 | Ben › Profil: change my display name, change / remove my avatar (pick a photo → square crop → upload → set as avatar), see my mxid and |  |
@@ -90,12 +92,12 @@ kendi baş yorumlarından üretildi; yeni dosya eklersen baş yorumunu yaz, kata
 | `AnketKarti.svelte` | 112 | A poll inside a message bubble (MSC3381). Rules: | `oge` |
 | `AnketOlustur.svelte` | 103 | "Anket oluştur" sheet (composer "+" menu): a question, 2 to 10 options (each can be removed once there are more than two), and two |  |
 | `AramaCubugu.svelte` | 33 | Pinned green bar at the top of the app while a call runs in the background: "ayse ile görüşme |  |
-| `Avatar.svelte` | 47 | Rounded-square avatar (sized in rem so it grows with the text size / Android font scale; the image request still uses px): | `harf, boyut = 48, mxc = null, yaricap: ozelYaricap` |
+| `Avatar.svelte` | 58 | Rounded-square avatar (sized in rem so it grows with the text size / Android font scale; the image request still uses px): | `harf, boyut = 48, mxc = null, yaricap: ozelYaricap, anahtar = null,` |
 | `BaglamMenusu.svelte` | 146 | Context menu for a message (design section 8): opens at the touch point (scales 0.92 → 1 from there, 180ms), the message stays lit and |  |
 | `BaglantiKarti.svelte` | 88 | Rich link card under a message. YouTube: 16:9 thumbnail with a play button, title + channel (oEmbed), tap plays INLINE (youtube-nocookie). | `b, sifreli = false` |
 | `BaglantiOnay.svelte` | 89 | Link sheet (mounted once in App.svelte): the full address, the ways to open it, "always for this site", copy and share. |  |
 | `Baslik.svelte` | 31 | Screen header: 56px, title on the left (or a back arrow + title on sub-pages), optional actions on the right. |  |
-| `BicimDugum.svelte` | 92 | One node of the sanitized message HTML tree (see bicim/temizle.ts). Every allowed tag is written out here as normal Svelte markup, so | `d, odaId` |
+| `BicimDugum.svelte` | 89 | One node of the sanitized message HTML tree (see bicim/temizle.ts). Every allowed tag is written out here as normal Svelte markup, so | `d, odaId` |
 | `BicimliMetin.svelte` | 20 | A received formatted message body (HTML) drawn safely: the HTML goes through the whitelist sanitizer (bicim/temizle.ts) and the resulting | `html, odaId` |
 | `Bildirim.svelte` | 36 | Toast (design section 8): sits above the fixed bottom bars (--alt-yer), 4 s, Material snackbar: grows up from the bottom, fades out. |  |
 | `BildirimPaneli.svelte` | 425 | Notification center panel (mounted once in App.svelte): |  |
@@ -117,28 +119,30 @@ kendi baş yorumlarından üretildi; yeni dosya eklersen baş yorumunu yaz, kata
 | `IstekKatmani.svelte` | 63 | Requests layer: the full-screen "İstekler" page (incoming invitations, people asking to enter my rooms, my own pending requests) |  |
 | `KareKirp.svelte` | 183 | Square crop sheet: drag to move, slider to zoom, then "Kırp" exports a square image. Used for the avatar (JPEG/WebP, 512px, plain square) and for |  |
 | `KisayolIpucu.svelte` | 130 | Thin one-line shortcut hint + Vim mode strip right under the composer while a message is selected. | `oge` |
-| `KlasorSekmeleri.svelte` | 90 | Folder tabs of the chat list (Telegram style): a horizontally scrolling strip. The tinted pill behind the selected tab is ONE element that |  |
+| `KisilerPaneli.svelte` | 749 | Right-side People panel (desktop / tablet only): 300px, surface-1, hairline left border. |  |
+| `KlasorSekmeleri.svelte` | 91 | Folder tabs of the chat list (Telegram style): a horizontally scrolling strip. The tinted pill behind the selected tab is ONE element that |  |
 | `KlavyeDurum.svelte` | 363 | Compact Vim mode indicator (NORMAL / ARA / KOMUT), count prefix, pending leader ("g…") and the ":" mini command line. |  |
 | `KlavyeListesi.svelte` | 315 | Grouped, searchable shortcut list driven by YARDIM_GRUPLARI / YARDIM_OGELERI. | `otoOdak = false` |
 | `KlavyeYardim.svelte` | 11 | Keyboard shortcut help (? or Ctrl+/) |  |
 | `KullaniciKarti.svelte` | 187 | The user card (design 22/07), mounted ONCE in App.svelte and opened from anywhere with `kullaniciKartiAc(kullaniciId, odaId?)`: |  |
 | `KurulumRaporu.svelte` | 415 | Setup report modal (mounted in App.svelte outside session gating so it works right after the first-run tour too). |  |
 | `Maskot.svelte` | 26 | The raccoon mascot (design 22/13). `poz` picks the pose: selam (welcome, empty chat list), yukleniyor (cold start / first sync), | `poz, boyut = 120, hale = false` |
-| `MesajBalonu.svelte` | 388 | One message bubble (design section 6): others on the left (surface-2), own on the right (tone). Same sender within 5 min = a group: |  |
-| `OdaKesfet.svelte` | 592 | "Odaları keşfet" sheet: a server's public room directory (`odalari_kesfet`), searchable, with Rooms / Spaces filter, a server |  |
+| `MesajBalonu.svelte` | 391 | One message bubble (design section 6): others on the left (surface-2), own on the right (tone). Same sender within 5 min = a group: |  |
+| `OdaKesfet.svelte` | 442 | "Odaları keşfet" sheet: a server's public room directory (`odalari_kesfet`), searchable, with Rooms / Spaces filter, a server |  |
 | `OdaOlustur.svelte` | 61 | "Grup oluştur" / "Alan oluştur" / "Adresle odaya katıl" sheet: one field, one button. |  |
-| `OdaPaleti.svelte` | 1006 | Ctrl+Space: multi-mode room, message and command palette with an optional side preview panel. |  |
+| `OdaOnizlemeSayfasi.svelte` | 266 | Room / space preview sheet (AltSayfa): avatar, name, alias, member count, topic, recent cached messages (when available) |  |
+| `OdaPaleti.svelte` | 1054 | Ctrl+Space: multi-mode room, message and command palette with an optional side preview panel. |  |
 | `OdaSeridi.svelte` | 61 | Compact window: one narrow strip takes the place of rail + list. Top: the list drawer; middle: chats as avatars; bottom: Alanlar and Ben. |  |
 | `OkuyanAvatarlar.svelte` | 28 | Tiny avatars of the people whose latest read receipt is on this message (small group rooms only; the backend sends none for big rooms or |  |
 | `OkuyanListesi.svelte` | 28 | Sheet listing who has read up to a message (opened from the tiny read avatars). Tapping a person opens their user card. |  |
 | `OzellestirSayfasi.svelte` | 101 | Chat look sheet, like WhatsApp: scope, a tall live preview, wallpaper tiles (solid colours + own photo), dimming and message text size. |  |
-| `Ray.svelte` | 83 | Side rail: the same destinations as the phone bottom menu. | `kompakt = false` |
-| `SabitCubugu.svelte` | 65 | Pinned-messages bar at the top of a room (only when something is pinned). Shows the current pinned message (name + one line); tapping it jumps | `odaId, idler` |
+| `Ray.svelte` | 97 | Side rail: the same destinations as the phone bottom menu. | `kompakt = false` |
+| `SabitCubugu.svelte` | 107 | Pinned-messages bar at the top of a room (only when something is pinned). Shows the current pinned message (name + one line); tapping it jumps | `odaId, idler` |
 | `Sayfalayici.svelte` | 110 | Horizontal pager on native scroll-snap: the page follows the finger 1:1, flicks, and never drops frames because the browser scrolls it. |  |
 | `Secici.svelte` | 22 | Segmented selector (design section 3: "Sistem |  |
 | `SifrelemeKatmani.svelte` | 302 | All encryption sheets in one place (opened through `sifreleme.katman`): |  |
 | `SilOnay.svelte` | 46 | "Bu mesaj silinsin mi?" confirm sheet. Deleting is not undoable, so it asks once: Vazgeç / Sil (red). The deletion itself is the |  |
-| `SohbetSatiri.svelte` | 82 | One 72px row in the chat list (design section 5). States: unread (bold name + preview, accent time, count badge), mention ("@" badge), |  |
+| `SohbetSatiri.svelte` | 83 | One 72px row in the chat list (design section 5). States: unread (bold name + preview, accent time, count badge), mention ("@" badge), |  |
 | `SohbetZemini.svelte` | 32 | The chat wallpaper: an own photo (this device only) under a dimming layer. Solid colours come from --sohbet-zemin, so this renders nothing then. | `resim, resimAnahtari, karart` |
 | `TepkiCubugu.svelte` | 28 | Quick reaction bar shown above the message context menu (❤️ 😂 👍 😮 😢 🙏 and "+" for the full emoji picker). The reactions I already |  |
 | `TepkiKimler.svelte` | 47 | "Who reacted" sheet (opened by a long press on a reaction chip): the chips of the message as tabs-in-a-list, each group with the people |  |
@@ -153,7 +157,7 @@ kendi baş yorumlarından üretildi; yeni dosya eklersen baş yorumunu yaz, kata
 | `YasaklaPenceresi.svelte` | 75 | Ban dialog (design 22/08): avatar, "<ad> yasaklansın mı?", optional reason, a toggle "Son 24 saatteki mesajlarını sil", Vazgeç (left) / |  |
 | `YaziyorSatiri.svelte` | 36 | "X yazıyor…" line above the composer: one name, two names or "N kişi yazıyor…". It takes no room while nobody types (the row is not rendered), | `kisiler` |
 | `YazmaAlani.svelte` | 707 | Composer bar: one floating pill (emoji / keyboard |  |
-| `YeniSohbet.svelte` | 170 | "Yeni sohbet" sheet. Type a name, a username or a full Matrix id: the server's user directory is searched as you type |  |
+| `YeniSohbet.svelte` | 177 | "Yeni sohbet" sheet. Type a name, a username or a full Matrix id: the server's user directory is searched as you type |  |
 | `Zil.svelte` | 131 | Notification center bell button (44px round target, sits left of the settings sliders button in Sohbetler). |  |
 
 ### `src/lib/durum/`
@@ -163,11 +167,11 @@ kendi baş yorumlarından üretildi; yeni dosya eklersen baş yorumunu yaz, kata
 | `alanlar.svelte.ts` | 109 | Navigation inside the "Alanlar" tab: a stack of the spaces the user opened (a space can hold sub-spaces). Every level is a back-button |  |
 | `arama.svelte.ts` | 380 | 1:1 voice call state machine: bos → ariyor/caliyor → baglaniyor → bagli → bitti (→ bos). |  |
 | `ayarlar.svelte.ts` | 197 | Local settings (per device), persisted in localStorage. Storage can be blocked, so every access is wrapped. |  |
-| `baglantiOnay.svelte.ts` | 49 | Links in messages. A tap opens at once, the way the site's rule / the general choice says; the sheet (BaglantiOnay) appears when the choice |  |
+| `baglantiOnay.svelte.ts` | 57 | Links in messages. A tap opens at once, the way the site's rule / the general choice says; the sheet (BaglantiOnay) appears when the choice |  |
 | `baglantiTercihi.svelte.ts` | 53 | How web links open (device only): one general choice + a rule per site ("sekme" = tab inside the app, "tarayici" = the browser app, else a package nam |  |
 | `bildirim.svelte.ts` | 33 | Tiny toast store. A toast has an optional kind (icon) and an optional action button ("Yeniden dene"). |  |
 | `bildirimMerkezi.svelte.ts` | 180 | Notification center store (bell): keeps up to 50 newest-first items across messages, mentions, invites, updates and setup checks. |  |
-| `duzen.svelte.ts` | 58 | Desktop layout: is the window compact, is the list hidden, is the compact list drawer open. |  |
+| `duzen.svelte.ts` | 103 | Desktop layout: is the window compact, is the list hidden, is the compact list drawer open, and right People panel state. |  |
 | `gezinme.svelte.ts` | 333 | Navigation state: which tab and which room are open, the screen SHAPE (phone / landscape phone / tablet), and the LAYER STACK |  |
 | `guncelleme.svelte.ts` | 312 | In-app update store: checks GitHub Releases, handles Android unknown-sources permission and return resume, |  |
 | `hizliGecis.svelte.ts` | 136 | Quick switcher: hold a search button, slide over the popup, release on a chat. `hizliGecis` is the action for such a button; HizliGecis.svelte |  |
@@ -175,6 +179,7 @@ kendi baş yorumlarından üretildi; yeni dosya eklersen baş yorumunu yaz, kata
 | `kabuk.svelte.ts` | 47 | Shell state shared by the floating bottom dock and the chat-list search pill: they hide when the user scrolls down and come back when |  |
 | `kullaniciKarti.svelte.ts` | 21 | The one place that opens the user card: `kullaniciKartiAc(kullaniciId, odaId?)` from ANY avatar / name / result row. |  |
 | `kurulum.svelte.ts` | 328 | Setup diagnostics report store and onboarding tour replay toggle. |  |
+| `matrisBaglanti.svelte.ts` | 209 | Handles incoming Matrix links (matrix.to and MSC2312 matrix: URIs) from OS intents, D-Bus Open, in-app pills/links and the command palette. |  |
 | `medya.svelte.ts` | 262 | Media sending queue: prepares each chosen item (image re-encode, video transcode, thumbnail), uploads it to the Rust cache and |  |
 | `odalar.svelte.ts` | 157 | Room list state: filled by the "odalar-guncellendi" event, filtered locally (all filtering uses fields the backend already sends). |  |
 | `onYukle.svelte.ts` | 169 | Decides which rooms are kept warm. Score = how often and how recently the user visits (halves every 5 days) + unread / mention / pinned. |  |
@@ -184,9 +189,10 @@ kendi baş yorumlarından üretildi; yeni dosya eklersen baş yorumunu yaz, kata
 | `sohbetChipleri.svelte.ts` | 101 | The filter chips above the chat list: the user can hide and reorder them (the "+" chip opens the editor). "Tümü" always stays, first. |  |
 | `sohbetGorunum.svelte.ts` | 102 | Chat look, like WhatsApp: a wallpaper (solid colour or an own photo + dimming) and the message text size. |  |
 | `sonAramalar.ts` | 38 | Last searches of the chat-list search (device only, newest first, at most 8). |  |
-| `tercihler.svelte.ts` | 109 | Device preferences that are not "appearance" (those live in ayarlar.svelte.ts): chat, notifications, haptics, link previews, photo quality. |  |
+| `tercihler.svelte.ts` | 111 | Device preferences that are not "appearance" (those live in ayarlar.svelte.ts): chat, notifications, haptics, link previews, photo quality. |  |
 | `ustBildirim.svelte.ts` | 63 | The in-app banner (UstBildirim.svelte): one at a time, supporting both incoming messages and update alerts. |  |
 | `uyeler.svelte.ts` | 85 | Member lists and my permissions, cached per room (members screen, user card and ban dialog share it). The backend does the real checks; |  |
+| `varlik.svelte.ts` | 77 | Lightweight presence cache shared by the chat header online counter and the People panel. |  |
 | `yazma.svelte.ts` | 24 | What the composer is doing with a message: replying to one, or editing one. Shared between the room screen (context menu, swipe) |  |
 | `zaman.svelte.ts` | 191 | Open-room timeline state. Backend sends the FULL item list on every change (simple and robust); `paylas` keeps unchanged items. |  |
 | `zeminResmi.ts` | 72 | Custom chat backgrounds picked from the device. Matrix has no such thing and the picture is personal, so it is NEVER uploaded: the |  |
@@ -235,9 +241,9 @@ kendi baş yorumlarından üretildi; yeni dosya eklersen baş yorumunu yaz, kata
 
 | Dosya | Satır | Ne yapar | Props |
 |---|---|---|---|
-| `komutlar.ts` | 275 | The ONLY place that calls invoke(). Every Rust command gets one typed wrapper here. |  |
-| `olaylar.ts` | 67 | The ONLY place that calls listen(). Each backend event gets a typed subscription that returns an unsubscribe function. |  |
-| `tipler.ts` | 682 | TypeScript types mirroring the Rust DTOs EXACTLY (serde rename_all = "camelCase"). |  |
+| `komutlar.ts` | 280 | The ONLY place that calls invoke(). Every Rust command gets one typed wrapper here. |  |
+| `olaylar.ts` | 71 | The ONLY place that calls listen(). Each backend event gets a typed subscription that returns an unsubscribe function. |  |
+| `tipler.ts` | 684 | TypeScript types mirroring the Rust DTOs EXACTLY (serde rename_all = "camelCase"). |  |
 
 ### `src/lib/`
 
@@ -246,15 +252,17 @@ kendi baş yorumlarından üretildi; yeni dosya eklersen baş yorumunu yaz, kata
 | `alt-yer.ts` | 56 | Measures the total height of fixed bottom bars ([data-alt-cubuk]) and writes it to --alt-yer, |  |
 | `bildirim-sistem.ts` | 94 | System notifications, UI side: permission helpers, the "tapped a notification" route, the foreground / background report and the |  |
 | `ciftDokun.ts` | 31 | Double tap on a message: two taps within 280ms, at most 24px apart. Links, buttons and media inside the message keep their own tap. |  |
-| `disAc.ts` | 57 | Opening a web address. On Android the native bridge (RubyBaglanti, MainActivity.kt) does it: a browser tab inside the app (Custom Tab, the |  |
+| `disAc.ts` | 70 | Opening a web address. On Android the native bridge (RubyBaglanti, MainActivity.kt) does it: a browser tab inside the app (Custom Tab, the |  |
 | `dokunma.ts` | 186 | The tactile layer: ONE mechanism for every tappable thing (design 22/10), installed once with `dokunmaBaslat()`. |  |
 | `gecis.ts` | 128 | Screen transition for the room (and Ben sub-pages): the whole page slides in from the right edge, going back is the reverse (the page |  |
 | `geriKaydir.ts` | 136 | Swipe right anywhere to go back: the page follows the finger 1:1, the page under it (`altta`) comes along from -25%, and on release it |  |
 | `gruplama.ts` | 17 | One grouping rule for every message list (room timeline, palette preview), so the same conversation never looks different |  |
 | `hareket.ts` | 25 | Motion tokens read from JS. The CSS minifier of the release build rewrites `280ms` as `.28s`, so a bare parseFloat() gave 0.28 ms and |  |
 | `kaydirYanit.ts` | 87 | Swipe-left-to-reply (right is "go back", see geriKaydir): a Svelte action for a message row. A leftward drag of 48px (mostly horizontal) fires `ac`; t |  |
+| `kisiRenk.ts` | 12 | Deterministic 1–6 gem colour index for a room or user id (djb2 hash), so the same person or room keeps one stable avatar and sender colour across scre |  |
 | `klavye.ts` | 111 | Keeps the app exactly as tall as the visible area, so the composer stays above the on-screen keyboard. |  |
-| `klavyeKisayol.svelte.ts` | 1391 | Desktop Vim + modeless Ctrl keyboard shortcuts: one command table drives dispatch, hint strip, help sheet and settings. |  |
+| `klavyeKisayol.svelte.ts` | 1489 | Desktop Vim + modeless Ctrl keyboard shortcuts: one command table drives dispatch, hint strip, help sheet and settings. |  |
+| `matrisBaglanti.ts` | 160 | Single parser for Matrix links: https://matrix.to/#/... and MSC2312 matrix: URIs. |  |
 | `medya.ts` | 27 | Builds URLs for the Rust `medya` URI scheme (Matrix avatar thumbnails). |  |
 | `pano.ts` | 20 | The clipboard. Desktop Linux goes through GTK (masaustu_linux.rs), the rest through the webview. |  |
 | `paylas.ts` | 39 | Structural sharing for lists the backend re-sends whole (room list, timeline). Every update arrives as fresh objects, so Svelte would |  |

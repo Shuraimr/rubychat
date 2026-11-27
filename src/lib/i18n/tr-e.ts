@@ -143,6 +143,8 @@ export const trE = {
   "kesfet.bos": "Bu sunucu herkese açık oda listelemiyor.",
   "kesfet.dahaFazla": "Daha fazla göster",
   "dock.kesfet": "Odaları keşfet",
+  "ray.kesfet": "Keşfet",
+  "ray.gorunum": "Görünüm", // short rail label · kısa ray etiketi
   "yeniSohbet.araYer": "Ad, kullanıcı adı ya da @kimlik:sunucu",
   "yeniSohbet.dogrudan": "Bu kişiyle sohbet başlat",
   "yeniSohbet.yok": "Kimse bulunamadı. Tam kimliği yazmayı dene.",

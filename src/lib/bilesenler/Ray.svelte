@@ -2,11 +2,11 @@
   Side rail: the same destinations as the phone bottom menu.
    - tablet: 72px wide, labelled
    - landscape phone (`kompakt`): 64px, icons only; its left padding grows by env(safe-area-inset-left) so the notch/camera never covers it
-  Plus a quick "Görünüm" shortcut and the Ben destination at the bottom (account avatar).
+  Plus a "Keşfet" room directory trigger under the tabs, a quick "Görünüm" shortcut and the Ben destination at the bottom (account avatar).
   Yan ray: telefon alt menüsüyle aynı hedefler.
    - tablet: 72px genişlik, etiketli
    - yatay telefon (`kompakt`): 64px, yalnızca simge; çentik/kamera örtmesin diye sol dolgusu env(safe-area-inset-left) kadar büyür
-  Ek olarak hızlı "Görünüm" kısayolu ve altta Ben hedefi (hesap avatarı).
+  Ek olarak sekmelerin altında "Keşfet" oda dizini tetikleyicisi, hızlı "Görünüm" kısayolu ve altta Ben hedefi (hesap avatarı).
 -->
 <script lang="ts">
   import { gezinme, type Sekme } from "../durum/gezinme.svelte";
@@ -16,6 +16,7 @@
   import { t } from "../i18n";
   import Avatar from "./Avatar.svelte";
   import Ikon, { type IkonAdi } from "./Ikon.svelte";
+  import OdaKesfet from "./OdaKesfet.svelte";
 
   let { kompakt = false }: { kompakt?: boolean } = $props();
 
@@ -23,6 +24,7 @@
     { sekme: "sohbetler", ikon: "sohbet", etiket: "gezinme.sohbetler" },
     { sekme: "alanlar", ikon: "izgara", etiket: "gezinme.alanlar" },
   ];
+  let kesfetAcik = $state(false);
   const harf = $derived((oturum.ben?.kullaniciId ?? "#").replace(/^@/, "").charAt(0).toUpperCase() || "#");
 </script>
 
@@ -38,11 +40,19 @@
         {#if !kompakt}<span class="etiket">{t(o.etiket)}</span>{/if}
       </button>
     {/each}
+    <!-- Opens the public room directory modal instead of switching tabs · Sekme değiştirmek yerine herkese açık oda dizini penceresini açar -->
+    <button class="oge" class:aktif={kesfetAcik} aria-expanded={kesfetAcik} aria-label={t("dock.kesfet")} onclick={() => (kesfetAcik = true)}>
+      <span class="hap">
+        <span class="zemin-hap"></span>
+        <span class="simge"><Ikon ad="pusula" boyut={22} /></span>
+      </span>
+      {#if !kompakt}<span class="etiket">{t("ray.kesfet")}</span>{/if}
+    </button>
   </div>
   <div class="alt">
     <button class="oge" aria-label={t("gorunum.baslik")} class:aktif={gezinme.benAlt === "gorunum"} onclick={() => gezinme.benAltAc("gorunum")}>
       <span class="hap"><span class="zemin-hap"></span><span class="simge"><Ikon ad="palet" boyut={22} /></span></span>
-      {#if !kompakt}<span class="etiket">{t("gorunum.baslik")}</span>{/if}
+      {#if !kompakt}<span class="etiket">{t("ray.gorunum")}</span>{/if}
     </button>
     <button class="oge" class:aktif={gezinme.sekme === "ben" && gezinme.benAlt !== "gorunum"} aria-current={gezinme.sekme === "ben" ? "page" : undefined} aria-label={t("gezinme.ben")} onclick={() => gezinme.sekmeSec("ben")}>
       <span class="hap avatar-hap">
@@ -53,6 +63,10 @@
     </button>
   </div>
 </nav>
+
+{#if kesfetAcik}
+  <OdaKesfet onkapat={() => (kesfetAcik = false)} />
+{/if}
 
 <style>
   .ray {

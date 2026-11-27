@@ -4,11 +4,20 @@
   Yuvarlatılmış kare avatar: Matrix resmi (Rust `medya` şemasından gelir); yüklenirken ya da hatada baş harf yedeği.
 -->
 <script lang="ts">
+  import { kisiRenk } from "../kisiRenk";
   import { avatarUrl } from "../medya";
 
-  let { harf, boyut = 48, mxc = null, yaricap: ozelYaricap }: { harf: string; boyut?: number; mxc?: string | null; yaricap?: number } = $props();
+  let {
+    harf,
+    boyut = 48,
+    mxc = null,
+    yaricap: ozelYaricap,
+    anahtar = null,
+  }: { harf: string; boyut?: number; mxc?: string | null; yaricap?: number; anahtar?: string | null } = $props();
   // Radius 12 at 48px, scaled for smaller sizes · 48px'te 12 yarıçap, küçüklerde orantılı
   const yaricap = $derived(ozelYaricap ?? Math.round(boyut / 4));
+  // Stable gem colour when an id is given; omit for my own avatar so it stays on --ton/--ton-ustu · Kimlik verilince kararlı taş rengi; kendi avatarımda boş bırakılır, --ton/--ton-ustu kalır
+  const renk = $derived(anahtar ? kisiRenk(anahtar) : null);
   const url = $derived(avatarUrl(mxc, boyut));
   let hatali = $state(false);
   // A new image gets a fresh chance. · Yeni resim yeni bir şans alır.
@@ -24,6 +33,8 @@
   style:height="{boyut / 16}rem"
   style:border-radius="{yaricap / 16}rem"
   style:font-size="{(boyut * 0.42) / 16}rem"
+  style:background={renk ? `var(--kisi-${renk}-zemin)` : undefined}
+  style:color={renk ? `var(--kisi-${renk}-yazi)` : undefined}
   aria-hidden="true"
 >
   {harf}

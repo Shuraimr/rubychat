@@ -22,11 +22,11 @@
 </script>
 
 <button class="satir" data-dalga class:secili class:okunmamis={okunmamisMi} onclick={sec} use:uzunBasma={{ ac: (x, y) => uzun?.(x, y), sure: 400 }}>
-  <Avatar harf={oda.avatarHarf} mxc={oda.avatarMxc} boyut={52} />
+  <Avatar harf={oda.avatarHarf} mxc={oda.avatarMxc} boyut={52} anahtar={oda.id} />
   <span class="orta">
     <span class="ust">
       <span class="ad">{oda.ad}</span>
-      {#if oda.sifreli}<span class="kilit" title={t("sohbetler.sifreli")}><Ikon ad="kilit" boyut={14} /></span>{/if}
+      {#if oda.sifreli}<span class="kilit sifreli" title={t("sohbetler.sifreli")}><Ikon ad="kilit" boyut={14} /></span>{/if}
       {#if oda.sabit}<span class="kilit" title={t("sohbetler.sabitli")}><Ikon ad="sabitle" boyut={14} /></span>{/if}
       <span class="zaman">{goreliZaman(oda.sonZaman)}</span>
     </span>
@@ -67,6 +67,7 @@
   .ust, .alt { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .ad { font-weight: 600; font-size: 1rem; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .kilit { color: var(--yazi-2); display: inline-flex; flex: none; }
+  .kilit.sifreli { color: var(--cozum); }
   .okunmamis .ad, .okunmamis .onizleme { font-weight: 700; color: var(--yazi); }
   .okunmamis .zaman { color: var(--vurgu); font-weight: 600; }
   .zaman { margin-left: auto; flex: none; font-size: .8125rem; color: var(--yazi-2); }

@@ -73,6 +73,14 @@
   /* Accent swatch colours for Görünüm (the gems' own colours, dark values; light values below) */
   /* Görünüm'deki vurgu örnek renkleri (taşların kendi renkleri, koyu değerler; açık değerler aşağıda) */
   --tas-safir: #9DB4FF; --tas-zumrut: #5FE0A8; --tas-kehribar: #FFC94D; --tas-ametist: #C2A3FF; --tas-yakut: #FF8FA3;
+  /* Per-person / per-room avatar gem palette and matching sender-name ink (dark values; light values below) */
+  /* Kişi / oda başına avatar taş renkleri ve eşleşen gönderen adı rengi (koyu değerler; açık değerler aşağıda) */
+  --kisi-1-zemin: #1F2A4D; --kisi-1-yazi: #C9D5FF; --kisi-1-isim: #9DB4FF;
+  --kisi-2-zemin: #123A2C; --kisi-2-yazi: #8FE8BF; --kisi-2-isim: #5FE0A8;
+  --kisi-3-zemin: #3B2D0A; --kisi-3-yazi: #FFD77A; --kisi-3-isim: #FFC94D;
+  --kisi-4-zemin: #2C2150; --kisi-4-yazi: #D2BEFF; --kisi-4-isim: #C2A3FF;
+  --kisi-5-zemin: #44172A; --kisi-5-yazi: #FFB3C1; --kisi-5-isim: #FF8FA3;
+  --kisi-6-zemin: #2A2A2F; --kisi-6-yazi: #C4C4CA; --kisi-6-isim: #B8B8BF;
   color-scheme: dark;
 }
 
@@ -87,6 +95,12 @@
     --kat-1: 0 1px 2px rgb(0 0 0 / .08);
     --kat-2: 0 1px 2px rgb(0 0 0 / .1), 0 10px 28px -8px rgb(0 0 0 / .14);
     --tas-safir: #2E4BB8; --tas-zumrut: #0F7A4F; --tas-kehribar: #8A5A00; --tas-ametist: #6B3FD6; --tas-yakut: #C2183E;
+    --kisi-1-zemin: #E0E6FF; --kisi-1-yazi: #13235E; --kisi-1-isim: #2E4BB8;
+    --kisi-2-zemin: #D5F3E4; --kisi-2-yazi: #0A3B27; --kisi-2-isim: #0F7A4F;
+    --kisi-3-zemin: #FCEBC4; --kisi-3-yazi: #5A3B00; --kisi-3-isim: #8A5A00;
+    --kisi-4-zemin: #EAE1FF; --kisi-4-yazi: #3A1F86; --kisi-4-isim: #6B3FD6;
+    --kisi-5-zemin: #FFE0E6; --kisi-5-yazi: #7A0F28; --kisi-5-isim: #C2183E;
+    --kisi-6-zemin: #E6E9EE; --kisi-6-yazi: #2D3748; --kisi-6-isim: #4A5568;
     color-scheme: light;
   }
 }
@@ -98,6 +112,12 @@
   --kat-1: 0 1px 2px rgb(0 0 0 / .08);
   --kat-2: 0 1px 2px rgb(0 0 0 / .1), 0 10px 28px -8px rgb(0 0 0 / .14);
   --tas-safir: #2E4BB8; --tas-zumrut: #0F7A4F; --tas-kehribar: #8A5A00; --tas-ametist: #6B3FD6; --tas-yakut: #C2183E;
+  --kisi-1-zemin: #E0E6FF; --kisi-1-yazi: #13235E; --kisi-1-isim: #2E4BB8;
+  --kisi-2-zemin: #D5F3E4; --kisi-2-yazi: #0A3B27; --kisi-2-isim: #0F7A4F;
+  --kisi-3-zemin: #FCEBC4; --kisi-3-yazi: #5A3B00; --kisi-3-isim: #8A5A00;
+  --kisi-4-zemin: #EAE1FF; --kisi-4-yazi: #3A1F86; --kisi-4-isim: #6B3FD6;
+  --kisi-5-zemin: #FFE0E6; --kisi-5-yazi: #7A0F28; --kisi-5-isim: #C2183E;
+  --kisi-6-zemin: #E6E9EE; --kisi-6-yazi: #2D3748; --kisi-6-isim: #4A5568;
   color-scheme: light;
 }
 

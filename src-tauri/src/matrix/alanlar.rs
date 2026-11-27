@@ -8,7 +8,10 @@
 use std::sync::Arc;
 
 use matrix_sdk::{
-    ruma::{room::RoomType, OwnedServerName, RoomId, RoomOrAliasId, ServerName},
+    ruma::{
+        room::{JoinRuleSummary, RoomType},
+        OwnedServerName, RoomId, RoomOrAliasId, ServerName,
+    },
     Client, RoomState,
 };
 use matrix_sdk_ui::spaces::{room_list::SpaceRoomListPaginationState, SpaceRoom, SpaceService};
@@ -17,7 +20,7 @@ use tauri::State;
 use crate::{
     durum::AppState,
     hata::{Hata, Sonuc},
-    matrix::odalar::bas_harf,
+    matrix::{kesif::BulunanOda, odalar::bas_harf},
     tipler::{AlanIcerigi, AlanOgesi},
 };
 
@@ -88,4 +91,31 @@ pub async fn alana_katil(durum: State<'_, AppState>, kimlik: String, via: Vec<St
     let sunucular: Vec<OwnedServerName> = via.iter().filter_map(|v| ServerName::parse(v).ok()).collect();
     let oda = client.join_room_by_id_or_alias(&hedef, &sunucular).await?;
     Ok(oda.room_id().to_string())
+}
+
+/// Previews a room or space before joining (from a matrix.to / matrix: link).
+/// Katılmadan önce bir odayı ya da alanı önizler (matrix.to / matrix: bağlantısından).
+#[tauri::command]
+pub async fn baglanti_onizle(durum: State<'_, AppState>, kimlik: String, via: Vec<String>) -> Sonuc<BulunanOda> {
+    let client = durum.client().await?;
+    let hedef = RoomOrAliasId::parse(&kimlik).map_err(|e| Hata::Diger(e.to_string()))?;
+    let sunucular: Vec<OwnedServerName> = via.iter().filter_map(|v| ServerName::parse(v).ok()).collect();
+    let oniz = client.get_room_preview(&hedef, sunucular).await.map_err(|e| Hata::Matrix(e.to_string()))?;
+    let uye = oniz.state == Some(RoomState::Joined)
+        || client.get_room(&oniz.room_id).is_some_and(|r| r.state() == RoomState::Joined);
+    let katilim = match oniz.join_rule {
+        Some(JoinRuleSummary::Knock | JoinRuleSummary::KnockRestricted(..)) => "kapi",
+        _ => "acik",
+    };
+    Ok(BulunanOda {
+        oda_id: oniz.room_id.to_string(),
+        adres: oniz.canonical_alias.map(|a| a.to_string()),
+        ad: oniz.name.filter(|a| !a.trim().is_empty()),
+        konu: oniz.topic.filter(|k| !k.trim().is_empty()),
+        avatar_mxc: oniz.avatar_url.map(|u| u.to_string()),
+        uye_sayisi: oniz.num_joined_members,
+        katilim,
+        alan: matches!(oniz.room_type, Some(RoomType::Space)),
+        uye,
+    })
 }

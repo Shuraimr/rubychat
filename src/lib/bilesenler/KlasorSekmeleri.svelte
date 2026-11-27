@@ -21,7 +21,8 @@
   let { sekmeler, secili, ilerleme, sec }: { sekmeler: Sekme[]; secili: string; /** fractional index, follows the finger · kesirli sıra, parmağı izler */ ilerleme: number; sec: (id: string) => void } = $props();
 
   let serit: HTMLDivElement | undefined = $state();
-  const dugmeler: Record<string, HTMLButtonElement> = {};
+  // Reactive map so `bind:this={dugmeler[s.id]}` never emits Svelte 5's binding_property_non_reactive warning · Svelte 5'in binding_property_non_reactive uyarısı vermemesi için tepkisel harita
+  let dugmeler = $state<Record<string, HTMLButtonElement>>({});
   let olculer = $state<{ x: number; w: number }[]>([]);
   // The pill is interpolated between the two tabs the finger is between. · Hap, parmağın arasında olduğu iki sekme arasında oranlanır.
   const gosterge = $derived.by(() => {
@@ -55,7 +56,7 @@
     // Font size / window size changes move the tabs: measure again. · Yazı boyutu / pencere değişimi sekmeleri kaydırır: yeniden ölç.
     const g = new ResizeObserver(() => olc());
     if (serit) g.observe(serit);
-    for (const d of Object.values(dugmeler)) g.observe(d);
+    for (const d of Object.values(dugmeler)) if (d) g.observe(d);
     window.addEventListener("resize", olc);
     return () => {
       g.disconnect();

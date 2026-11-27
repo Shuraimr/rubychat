@@ -26,6 +26,8 @@ export type GizliDepoAdi = "anahtarlik" | "android_kasa" | "dosya";
 
 export interface OdaOzeti {
   id: string;
+  /** Canonical alias (`#room:server`) if the room has one · Odanın varsa kanonik takma adı (`#oda:sunucu`) */
+  takmaAd?: string | null;
   ad: string;
   avatarHarf: string;
   /** mxc:// of the room (or DM partner) avatar · oda (ya da DM'deki kişi) avatarının mxc:// adresi */

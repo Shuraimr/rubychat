@@ -2,6 +2,10 @@
 // then global styles, then mount the root Svelte component. No inline script: CSP blocks it, so this module does the job.
 // Uygulama girişi: ÖNCE kayıtlı görünümü uygula (<html> öznitelikleri; ilk çizim baştan doğru olsun), sonra genel stiller,
 // sonra kök Svelte bileşeni. Satır içi betik yok: CSP engeller, işi bu modül yapar.
+if (import.meta.env.DEV && new URLSearchParams(location.search).has("vitrin")) {
+  await import("./vitrin/kur");
+}
+
 import { ayarlar } from "./lib/durum/ayarlar.svelte";
 ayarlar.uygula();
 

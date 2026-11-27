@@ -11,8 +11,21 @@ interface Kopru {
   ac(url: string, yol: string, renk: string): boolean;
   uygulamalar(url: string): string;
   paylas(url: string): void;
+  bekleyenBaglanti?(): string;
+  matrisLinkDestegi?(): boolean;
+  matrisLinkAcik?(): boolean;
+  matrisLinkAyariAc?(): void;
 }
 const kopru = () => (window as unknown as { RubyBaglanti?: Kopru }).RubyBaglanti;
+
+/** Android cold-start Matrix link (also marks the web UI ready for onNewIntent events). · Android soğuk açılış Matrix bağlantısı (arayüzü onNewIntent olaylarına hazır işaretler). */
+export const bekleyenAndroidBaglanti = (): string | null => kopru()?.bekleyenBaglanti?.() || null;
+/** Android 12+ (API 31+): whether the "Open matrix.to links in rubychat" settings row applies. · Android 12+: "matrix.to bağlantılarını rubychat'te aç" satırı gösterilsin mi? */
+export const matrisLinkAyariVar = (): boolean => !!kopru()?.matrisLinkDestegi?.();
+/** Android 12+: whether matrix.to is enabled for rubychat in system settings. · Android 12+: sistem ayarlarında matrix.to rubychat için açık mı? */
+export const matrisLinkAcikMi = (): boolean => !!kopru()?.matrisLinkAcik?.();
+/** Android 12+: opens the system "Open by default" settings page for rubychat. · Android 12+: rubychat için sistem "Varsayılan olarak aç" sayfasını açar. */
+export const matrisLinkAyariAc = (): void => kopru()?.matrisLinkAyariAc?.();
 
 export interface AcanUygulama {
   paket: string;

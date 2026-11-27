@@ -7,6 +7,8 @@
 // ağacı normal Svelte işaretlemesiyle çizer (BicimDugum.svelte): alınan metin asla innerHTML / {@html}'e verilmez, düşmanca bir mesaj
 // hiçbir şey enjekte edemez. Arka uç (ruma'nın temizleyicisi) gövdeyi zaten temizler; bu ikinci, bağımsız katmandır.
 
+import { matrisBaglantiCoz } from "../matrisBaglanti";
+
 export type EtiketAdi =
   | "strong" | "em" | "u" | "del" | "code" | "pre" | "blockquote" | "ul" | "ol" | "li" | "br" | "p"
   | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "spoiler" | "a" | "emoji" | "span";
@@ -34,19 +36,11 @@ const SINIR_DERINLIK = 24;
 const SINIR_DUGUM = 3000;
 const SINIR_METIN = 20_000;
 
-/** matrix.to permalinks: users and rooms become pills · matrix.to bağlantıları: kullanıcılar ve odalar hap (pill) olur */
+/** Matrix permalinks (matrix.to / matrix:): users and rooms become pills · Matrix bağlantıları (matrix.to / matrix:): kullanıcılar ve odalar hap (pill) olur */
 function pillBul(href: string): Pill | undefined {
-  const m = href.match(/^https:\/\/matrix\.to\/#\/([^/?#]+)/i);
-  if (!m) return undefined;
-  let kimlik: string;
-  try {
-    kimlik = decodeURIComponent(m[1]);
-  } catch {
-    return undefined;
-  }
-  if (kimlik.startsWith("@")) return { tur: "kullanici", kimlik };
-  if (kimlik.startsWith("!") || kimlik.startsWith("#")) return { tur: "oda", kimlik };
-  return undefined;
+  const b = matrisBaglantiCoz(href);
+  if (!b) return undefined;
+  return { tur: b.tur, kimlik: b.kimlik };
 }
 
 const GUVENLI_HREF = /^(https?:\/\/|mailto:|matrix:)/i;

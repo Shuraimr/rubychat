@@ -30,7 +30,7 @@
   <div class="odalar">
     {#each satirlar as o (o.id)}
       <button class="oda" class:secili={gezinme.acikOdaId === o.id} title={o.ad} aria-label={o.okunmamis > 0 ? `${o.ad}, ${t("sohbetler.okunmamisSayi", { n: o.okunmamis })}` : o.ad} aria-current={gezinme.acikOdaId === o.id ? "page" : undefined} onclick={() => gezinme.odaAc(o.id, true)}>
-        <Avatar harf={o.avatarHarf} mxc={o.avatarMxc} boyut={44} />
+        <Avatar harf={o.avatarHarf} mxc={o.avatarMxc} boyut={44} anahtar={o.id} />
         {#if o.bahsedilme > 0}<span class="rozet">@</span>{:else if o.okunmamis > 0}<span class="rozet">{o.okunmamis > 99 ? "99+" : o.okunmamis}</span>{/if}
       </button>
     {/each}

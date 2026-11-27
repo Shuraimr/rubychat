@@ -143,6 +143,8 @@ export const enE = {
   "kesfet.bos": "This server lists no public rooms.",
   "kesfet.dahaFazla": "Show more",
   "dock.kesfet": "Explore rooms",
+  "ray.kesfet": "Explore",
+  "ray.gorunum": "Theme", // short rail label · kısa ray etiketi
   "yeniSohbet.araYer": "Name, username or @id:server",
   "yeniSohbet.dogrudan": "Start a chat with this person",
   "yeniSohbet.yok": "Nobody found. Try typing the full id.",

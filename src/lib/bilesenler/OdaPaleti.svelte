@@ -70,11 +70,13 @@
   import { duzen } from "../durum/duzen.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { istekler } from "../durum/istekler.svelte";
+  import { baglantiAc as matrisBaglantiAc } from "../durum/matrisBaglanti.svelte";
   import { odalar } from "../durum/odalar.svelte";
   import { oturum } from "../durum/oturum.svelte";
   import { menuGir, perdeGir } from "../gecis";
   import { t, type Anahtar } from "../i18n";
   import { klavye } from "../klavyeKisayol.svelte";
+  import { matrisBaglantiCoz } from "../matrisBaglanti";
   import { goreliZaman, gunEtiketi, saatYaz } from "../zaman-bicim";
   import Avatar from "./Avatar.svelte";
   import Ikon, { type IkonAdi } from "./Ikon.svelte";
@@ -387,6 +389,8 @@
   });
 
   const mesajGecerli = $derived([...sorgu.trim()].length >= EN_AZ_KARAKTER);
+  const yapistirilanBaglanti = $derived(matrisBaglantiCoz(sorgu.trim()));
+  const kayma = $derived(yapistirilanBaglanti ? 1 : 0);
 
   // Poll search index status only while in the Messages mode. · Dizin durumunu yalnızca Mesajlar kipindeyken izle.
   $effect(() => {
@@ -401,13 +405,14 @@
   });
 
   const sonucSayisi = $derived(
-    sohbetKipi
-      ? odaSonuc.length
-      : kip === "alanlar"
-        ? alanSonuc.length
-        : kip === "mesajlar"
-          ? mesajArama.sonuclar.length
-          : komutSonuc.length,
+    kayma +
+      (sohbetKipi
+        ? odaSonuc.length
+        : kip === "alanlar"
+          ? alanSonuc.length
+          : kip === "mesajlar"
+            ? mesajArama.sonuclar.length
+            : komutSonuc.length),
   );
 
   $effect(() => {
@@ -425,17 +430,20 @@
 
   // Selected room for the side preview (in chat modes, or the room of the selected search hit in Messages mode).
   // Yan önizleme için seçili oda (sohbet kiplerinde seçili oda, Mesajlar kipinde seçili sonucun odası).
+  const seciliBaglanti = $derived(yapistirilanBaglanti && sira === 0 ? yapistirilanBaglanti : null);
   const seciliOda = $derived.by<OdaOzeti | null>(() => {
-    if (sohbetKipi) return odaSonuc[sira] ?? null;
+    if (seciliBaglanti) return null;
+    const idx = sira - kayma;
+    if (sohbetKipi) return odaSonuc[idx] ?? null;
     if (kip === "mesajlar") {
-      const m = mesajArama.sonuclar[sira];
+      const m = mesajArama.sonuclar[idx];
       return m ? odaBul(m.odaId) : null;
     }
     return null;
   });
-  const seciliMesajId = $derived(kip === "mesajlar" ? (mesajArama.sonuclar[sira]?.olayId ?? null) : null);
-  const seciliAlan = $derived(kip === "alanlar" ? (alanSonuc[sira] ?? null) : null);
-  const seciliKomut = $derived(kip === "komutlar" ? (komutSonuc[sira] ?? null) : null);
+  const seciliMesajId = $derived(!seciliBaglanti && kip === "mesajlar" ? (mesajArama.sonuclar[sira - kayma]?.olayId ?? null) : null);
+  const seciliAlan = $derived(!seciliBaglanti && kip === "alanlar" ? (alanSonuc[sira - kayma] ?? null) : null);
+  const seciliKomut = $derived(!seciliBaglanti && kip === "komutlar" ? (komutSonuc[sira - kayma] ?? null) : null);
 
   // Debounced (120 ms) room preview fetch with request-id race guard and small memory cache.
   // 120 ms bekletmeli oda önizleme yüklemesi: istek kimliğiyle yarış koruması ve küçük bellek önbelleği.
@@ -536,15 +544,26 @@
     k.calistir();
   }
 
+  function baglantiyiAc() {
+    const url = sorgu.trim();
+    gezinme.katmanKapat(katman);
+    void matrisBaglantiAc(url);
+  }
+
   function seciliyiAc() {
+    if (seciliBaglanti) {
+      baglantiyiAc();
+      return;
+    }
+    const idx = sira - kayma;
     if (sohbetKipi) {
-      if (odaSonuc[sira]) void git(odaSonuc[sira].id);
+      if (odaSonuc[idx]) void git(odaSonuc[idx].id);
     } else if (kip === "alanlar") {
-      if (alanSonuc[sira]) alanAc(alanSonuc[sira]);
+      if (alanSonuc[idx]) alanAc(alanSonuc[idx]);
     } else if (kip === "mesajlar") {
-      if (mesajArama.sonuclar[sira]) mesajaGit(mesajArama.sonuclar[sira]);
+      if (mesajArama.sonuclar[idx]) mesajaGit(mesajArama.sonuclar[idx]);
     } else if (kip === "komutlar") {
-      if (komutSonuc[sira]) komutCalistir(komutSonuc[sira]);
+      if (komutSonuc[idx]) komutCalistir(komutSonuc[idx]);
     }
   }
 
@@ -668,17 +687,37 @@
 
   <div class="govde">
     <div class="liste" id="palet-liste" role="listbox" bind:this={liste}>
+      {#if yapistirilanBaglanti}
+        <button
+          type="button"
+          class="satir"
+          class:secili={sira === 0}
+          id="palet-0"
+          role="option"
+          aria-selected={sira === 0}
+          tabindex="-1"
+          onpointermove={() => (sira = 0)}
+          onclick={baglantiyiAc}
+        >
+          <span class="komut-ikon"><Ikon ad="baglanti" boyut={18} /></span>
+          <span class="iki-satir">
+            <span class="ad">{t("matrisBaglanti.paletAc")}</span>
+            <span class="alt">{yapistirilanBaglanti.kimlik}</span>
+          </span>
+        </button>
+      {/if}
       {#if sohbetKipi}
         {#each odaSonuc as o, i (o.id)}
+          {@const idx = i + kayma}
           <button
             type="button"
             class="satir"
-            class:secili={i === sira}
-            id="palet-{i}"
+            class:secili={idx === sira}
+            id="palet-{idx}"
             role="option"
-            aria-selected={i === sira}
+            aria-selected={idx === sira}
             tabindex="-1"
-            onpointermove={() => (sira = i)}
+            onpointermove={() => (sira = idx)}
             onclick={() => void git(o.id)}
           >
             <Avatar harf={o.avatarHarf} mxc={o.avatarMxc} boyut={36} />
@@ -687,19 +726,20 @@
             <span class="zaman">{goreliZaman(o.sonZaman)}</span>
           </button>
         {:else}
-          <p class="bos">{t(bosMetin)}</p>
+          {#if !yapistirilanBaglanti}<p class="bos">{t(bosMetin)}</p>{/if}
         {/each}
       {:else if kip === "alanlar"}
         {#each alanSonuc as a, i (a.id)}
+          {@const idx = i + kayma}
           <button
             type="button"
             class="satir"
-            class:secili={i === sira}
-            id="palet-{i}"
+            class:secili={idx === sira}
+            id="palet-{idx}"
             role="option"
-            aria-selected={i === sira}
+            aria-selected={idx === sira}
             tabindex="-1"
-            onpointermove={() => (sira = i)}
+            onpointermove={() => (sira = idx)}
             onclick={() => alanAc(a)}
           >
             <Avatar harf={a.avatarHarf} mxc={a.avatarMxc} boyut={36} />
@@ -707,14 +747,14 @@
             <span class="etiket"><Ikon ad="izgara" boyut={14} /></span>
           </button>
         {:else}
-          <p class="bos">{t(bosMetin)}</p>
+          {#if !yapistirilanBaglanti}<p class="bos">{t(bosMetin)}</p>{/if}
         {/each}
       {:else if kip === "mesajlar"}
         {#if mesajArama.dizin?.dolduruluyor}
           <p class="durum" role="status">{t("mesajAra.dizin", { n: mesajArama.dizin.belgeSayisi })}</p>
         {/if}
         {#if !mesajGecerli}
-          <p class="bos">{t("palet.mesajIpucu")}</p>
+          {#if !yapistirilanBaglanti}<p class="bos">{t("palet.mesajIpucu")}</p>{/if}
         {:else if mesajArama.hata}
           <p class="bos hata">{t("mesajAra.hata")}</p>
         {:else if mesajArama.yukleniyor && mesajArama.sonuclar.length === 0}
@@ -722,15 +762,16 @@
         {:else}
           {#each mesajArama.sonuclar as m, i (m.olayId)}
             {@const o = odaBul(m.odaId)}
+            {@const idx = i + kayma}
             <button
               type="button"
               class="satir mesaj-satir"
-              class:secili={i === sira}
-              id="palet-{i}"
+              class:secili={idx === sira}
+              id="palet-{idx}"
               role="option"
-              aria-selected={i === sira}
+              aria-selected={idx === sira}
               tabindex="-1"
-              onpointermove={() => (sira = i)}
+              onpointermove={() => (sira = idx)}
               onclick={() => mesajaGit(m)}
             >
               <Avatar harf={o?.avatarHarf ?? "#"} mxc={o?.avatarMxc ?? null} boyut={34} />
@@ -745,20 +786,21 @@
               </span>
             </button>
           {:else}
-            <p class="bos">{t("mesajAra.sonucYok", { ara: sorgu.trim() })}</p>
+            {#if !yapistirilanBaglanti}<p class="bos">{t("mesajAra.sonucYok", { ara: sorgu.trim() })}</p>{/if}
           {/each}
         {/if}
       {:else}
         {#each komutSonuc as k, i (k.id)}
+          {@const idx = i + kayma}
           <button
             type="button"
             class="satir"
-            class:secili={i === sira}
-            id="palet-{i}"
+            class:secili={idx === sira}
+            id="palet-{idx}"
             role="option"
-            aria-selected={i === sira}
+            aria-selected={idx === sira}
             tabindex="-1"
-            onpointermove={() => (sira = i)}
+            onpointermove={() => (sira = idx)}
             onclick={() => komutCalistir(k)}
           >
             <span class="komut-ikon"><Ikon ad={k.ikon} boyut={18} /></span>
@@ -769,14 +811,20 @@
             {#if k.kisayol}<kbd>{k.kisayol}</kbd>{/if}
           </button>
         {:else}
-          <p class="bos">{t(bosMetin)}</p>
+          {#if !yapistirilanBaglanti}<p class="bos">{t(bosMetin)}</p>{/if}
         {/each}
       {/if}
     </div>
 
     {#if onizlemeAktif}
       <aside class="onizleme" aria-label={t("palet.onizlemeBaslik")}>
-        {#if seciliOda}
+        {#if seciliBaglanti}
+          <div class="oniz-ozet">
+            <span class="komut-ikon buyuk"><Ikon ad="baglanti" boyut={22} /></span>
+            <strong>{t("matrisBaglanti.paletAc")}</strong>
+            <p class="bos">{seciliBaglanti.kimlik}</p>
+          </div>
+        {:else if seciliOda}
           <div class="oniz-ust">
             <Avatar harf={seciliOda.avatarHarf} mxc={seciliOda.avatarMxc} boyut={28} />
             <div class="oniz-baslik">

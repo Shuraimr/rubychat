@@ -16,7 +16,7 @@ export interface Baglanti {
   alt?: { tur: "issues" | "pull"; no: string };
 }
 
-const URL_RE = /https?:\/\/[^\s<>"']+/gi;
+const URL_RE = /(?:https?:\/\/|matrix:(?:roomid|r|u)\/)[^\s<>"']+/gi;
 
 /** Split text into plain / link segments (trailing punctuation stays outside the link) · Metni düz / bağlantı parçalarına böl (sondaki noktalama bağlantının dışında kalır) */
 export function parcala(metin: string): { m: string; url: boolean }[] {
