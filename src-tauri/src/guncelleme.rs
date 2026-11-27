@@ -24,7 +24,7 @@ use crate::hata::{Hata, Sonuc};
 /// Bump this constant whenever cutting a new release.
 /// Uygulamanın gerçek sürümü (Cargo.toml / tauri.conf.json "0.1.0" olarak kalır; ön sürüm etiketleri burada taşınır).
 /// Yeni sürüm çıkarırken bu sabiti güncelle.
-pub const SURUM: &str = "0.1.0-beta.9";
+pub const SURUM: &str = "0.1.0-beta.10";
 
 const SURUMLER_URL: &str = "https://api.github.com/repos/Shuraimr/rubychat/releases?per_page=15";
 const INDIRME_ONEKI: &str = "https://github.com/Shuraimr/rubychat/releases/download/";
