@@ -50,7 +50,7 @@
     odaId: string;
     kaynak: "galeri" | "kamera" | "dosya";
     /** Pasted / dropped files: nothing is picked · Yapıştırılan / bırakılan dosyalar: seçim yapılmaz */
-    dosyalar?: File[];
+    dosyalar?: File[] | Promise<File[]>;
     onkapat: () => void;
   } = $props();
 
@@ -109,7 +109,14 @@
     document.body.appendChild(kok);
     // The attach sheet's tap is still a fresh user gesture, so the picker may open right away.
     // Ek sayfasındaki dokunma hâlâ taze bir kullanıcı hareketi; seçici hemen açılabilir.
-    if (dosyalar) void al(dosyalar);
+    // A promise (clipboard image still arriving) opens the sheet at once in its "reading" state, so a paste answers instantly.
+    // Söz (pano resmi hâlâ geliyor) sayfayı hemen "okunuyor" hâlinde açar; yapıştırma anında karşılık verir.
+    if (dosyalar) {
+      okunuyor = true;
+      void Promise.resolve(dosyalar)
+        .then((d) => al(d))
+        .catch(() => al([]));
+    }
     else girdi.click();
     // Some Android WebViews never fire `cancel` when the picker is dismissed: when the page regains focus with nothing chosen, leave.
     // Bazı Android WebView'leri seçici kapatılınca `cancel` yollamaz: sayfa hiçbir şey seçilmeden odağı geri alınca akıştan çık.
@@ -149,7 +156,13 @@
   }
 
   async function al(gelen: File[]) {
-    if (!gelen.length) return;
+    if (!gelen.length) {
+      // Nothing arrived (e.g. the clipboard held no image): leave quietly if nothing was chosen before.
+      // Bir şey gelmedi (ör. panoda resim yoktu): önceden seçilen yoksa sessizce çık.
+      okunuyor = false;
+      if (!ogeler.length) kapat();
+      return;
+    }
     okunuyor = true;
     for (const d of gelen) {
       if (ogeler.length >= MAKS_OGE) break;

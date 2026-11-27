@@ -265,8 +265,22 @@ pub fn pano_yaz(app: &AppHandle, metin: String) -> bool {
 pub async fn pano_resim(app: &AppHandle) -> Option<Vec<u8>> {
     let (yolla, al) = tokio::sync::oneshot::channel();
     app.run_on_main_thread(move || {
-        pano().request_image(move |_, resim| {
-            let _ = yolla.send(resim.and_then(|r| r.save_to_bufferv("png", &[]).ok()));
+        // Screenshot tools put the PNG file itself on the clipboard: take those bytes as they are. Decoding to a pixbuf and
+        // encoding PNG again took ~2 s for a full-screen shot, on the UI thread, which froze the window.
+        // Ekran görüntüsü araçları panoya PNG dosyasının kendisini koyar: o baytları olduğu gibi al. Pixbuf'a çözüp yeniden PNG
+        // kodlamak tam ekran bir görüntüde ~2 sn sürüyordu ve arayüz iş parçacığında olduğu için pencereyi donduruyordu.
+        let p = pano();
+        p.request_contents(&gtk::gdk::Atom::intern("image/png"), move |pano, secim| {
+            let ham = secim.data();
+            if ham.len() > 8 && ham.starts_with(&[0x89, b'P', b'N', b'G']) {
+                let _ = yolla.send(Some(ham));
+                return;
+            }
+            // Fallback (an app offered only another image format): convert, with the fastest PNG compression.
+            // Yedek (uygulama yalnızca başka bir resim biçimi sundu): dönüştür, en hızlı PNG sıkıştırmasıyla.
+            pano.request_image(move |_, resim| {
+                let _ = yolla.send(resim.and_then(|r| r.save_to_bufferv("png", &[("compression", "1")]).ok()));
+            });
         });
     })
     .ok()?;

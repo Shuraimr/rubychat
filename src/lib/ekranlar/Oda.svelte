@@ -42,6 +42,7 @@
   import IletSayfasi from "../bilesenler/IletSayfasi.svelte";
   import OkuyanListesi from "../bilesenler/OkuyanListesi.svelte";
   import SabitCubugu from "../bilesenler/SabitCubugu.svelte";
+  import KisilerPaneli from "../bilesenler/KisilerPaneli.svelte";
   import GonderilemediSayfasi from "../bilesenler/GonderilemediSayfasi.svelte";
   import SilOnay from "../bilesenler/SilOnay.svelte";
   import TepkiCubugu from "../bilesenler/TepkiCubugu.svelte";
@@ -58,10 +59,13 @@
   import { klavye, type OdaKlavye } from "../klavyeKisayol.svelte";
   import { kullaniciKartiAc } from "../durum/kullaniciKarti.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
+  import { uyeler } from "../durum/uyeler.svelte";
+  import { varlik } from "../durum/varlik.svelte";
   import { zaman } from "../durum/zaman.svelte";
   import { t, type Anahtar } from "../i18n";
   import { gunEtiketi } from "../zaman-bicim";
   import SohbetZemini from "../bilesenler/SohbetZemini.svelte";
+  import { GRUP_ARALIGI } from "../gruplama";
 
   let { odaId }: { odaId: string } = $props();
 
@@ -629,7 +633,6 @@
   // ---- Day and sender grouping · Gün ve gönderen gruplama ----
   type Satir = { tur: "oge"; oge: ZamanOgesi; ilk: boolean; son: boolean; uzak: boolean } | { tur: "yeni" };
   interface Gun { id: string; zaman: number | null; satirlar: Satir[] }
-  const GRUP_ARALIGI = 5 * 60_000;
 
   // Row objects are reused while their message and grouping flags stay the same, so an unchanged bubble gets identical props.
   // Satır nesneleri mesajları ve gruplama bayrakları aynı kaldıkça yeniden kullanılır; değişmeyen balon aynı prop'ları alır.
@@ -700,6 +703,53 @@
   // Calls only in rooms with exactly two joined members. · Arama yalnızca tam iki üyeli odalarda.
   const aranabilir = $derived(!!bilgi && bilgi.uyeSayisi === 2 && !!bilgi.karsiKullanici);
 
+  // Face stack for the header People button: DM = other person; group = last 3 speakers (enriched/topped up from cached member list when loaded).
+  // Başlıktaki Kişiler düğmesi yüz yığını: DM = karşıdaki; grup = son 3 konuşan (üye listesi yüklüyse ondan zenginleştirilir / tamamlanır).
+  interface Yuz {
+    id: string;
+    harf: string;
+    mxc: string | null;
+  }
+  const katilmisUyeler = $derived(uyeler.al(buOda).liste.filter((u) => u.uyelik === "join"));
+  const yuzYigini = $derived.by((): Yuz[] => {
+    if (!bilgi) return [];
+    if (aranabilir && bilgi.karsiKullanici) {
+      return [{ id: bilgi.karsiKullanici, harf: bilgi.avatarHarf, mxc: bilgi.avatarMxc }];
+    }
+    const uyeHarita = new Map(katilmisUyeler.map((u) => [u.kullaniciId, u]));
+    const sonuc: Yuz[] = [];
+    const goruldu = new Set<string>();
+    for (let i = zaman.ogeler.length - 1; i >= 0 && sonuc.length < 3; i--) {
+      const o = zaman.ogeler[i];
+      if (!o.gonderen || goruldu.has(o.gonderen)) continue;
+      if (!gercekMi(o) && o.tur !== "arama") continue;
+      goruldu.add(o.gonderen);
+      const u = uyeHarita.get(o.gonderen);
+      const ad = u?.ad ?? o.gonderenAd;
+      sonuc.push({
+        id: o.gonderen,
+        harf: ad.charAt(0).toUpperCase() || "#",
+        mxc: u?.avatarMxc ?? o.gonderenAvatarMxc,
+      });
+    }
+    if (sonuc.length < 3 && katilmisUyeler.length > 0) {
+      for (const u of katilmisUyeler) {
+        if (sonuc.length >= 3) break;
+        if (goruldu.has(u.kullaniciId)) continue;
+        goruldu.add(u.kullaniciId);
+        sonuc.push({ id: u.kullaniciId, harf: u.ad.charAt(0).toUpperCase() || "#", mxc: u.avatarMxc });
+      }
+    }
+    return sonuc;
+  });
+
+  /** Known online member count for group rooms (0 when presence is off or not yet loaded). · Grup odalarında bilinen çevrimiçi üye sayısı (varlık kapalı ya da yüklenmediyse 0). */
+  const cevrimiciSayi = $derived.by(() => {
+    if (!bilgi || aranabilir) return 0;
+    const idler = katilmisUyeler.length > 0 ? katilmisUyeler.map((u) => u.kullaniciId) : yuzYigini.map((y) => y.id);
+    return varlik.cevrimiciSayisi(idler);
+  });
+
   /** Unread total across all other chats (excluding this open room), shown on the phone back button. · Açık oda dışındaki diğer sohbetlerdeki okunmamış toplamı (telefonda geri düğmesinde). */
   const digerOkunmamis = $derived(
     odalar.liste.reduce((n, o) => (o.id === buOda || o.davet || o.alan ? n : n + Math.max(o.okunmamis, o.bahsedilme)), 0),
@@ -737,64 +787,117 @@
 
 <div class="oda" class:itildi={bilgiAcik || uyelerAcik} style="{gorunumStili(gorunum)};--tepe-yer:{tepeYuk}px;--yazma-yer:{aramaAcik ? 0 : altYuk}px">
 <svelte:boundary onerror={(e) => console.error("oda çizimi başarısız", e)}>
-  <!-- Floating header card (the dock's counterpart): identity + actions; the pinned message and the sync strip are its lower storeys. -->
-  <!-- Yüzen başlık kartı (dock'un karşılığı): kimlik + eylemler; sabit mesaj ve eşitleme şeridi onun alt katlarıdır. -->
-  <div class="tepe" data-oda-tepe bind:clientHeight={tepeYuk}>
-  <div class="kart">
-  <header class="ust">
-    {#if !gezinme.genis}
-      <button
-        class="simge-dugme geri"
-        data-zil-hedef="geri"
-        use:zilNabiz
-        aria-label={digerOkunmamis > 0 ? t("oda.digerOkunmamis", { n: digerOkunmamis }) : t("oda.geri")}
-        onclick={() => gezinme.odaKapat()}
-      >
-        <Ikon ad="geri" />
-        {#if digerOkunmamis > 0}
-          <span class="rozet geri-rozet" aria-hidden="true">{digerOkunmamis > 99 ? "99+" : digerOkunmamis}</span>
-        {/if}
-      </button>
-    {:else if duzen.listeGizli}
-      <button class="simge-dugme geri" data-zil-hedef="yanPanel" use:zilNabiz aria-label={t("klavye.listeAc")} title="{t("klavye.listeAc")} (Ctrl+B)" onclick={() => duzen.degistir()}><Ikon ad="yanPanel" /></button>
-    {/if}
-    <!-- Tap = room info, long press = customize sheet (both tactile) · Dokun = oda bilgisi, uzun bas = özelleştir sayfası (ikisi de dokunsal) -->
-    {#if bilgi}
-      <button class="kimlik" aria-label={t("oda.bilgiAc")} onclick={() => (bilgiAcik = true)} use:uzunBasma={{ ac: () => (ozellestirAcik = true) }}>
-        <Avatar harf={bilgi.avatarHarf} mxc={bilgi.avatarMxc} boyut={40} />
-        <span class="adlar">
-          <span class="ad-satir"><span class="ad">{bilgi.ad}</span>{#if bilgi.sifreli}<span class="kilit" role="img" aria-label={t("oda.sifreli")}><Ikon ad="kilit" boyut={14} /></span>{/if}</span>
-          {#if zaman.yazanlar.length > 0}
-            <!-- Someone is typing: the subtitle turns accent coloured (design D) · Biri yazıyor: alt başlık vurgu rengine döner (tasarım D) -->
-            <span class="alt yaziyor" role="status" aria-live="polite">{zaman.yazanlar.length === 1 ? t("yaziyor.bir", { ad: zaman.yazanlar[0].ad }) : zaman.yazanlar.length === 2 ? t("yaziyor.iki", { a: zaman.yazanlar[0].ad, b: zaman.yazanlar[1].ad }) : t("yaziyor.cok", { n: zaman.yazanlar.length })}</span>
-          {:else}
-            <!-- Encryption is the lock beside the name; only its absence is spelled out. · Şifreleme adın yanındaki kilittir; yalnızca yokluğu yazılır. -->
-            <span class="alt">
-              <span class="uye">{bilgi.sifreli ? "" : t("oda.sifreSiz") + " · "}{t("oda.uyeler", { n: bilgi.uyeSayisi })}</span>
-              {#if aranabilir && bilgi.karsiKullanici}<VarlikRozeti kullaniciId={bilgi.karsiKullanici} />{/if}
-            </span>
+  <div class="oda-govde">
+  <!-- Floating header: wide screens = single two-storey polished card (C); phone = three separated capsules over messages (B). -->
+  <!-- Yüzen başlık: geniş ekran = tek iki katlı cilalı kart (C); telefon = mesajların üstünde üç ayrık kapsül (B). -->
+  <div class="tepe" class:telefon={!gezinme.genis} data-oda-tepe bind:clientHeight={tepeYuk}>
+    {#if gezinme.genis}
+      <div class="kart">
+        <header class="ust">
+          {#if duzen.listeGizli}
+            <button class="simge-dugme geri" data-zil-hedef="yanPanel" use:zilNabiz aria-label={t("klavye.listeAc")} title="{t("klavye.listeAc")} (Ctrl+B)" onclick={() => duzen.degistir()}><Ikon ad="yanPanel" /></button>
           {/if}
-        </span>
-      </button>
+          <!-- Tap = room info, long press = customize sheet (both tactile) · Dokun = oda bilgisi, uzun bas = özelleştir sayfası (ikisi de dokunsal) -->
+          {#if bilgi}
+            <button class="kimlik" aria-label={t("oda.bilgiAc")} onclick={() => (bilgiAcik = true)} use:uzunBasma={{ ac: () => (ozellestirAcik = true) }}>
+              <Avatar harf={bilgi.avatarHarf} mxc={bilgi.avatarMxc} boyut={40} />
+              <span class="adlar">
+                <span class="ad-satir"><span class="ad">{bilgi.ad}</span>{#if bilgi.sifreli}<span class="kilit" role="img" aria-label={t("oda.sifreli")}><Ikon ad="kilit" boyut={14} /></span>{/if}</span>
+                {@render altSatir()}
+              </span>
+            </button>
+          {:else}
+            <!-- The header keeps its shape while the room opens. · Oda açılırken başlık biçimini korur. -->
+            <div class="kimlik bekle" aria-hidden="true"><span class="b-yuz parilti"></span><span class="b-ad parilti"></span></div>
+          {/if}
+          <OdaAramasi {odaId} />
+          {#if bilgi}
+            <button
+              class="kisiler-dugme"
+              class:tonlu={duzen.kisilerAcik}
+              aria-label={duzen.kisilerAcik ? t("baslik.kisilerKapat") : t("baslik.kisilerAc")}
+              aria-pressed={duzen.kisilerAcik}
+              title="{t("baslik.kisiler")} (Ctrl+Shift+L)"
+              onclick={() => duzen.kisilerDegistir()}
+            >
+              {@render yuzler(24)}
+              {#if !aranabilir}<span class="kisiler-sayi">{bilgi.uyeSayisi}</span>{/if}
+            </button>
+            <span class="ayrac" aria-hidden="true"></span>
+          {/if}
+          <button class="simge-dugme" class:tonlu={aramaAcik} aria-label={t("mesajAra.odadaAra")} aria-pressed={aramaAcik} use:hizliGecis onclick={() => (aramaAcik = true)}><Ikon ad="ara" /></button>
+          {#if aranabilir && bilgi}
+            <button
+              class="simge-dugme"
+              aria-label={t("oda.ara")}
+              onclick={() => bilgi && arama.ara({ id: bilgi.id, ad: bilgi.ad, avatarHarf: bilgi.avatarHarf, avatarMxc: bilgi.avatarMxc })}
+            >
+              <Ikon ad="telefon" />
+            </button>
+          {/if}
+          {#if bilgi}
+            <button class="simge-dugme" aria-label={t("baslik.bilgi")} onclick={() => (bilgiAcik = true)}><Ikon ad="bilgi" /></button>
+          {/if}
+        </header>
+        <SabitCubugu {odaId} idler={zaman.sabitler} />
+        <EsitlemeSeridi />
+      </div>
     {:else}
-      <!-- The header keeps its shape while the room opens. · Oda açılırken başlık biçimini korur. -->
-      <div class="kimlik bekle" aria-hidden="true"><span class="b-yuz parilti"></span><span class="b-ad parilti"></span></div>
+      <header class="kapsuller">
+        <button
+          class="simge-dugme geri kapsul"
+          data-zil-hedef="geri"
+          use:zilNabiz
+          aria-label={digerOkunmamis > 0 ? t("oda.digerOkunmamis", { n: digerOkunmamis }) : t("oda.geri")}
+          onclick={() => gezinme.odaKapat()}
+        >
+          <Ikon ad="geri" />
+          {#if digerOkunmamis > 0}
+            <span class="rozet geri-rozet" aria-hidden="true">{digerOkunmamis > 99 ? "99+" : digerOkunmamis}</span>
+          {/if}
+        </button>
+
+        {#if bilgi}
+          <button class="kapsul kapsul-kimlik" aria-label={t("oda.bilgiAc")} onclick={() => (bilgiAcik = true)} use:uzunBasma={{ ac: () => (ozellestirAcik = true) }}>
+            <Avatar harf={bilgi.avatarHarf} mxc={bilgi.avatarMxc} boyut={32} />
+            <span class="adlar">
+              <span class="ad-satir"><span class="ad">{bilgi.ad}</span>{#if bilgi.sifreli}<span class="kilit" role="img" aria-label={t("oda.sifreli")}><Ikon ad="kilit" boyut={13} /></span>{/if}</span>
+              {@render altSatir()}
+            </span>
+          </button>
+        {:else}
+          <div class="kapsul kapsul-kimlik bekle" aria-hidden="true"><span class="b-yuz kucuk parilti"></span><span class="b-ad parilti"></span></div>
+        {/if}
+
+        <div class="kapsul kapsul-eylem">
+          {#if bilgi}
+            <button
+              class="kisiler-dugme kompakt"
+              aria-label={t("baslik.kisiler")}
+              onclick={() => (uyelerAcik = true)}
+            >
+              {@render yuzler(aranabilir ? 24 : 22)}
+              {#if !aranabilir}<span class="kisiler-sayi">{bilgi.uyeSayisi}</span>{/if}
+            </button>
+          {/if}
+          <button class="simge-dugme" class:tonlu={aramaAcik} aria-label={t("mesajAra.odadaAra")} aria-pressed={aramaAcik} use:hizliGecis onclick={() => (aramaAcik = true)}><Ikon ad="ara" boyut={20} /></button>
+          {#if aranabilir && bilgi}
+            <button
+              class="simge-dugme"
+              aria-label={t("oda.ara")}
+              onclick={() => bilgi && arama.ara({ id: bilgi.id, ad: bilgi.ad, avatarHarf: bilgi.avatarHarf, avatarMxc: bilgi.avatarMxc })}
+            >
+              <Ikon ad="telefon" boyut={20} />
+            </button>
+          {/if}
+        </div>
+        <OdaAramasi {odaId} />
+      </header>
+      {#if zaman.sabitler.length > 0}
+        <div class="telefon-sabit"><SabitCubugu {odaId} idler={zaman.sabitler} /></div>
+      {/if}
+      <div class="telefon-esitle"><EsitlemeSeridi /></div>
     {/if}
-    <OdaAramasi {odaId} />
-    <button class="simge-dugme" class:tonlu={aramaAcik} aria-label={t("mesajAra.odadaAra")} aria-pressed={aramaAcik} use:hizliGecis onclick={() => (aramaAcik = true)}><Ikon ad="ara" /></button>
-    {#if aranabilir && bilgi}
-      <button
-        class="simge-dugme"
-        aria-label={t("oda.ara")}
-        onclick={() => bilgi && arama.ara({ id: bilgi.id, ad: bilgi.ad, avatarHarf: bilgi.avatarHarf, avatarMxc: bilgi.avatarMxc })}
-      >
-        <Ikon ad="telefon" />
-      </button>
-    {/if}
-  </header>
-  <SabitCubugu {odaId} idler={zaman.sabitler} />
-  <EsitlemeSeridi />
-  </div>
   </div>
 
   <SohbetZemini resim={gorunum.resim} resimAnahtari={odaId} karart={gorunum.karart} />
@@ -860,6 +963,11 @@
   {:else}
     <YazmaAlani {odaId} sifreli={bilgi?.sifreli ?? false} {gonder} altta={altaGorunur} {yeniSayi} enAlta={asagiIn} {seciliOge} bind:yukseklik={altYuk} />
   {/if}
+  </div>
+
+  {#if gezinme.genis && duzen.kisilerAcik}
+    <KisilerPaneli {odaId} {bilgi} dm={aranabilir} kaplama={duzen.kisilerKaplama} onkapat={() => duzen.kisilerKapat()} />
+  {/if}
 
   {#if bilgiAcik}
     <OdaBilgisi {odaId} onkapat={() => (bilgiAcik = false)} uyelerAc={() => (uyelerAcik = true)} gorunumAc={() => (ozellestirAcik = true)} ara={() => { bilgiAcik = false; aramaAcik = true; }} />
@@ -868,13 +976,44 @@
 
   {#snippet failed(_hata, sifirla)}
     <!-- Last line of defence: a render error ends here, with a way back, instead of a black screen. · Son savunma hattı: çizim hatası siyah ekran yerine burada, geri dönüş yoluyla biter. -->
-    <div class="tepe"><header class="ust">
-      {#if !gezinme.genis}<button class="simge-dugme geri" aria-label={t("oda.geri")} onclick={() => gezinme.odaKapat()}><Ikon ad="geri" /></button>{/if}
-    </header></div>
-    <BosDurum maskot="hata" baslik={t("oda.acilamadi")} metin={t("oda.cizimHatasi")} eylem={t("oda.yeniden")} onEylem={sifirla} />
+    <div class="oda-govde">
+      <div class="tepe"><header class="ust">
+        {#if !gezinme.genis}<button class="simge-dugme geri" aria-label={t("oda.geri")} onclick={() => gezinme.odaKapat()}><Ikon ad="geri" /></button>{/if}
+      </header></div>
+      <BosDurum maskot="hata" baslik={t("oda.acilamadi")} metin={t("oda.cizimHatasi")} eylem={t("oda.yeniden")} onEylem={sifirla} />
+    </div>
   {/snippet}
 </svelte:boundary>
 </div>
+
+{#snippet altSatir()}
+  {#if zaman.yazanlar.length > 0}
+    <!-- Someone is typing: the subtitle turns accent coloured · Biri yazıyor: alt başlık vurgu rengine döner -->
+    <span class="alt yaziyor" role="status" aria-live="polite">{zaman.yazanlar.length === 1 ? t("yaziyor.bir", { ad: zaman.yazanlar[0].ad }) : zaman.yazanlar.length === 2 ? t("yaziyor.iki", { a: zaman.yazanlar[0].ad, b: zaman.yazanlar[1].ad }) : t("yaziyor.cok", { n: zaman.yazanlar.length })}</span>
+  {:else if bilgi && aranabilir && bilgi.karsiKullanici}
+    <span class="alt"><VarlikRozeti kullaniciId={bilgi.karsiKullanici} /></span>
+  {:else if bilgi}
+    <span class="alt">
+      <span class="uye">{t("oda.uyeler", { n: bilgi.uyeSayisi })}</span>
+      {#if cevrimiciSayi > 0}
+        <span class="alt-ayrac" aria-hidden="true">·</span>
+        <span class="cevrimici"><i class="cevrimici-nokta" aria-hidden="true"></i>{t("baslik.cevrimici", { n: cevrimiciSayi })}</span>
+      {/if}
+    </span>
+  {/if}
+{/snippet}
+
+{#snippet yuzler(boyut: number)}
+  {#if yuzYigini.length > 0}
+    <span class="yuz-yigini" aria-hidden="true">
+      {#each yuzYigini as y (y.id)}
+        <span class="yuz-oge"><Avatar harf={y.harf} mxc={y.mxc} {boyut} yaricap={Math.round(boyut * 0.28)} /></span>
+      {/each}
+    </span>
+  {:else}
+    <Ikon ad="kisi" boyut={18} />
+  {/if}
+{/snippet}
 
 {#if ozellestirAcik}<OzellestirSayfasi {odaId} onkapat={() => (ozellestirAcik = false)} />{/if}
 
@@ -925,26 +1064,97 @@
   /* The room moves aside under its info page (same parallax as list → room). · Oda, bilgi sayfasının altında kenara çekilir (liste → oda ile aynı paralaks). */
   .oda > :global(*:not(.ekran)) { transition: transform var(--sure-ekran) var(--egri-ac); }
   .oda.itildi > :global(*:not(.ekran)) { transform: translate3d(-25%, 0, 0); }
-  .oda { position: relative; overflow: hidden; flex: 1; min-height: 0; display: flex; flex-direction: column; min-width: 0; height: 100%; background: var(--sohbet-zemin, var(--zemin)); }
+  .oda { position: relative; overflow: hidden; flex: 1; min-height: 0; display: flex; flex-direction: row; min-width: 0; height: 100%; background: var(--sohbet-zemin, var(--zemin)); }
+  .oda-govde { position: relative; overflow: hidden; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; height: 100%; }
   .tepe { position: absolute; z-index: 3; top: 0; left: 0; right: 0; padding: calc(8px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 0 calc(12px + env(safe-area-inset-left)); pointer-events: none; }
-  /* Messages fade out under the status bar and the card instead of being cut by a line. · Mesajlar durum çubuğunun ve kartın altında çizgiyle kesilmek yerine solar. */
-  .tepe::before { content: ""; position: absolute; z-index: -1; inset: 0 0 -12px; background: linear-gradient(var(--sohbet-zemin, var(--zemin)) 55%, transparent); }
-  .kart { pointer-events: auto; overflow: hidden; border-radius: 32px; background: var(--yuzey-2); box-shadow: var(--kat-2); }
-  .kart :global(.cubuk) { width: 100%; border-bottom: 0; border-top: 1px solid var(--kenar-ince); }
-  .kart :global(.serit) { border-bottom: 0; }
-  .ust { min-height: 64px; display: flex; align-items: center; gap: 2px; padding: 8px; }
+  /* Desktop / tablet C polished card: surface-1, hairline border, 20px radius, no shadow, no top gradient. */
+  /* Masaüstü / tablet C cilalı kart: yüzey-1, ince kenar, 20px köşe, gölge yok, üst gradyan yok. */
+  .kart { pointer-events: auto; overflow: hidden; border-radius: 20px; background: var(--yuzey-1); border: 1px solid var(--kenar-ince); }
+  .kart :global(.cubuk) { width: 100%; }
+  .kart :global(.serit) { border-bottom: 0; border-top: 1px solid var(--kenar-ince); }
+  .ust { min-height: 60px; display: flex; align-items: center; gap: 4px; padding: 6px 8px; }
   .geri { position: relative; }
   .geri-rozet { position: absolute; top: 2px; right: 0; min-width: 1.125rem; height: 1.125rem; padding: 0 .25rem; border-radius: .5625rem; font-size: .6875rem; border: 2px solid var(--yuzey-2); box-sizing: content-box; pointer-events: none; }
-    .kimlik { flex: 1; min-width: 0; min-height: 44px; padding: 0 6px 0 2px; display: flex; align-items: center; gap: .75rem; text-align: left; border-radius: 22px; }
+  .kimlik { flex: 1; min-width: 0; min-height: 44px; padding: 4px 10px 4px 6px; display: flex; align-items: center; gap: .625rem; text-align: left; border-radius: 14px; transition: background-color var(--sure-hizli) var(--egri-cikis); }
+  @media (hover: hover) {
+    .kimlik:hover { background: var(--yuzey-2); }
+  }
+  .kimlik:active { background: var(--yuzey-3); }
   .adlar { flex: 1; min-width: 0; display: grid; }
-  .ad-satir { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .ad-satir { display: flex; align-items: center; gap: 5px; min-width: 0; }
   .kilit { flex: none; display: inline-flex; color: var(--cozum); }
-  .b-yuz { width: 40px; height: 40px; border-radius: 10px; }
-  .b-ad { width: 45%; height: 14px; border-radius: 7px; }
-  .ad { font-weight: 600; font-size: 1rem; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .b-yuz { width: 40px; height: 40px; border-radius: 10px; flex: none; }
+  .b-yuz.kucuk { width: 32px; height: 32px; border-radius: 8px; }
+  .b-ad { width: 96px; max-width: 45%; height: 14px; border-radius: 7px; }
+  .ad { font-weight: 600; font-size: .9375rem; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .alt.yaziyor { color: var(--vurgu); font-weight: 500; overflow: hidden; text-overflow: ellipsis; display: block; }
-  .alt { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: .75rem; color: var(--yazi-2); white-space: nowrap; overflow: hidden; }
+  .alt { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: .75rem; line-height: 1.25; color: var(--yazi-2); white-space: nowrap; overflow: hidden; }
   .uye { overflow: hidden; text-overflow: ellipsis; }
+  .alt-ayrac { flex: none; opacity: .7; }
+  .cevrimici { flex: none; display: inline-flex; align-items: center; gap: 4px; color: var(--cozum); font-weight: 500; }
+  .cevrimici-nokta { width: 6px; height: 6px; border-radius: 50%; background: var(--cozum); flex: none; }
+
+  /* Header People button (face stack + count) and thin divider · Başlıktaki Kişiler düğmesi (yüz yığını + sayı) ve ince ayraç */
+  .kisiler-dugme {
+    flex: none;
+    min-height: 44px;
+    padding: 0 10px;
+    border-radius: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--yazi);
+    --yuz-kenar: var(--yuzey-1);
+    transition: background-color var(--sure-hizli) var(--egri-cikis), color var(--sure-hizli) var(--egri-cikis);
+  }
+  @media (hover: hover) {
+    .kisiler-dugme:not(.tonlu):hover { background: var(--yuzey-2); --yuz-kenar: var(--yuzey-2); }
+  }
+  .kisiler-dugme:not(.tonlu):active { background: var(--yuzey-3); --yuz-kenar: var(--yuzey-3); }
+  .kisiler-dugme.tonlu { background: var(--ton); color: var(--ton-ustu); --yuz-kenar: var(--ton); }
+  .kisiler-dugme.kompakt { padding: 0 6px 0 8px; border-radius: 22px; gap: 4px; --yuz-kenar: var(--yuzey-2); }
+  .yuz-yigini { display: inline-flex; align-items: center; }
+  .yuz-oge { display: inline-flex; border-radius: 8px; border: 2px solid var(--yuz-kenar); }
+  .yuz-oge + .yuz-oge { margin-left: -7px; }
+  .kisiler-sayi { font-size: .8125rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ayrac { flex: none; width: 1px; height: 20px; background: var(--kenar-ince); margin: 0 2px; }
+
+  /* Phone B separated capsules over messages (no background gradient) · Telefon B mesajların üstünde üç ayrık kapsül (zemin geçişi yok) */
+  .kapsuller { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; pointer-events: none; }
+  .kapsul {
+    pointer-events: auto;
+    background: var(--yuzey-2);
+    border: 1px solid var(--kenar-ince);
+    border-radius: 24px;
+    height: 46px;
+    min-height: 46px;
+  }
+  .kapsul.geri { width: 46px; min-width: 46px; }
+  .kapsul-kimlik {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-right: auto;
+    padding: 0 12px 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+    max-width: 100%;
+  }
+  .kapsul-kimlik:active { background: var(--yuzey-3); }
+  .kapsul-eylem { flex: none; display: inline-flex; align-items: center; padding: 0 2px; }
+  .telefon-sabit {
+    pointer-events: auto;
+    margin-top: 6px;
+    border-radius: 18px;
+    background: var(--yuzey-2);
+    border: 1px solid var(--kenar-ince);
+    overflow: hidden;
+  }
+  .telefon-sabit :global(.cubuk) { border-top: 0; }
+  .telefon-esitle { pointer-events: auto; margin-top: 6px; }
+  .telefon-esitle:empty { margin-top: 0; }
+  .telefon-esitle :global(.serit) { border-radius: 16px; border: 1px solid var(--kenar-ince); }
   .zaman-sarmal { contain: layout style; position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
   /* Desktop chat zoom (--sohbet-olcek) applies here via font-size so every em inside the timeline scales without zoom/transform. */
   /* Masaüstü sohbet ölçeği (--sohbet-olcek) burada font-size ile uygulanır; çizelgedeki tüm em değerleri zoom/transform olmadan ölçeklenir. */

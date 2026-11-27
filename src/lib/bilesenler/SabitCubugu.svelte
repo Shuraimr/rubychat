@@ -39,6 +39,7 @@
   });
 
   const guncel = $derived(liste[sira]);
+  const toplam = $derived(liste.length || idler.length);
   async function git() {
     if (!guncel) return;
     await mesajaGit(odaId, guncel.olayId);
@@ -48,18 +49,59 @@
 
 {#if idler.length > 0}
   <button class="cubuk" onclick={() => void git()} aria-label={t("sabit.git")}>
-    <Ikon ad="sabitle" boyut={18} />
-    <span class="govde">
-      <span class="baslik">{t("sabit.baslik")}{#if liste.length > 1} · {sira + 1}/{liste.length}{/if}</span>
-      <span class="metin">{guncel ? ((guncel.gonderenAd ? guncel.gonderenAd + ": " : "") + (guncel.metin ?? t("sabit.mesaj"))) : t("sabit.yukleniyor")}</span>
+    <span class="igne" aria-hidden="true"><Ikon ad="sabitle" boyut={16} /></span>
+    <span class="metin">
+      {#if guncel}
+        {#if guncel.gonderenAd}<strong>{guncel.gonderenAd}:</strong> {/if}{guncel.metin ?? t("sabit.mesaj")}
+      {:else}
+        {t("sabit.yukleniyor")}
+      {/if}
     </span>
+    {#if toplam > 1}
+      <span class="sayac">{sira + 1}/{toplam}</span>
+    {/if}
   </button>
 {/if}
 
 <style>
-  .cubuk { flex: none; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 4px 20px; text-align: left; background: transparent; border-bottom: 1px solid var(--kenar-ince); color: var(--vurgu); }
-  .cubuk:active { background: var(--yuzey-2); }
-  .govde { flex: 1; min-width: 0; display: grid; }
-  .baslik { font-size: .75rem; font-weight: 600; }
-  .metin { font-size: .875rem; color: var(--yazi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cubuk {
+    flex: none;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 14px;
+    text-align: left;
+    background: transparent;
+    border-top: 1px solid var(--kenar-ince);
+    color: var(--yazi);
+    transition: background-color var(--sure-hizli) var(--egri-cikis);
+  }
+  @media (hover: hover) {
+    .cubuk:hover { background: var(--yuzey-2); }
+  }
+  .cubuk:active { background: var(--yuzey-3); }
+  .igne { flex: none; display: inline-flex; color: var(--vurgu); }
+  .metin {
+    flex: 1;
+    min-width: 0;
+    font-size: .8125rem;
+    line-height: 1.3;
+    color: var(--yazi);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .metin strong { font-weight: 600; }
+  .sayac {
+    flex: none;
+    font-size: .75rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--yazi-2);
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--yuzey-2);
+  }
 </style>

@@ -511,16 +511,18 @@
     dosyalariAc([dosya]);
   }
   // ---- Paste: pictures and files open the same send screen ---- · ---- Yapıştırma: resim ve dosyalar aynı gönderme ekranını açar ----
-  let yapistirilan = $state<File[] | undefined>();
+  let yapistirilan = $state<File[] | Promise<File[]> | undefined>();
   let yapistirmaGeldi = false;
-  function dosyalariAc(d: File[]) {
+  function dosyalariAc(d: File[] | Promise<File[]>) {
     if (medyaKaynak) return;
     yapistirilan = d;
     medyaKaynak = "dosya";
   }
-  async function panoResminiAc() {
-    const r = await panodakiResim();
-    if (r) dosyalariAc([r]);
+  /** Opens the media sheet right away and lets the clipboard image arrive into it (no 2-second silence after Ctrl+V).
+   *  Medya sayfasını hemen açar, pano resmi içine sonradan gelir (Ctrl+V'den sonra 2 saniyelik sessizlik olmaz). */
+  function panoResminiAc() {
+    if (!masaustuLinux) return;
+    dosyalariAc(panodakiResim().then((r) => (r ? [r] : [])));
   }
   function yapistir(e: ClipboardEvent) {
     yapistirmaGeldi = true;
@@ -529,7 +531,7 @@
     if (dosyalar.length > 0) {
       e.preventDefault();
       dosyalariAc(dosyalar);
-    } else if (!v?.getData("text/plain")) void panoResminiAc();
+    } else if (!v?.getData("text/plain")) panoResminiAc();
   }
   function medyaKapat() {
     medyaKaynak = null;

@@ -307,8 +307,76 @@ function listeyiAc() {
   void tick().then(() => setTimeout(yazmaOdakla, 50));
 }
 
-function odayaOdakla() {
+function panelKapsami(): HTMLElement | null {
+  const el = document.querySelector<HTMLElement>("[data-kisiler-paneli]");
+  return el && gorunur(el) ? el : null;
+}
+
+function paneldeMi(): boolean {
+  const p = panelKapsami();
+  const odak = document.activeElement;
+  return !!p && !!odak && p.contains(odak);
+}
+
+function panelSatirlari(): HTMLElement[] {
+  const p = panelKapsami();
+  if (!p) return [];
+  return [...p.querySelectorAll<HTMLElement>("[data-kisi-satir]")].filter(gorunur);
+}
+
+function panelOdakla() {
+  klavye.secimBirak();
+  klavye.bekleyenTemizle();
+  void tick().then(() => {
+    requestAnimationFrame(() => {
+      const satirlar = panelSatirlari();
+      odakla(satirlar[0] ?? panelKapsami());
+    });
+  });
+}
+
+function panelOynat(adim: number) {
+  const l = panelSatirlari();
+  if (l.length === 0) return;
+  const i = l.indexOf(document.activeElement as HTMLElement);
+  if (i < 0) {
+    odakla(adim < 0 ? l[l.length - 1] : l[0]);
+    return;
+  }
+  odakla(l[Math.min(l.length - 1, Math.max(0, i + adim))]);
+}
+
+function solaGec() {
+  if (paneldeMi()) {
+    void yazmayaGec();
+    return;
+  }
+  listeOdakla();
+}
+
+function sagaGec() {
+  if (listedeMi()) {
+    void yazmayaGec();
+    return;
+  }
+  if (paneldeMi()) {
+    const satirlar = panelSatirlari();
+    if (satirlar.length > 0 && !satirlar.includes(document.activeElement as HTMLElement)) odakla(satirlar[0]);
+    return;
+  }
+  if (gezinme.genis && klavye.oda && !odaSayfasi()) {
+    duzen.kisilerAc();
+    panelOdakla();
+    return;
+  }
   void yazmayaGec();
+}
+
+function kisilerPaneliDegistir() {
+  if (!gezinme.genis || !klavye.oda || odaSayfasi()) return;
+  const paneldeydi = paneldeMi();
+  duzen.kisilerDegistir();
+  if (paneldeydi && !duzen.kisilerAcik) void yazmayaGec();
 }
 
 function odaDegistir(adim: number, yazmaOdagiKoru = true) {
@@ -637,6 +705,19 @@ export const KOMUTLAR: readonly Komut[] = [
       if (!ustKatman()) duzen.degistir();
     },
   },
+  {
+    id: "kisilerPaneli",
+    key: "Ctrl+Shift+L",
+    context: "genel",
+    herZaman: true,
+    etiket: "klavye.kKisiler",
+    ctrl: true,
+    shift: true,
+    tus: "l",
+    run: () => {
+      if (!ustKatman()) kisilerPaneliDegistir();
+    },
+  },
 
   // Global when on · Açıkken genel
   {
@@ -647,7 +728,7 @@ export const KOMUTLAR: readonly Komut[] = [
     ctrl: true,
     shift: false,
     tus: "j",
-    run: () => imlecOynat(sayacAl()),
+    run: () => (paneldeMi() ? panelOynat(sayacAl()) : imlecOynat(sayacAl())),
   },
   {
     id: "mesajOnceki",
@@ -657,7 +738,7 @@ export const KOMUTLAR: readonly Komut[] = [
     ctrl: true,
     shift: false,
     tus: "k",
-    run: () => imlecOynat(-sayacAl()),
+    run: () => (paneldeMi() ? panelOynat(-sayacAl()) : imlecOynat(-sayacAl())),
   },
   {
     id: "yarimAsagi",
@@ -683,21 +764,21 @@ export const KOMUTLAR: readonly Komut[] = [
     id: "listeye",
     key: "Ctrl+H",
     context: "genel",
-    etiket: "klavye.kListeye",
+    etiket: "klavye.kSolaGec",
     ctrl: true,
     shift: false,
     tus: "h",
-    run: listeOdakla,
+    run: solaGec,
   },
   {
     id: "odaya",
     key: "Ctrl+L",
     context: "genel",
-    etiket: "klavye.kOdaya",
+    etiket: "klavye.kSagaGec",
     ctrl: true,
     shift: false,
     tus: "l",
-    run: odayaOdakla,
+    run: sagaGec,
   },
   {
     id: "sonrakiOda",
@@ -999,9 +1080,12 @@ export const YARDIM_OGELERI: readonly YardimOgesi[] = [
   // Sohbetler · Chats
   { id: "s-palet", grup: "sohbetler", herZaman: true, tuslar: [["Ctrl", "Space"]], etiket: "klavye.kPalet", anahtarlar: "palette quick switch oda" },
   { id: "s-liste", grup: "sohbetler", herZaman: true, tuslar: [["Ctrl", "B"]], etiket: "klavye.kListe", anahtarlar: "sidebar panel toggle" },
+  { id: "s-kisiler", grup: "sohbetler", herZaman: true, tuslar: [["Ctrl", "Shift", "L"]], etiket: "klavye.kKisiler", anahtarlar: "people members panel kisiler uyeler" },
   { id: "s-sonraki", grup: "sohbetler", tuslar: [["g", "t"], ["L"], ["Ctrl", "Shift", "J"]], etiket: "klavye.kSonrakiOda", anahtarlar: "next chat tab gt" },
   { id: "s-onceki", grup: "sohbetler", tuslar: [["g", "T"], ["H"], ["Ctrl", "Shift", "K"]], etiket: "klavye.kOncekiOda", anahtarlar: "prev chat tab gT" },
-  { id: "s-odak", grup: "sohbetler", tuslar: [["Ctrl", "H"]], etiket: "klavye.kListeye", anahtarlar: "list focus" },
+  { id: "s-odak", grup: "sohbetler", tuslar: [["Ctrl", "H"]], etiket: "klavye.kSolaGec", anahtarlar: "list focus room panel left" },
+  { id: "s-saga", grup: "sohbetler", tuslar: [["Ctrl", "L"]], etiket: "klavye.kSagaGec", anahtarlar: "room people panel focus right kisiler" },
+  { id: "s-panel-satir", grup: "sohbetler", tuslar: [["j"], ["k"]], etiket: "klavye.kPanelSatir", anahtarlar: "people panel row kisiler" },
   { id: "s-ac", grup: "sohbetler", tuslar: [["Enter"]], etiket: "klavye.kListeAc", anahtarlar: "open room" },
 
   // Komut satırı · Command line
@@ -1013,7 +1097,7 @@ export const YARDIM_OGELERI: readonly YardimOgesi[] = [
   { id: "c-yardim", grup: "komut", tuslar: [[":yardim"]], etiket: "klavye.vKomutYardim", anahtarlar: "help" },
 
   // Genel · General
-  { id: "g-yazma", grup: "genel", tuslar: [["g", "i"], ["i"], ["Ctrl", "L"]], etiket: "klavye.vYazma", anahtarlar: "insert composer focus gi" },
+  { id: "g-yazma", grup: "genel", tuslar: [["g", "i"], ["i"]], etiket: "klavye.vYazma", anahtarlar: "insert composer focus gi" },
   { id: "g-esc", grup: "genel", tuslar: [["Esc"]], etiket: "klavye.vEsc", anahtarlar: "escape normal mode exit cancel" },
   { id: "g-yardim", grup: "genel", tuslar: [["?"], ["Ctrl", "/"]], etiket: "klavye.vYardim", anahtarlar: "help shortcuts" },
 ];
@@ -1117,13 +1201,15 @@ function normalTus(e: KeyboardEvent): boolean {
     case "j":
       e.preventDefault();
       klavye.bekleyenTemizle();
-      if (listedeMi()) listeOynat(n);
+      if (paneldeMi()) panelOynat(n);
+      else if (listedeMi()) listeOynat(n);
       else imlecOynat(n);
       return true;
     case "k":
       e.preventDefault();
       klavye.bekleyenTemizle();
-      if (listedeMi()) listeOynat(-n);
+      if (paneldeMi()) panelOynat(-n);
+      else if (listedeMi()) listeOynat(-n);
       else imlecOynat(-n);
       return true;
     case "G":
@@ -1144,7 +1230,11 @@ function normalTus(e: KeyboardEvent): boolean {
     case "/":
       e.preventDefault();
       klavye.bekleyenTemizle();
-      if (klavye.oda && !odaSayfasi()) klavye.oda.ara(undefined, true);
+      if (paneldeMi()) {
+        odakla(panelKapsami()?.querySelector<HTMLElement>('input[type="search"]') ?? null);
+      } else if (klavye.oda && !odaSayfasi()) {
+        klavye.oda.ara(undefined, true);
+      }
       return true;
     case "n":
       e.preventDefault();
@@ -1256,6 +1346,14 @@ function tus(e: KeyboardEvent) {
     if (klavye.bekleyen || klavye.sayac) {
       e.preventDefault();
       klavye.bekleyenTemizle();
+      return;
+    }
+    if (paneldeMi()) {
+      const aktif = document.activeElement;
+      if (aktif instanceof HTMLInputElement && aktif.value) return;
+      e.preventDefault();
+      duzen.kisilerKapat();
+      void yazmayaGec();
       return;
     }
     if (klavye.oda?.aramaAcik() && !odaSayfasi()) {

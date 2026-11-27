@@ -60,6 +60,7 @@
 
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
+  import { ayniGrup } from "../gruplama";
   import { odaOnizleme } from "../api/komutlar";
   import type { MesajAramaSonucu, OdaOzeti } from "../api/tipler";
   import { atlama, EN_AZ_KARAKTER, MesajAramasi } from "../arama-mesaj/durum.svelte";
@@ -597,6 +598,10 @@
               : "klavye.paletBos",
   );
 
+  /** Continues the previous preview message's group (same rule as the room timeline) · Önceki önizleme mesajının grubunu sürdürür (oda akışıyla aynı kural) */
+  function grupDevam(i: number): boolean {
+    return i > 0 && ayniGrup(onizlemeMesajlar[i - 1], onizlemeMesajlar[i]);
+  }
   function gunFarkli(i: number): boolean {
     const m = onizlemeMesajlar[i];
     if (!m) return false;
@@ -794,9 +799,9 @@
                 {#if gunFarkli(i)}
                   <div class="gun-ayirici"><span>{gunEtiketi(m.zaman)}</span></div>
                 {/if}
-                <div class="oniz-mesaj" class:kendi={m.kendi} class:vurgulu={seciliMesajId === m.olayId}>
+                <div class="oniz-mesaj" class:kendi={m.kendi} class:devam={grupDevam(i)} class:vurgulu={seciliMesajId === m.olayId}>
                   <div class="oniz-mesaj-ust">
-                    <span class="oniz-kim">{m.kendi ? t("yerel.ben") : m.gonderenAd}</span>
+                    {#if !grupDevam(i)}<span class="oniz-kim">{m.kendi ? t("yerel.ben") : m.gonderenAd}</span>{/if}
                     <span class="oniz-saat">{saatYaz(m.zaman)}</span>
                   </div>
                   {#if m.tur === "sifreli"}
@@ -959,6 +964,10 @@
     display: grid; gap: 2px;
   }
   .oniz-mesaj.kendi { background: var(--yuzey-3); }
+  /* A group reads as one block: small gap, no repeated name, time pushed right · Grup tek blok okunur: küçük aralık, tekrar eden ad yok, saat sağda */
+  .oniz-mesaj.devam { margin-top: -.25rem; }
+  .oniz-mesaj.devam { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: .5rem; }
+  .oniz-mesaj.devam .oniz-mesaj-ust { order: 2; }
   .oniz-mesaj.vurgulu { outline: 1px solid var(--vurgu); }
   .oniz-mesaj-ust { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; min-width: 0; }
   .oniz-kim {

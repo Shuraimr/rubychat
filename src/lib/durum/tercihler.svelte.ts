@@ -29,6 +29,8 @@ export interface TercihDeger {
   kompakt: Kompakt;
   /** Rail and list hidden with Ctrl+B (wide window) · Ray ve liste Ctrl+B ile gizli (geniş pencere) */
   listeGizli: boolean;
+  /** Right-side People panel open on desktop/tablet · Masaüstü/tablette sağdaki Kişiler paneli açık */
+  kisilerPaneli: boolean;
   /** Modeless Ctrl keyboard shortcuts (lib/klavyeKisayol.svelte.ts) · Kipsiz Ctrl klavye kısayolları */
   ctrlKisayol: boolean;
   /** One-line shortcut hint strip above the composer when a message is selected · Mesaj seçiliyken yazma alanının üstünde tek satırlık kısayol ipucu */
@@ -48,7 +50,7 @@ export interface TercihDeger {
 const VARSAYILAN: TercihDeger = {
   titresim: true, saat24: true, enterGonder: true, baglantiOnizleme: "hepsi", sifreliOnizle: false, resimKalitesi: "standart",
   bildirimAcik: true, bildirimOnizleme: true, bildirimTitresim: true, arkaPlan: true, acilistaBaslat: false,
-  klipyAnahtar: "", kompakt: "otomatik", listeGizli: false, ctrlKisayol: false, kisayolIpucuAcik: false,
+  klipyAnahtar: "", kompakt: "otomatik", listeGizli: false, kisilerPaneli: false, ctrlKisayol: false, kisayolIpucuAcik: false,
   guncellemeOtomatik: true, guncellemeAtlanan: null,
   turGoruldu: false, raporGosterildi: false, rubychatKartiKapali: false,
 };
@@ -59,7 +61,7 @@ function oku(): TercihDeger {
   try {
     const ham = localStorage.getItem(ANAHTAR);
     const h = JSON.parse(ham ?? "{}") as Record<string, unknown>;
-    for (const k of ["titresim", "saat24", "enterGonder", "sifreliOnizle", "bildirimAcik", "bildirimOnizleme", "bildirimTitresim", "arkaPlan", "acilistaBaslat", "listeGizli", "ctrlKisayol", "kisayolIpucuAcik", "guncellemeOtomatik", "raporGosterildi", "rubychatKartiKapali"] as const) {
+    for (const k of ["titresim", "saat24", "enterGonder", "sifreliOnizle", "bildirimAcik", "bildirimOnizleme", "bildirimTitresim", "arkaPlan", "acilistaBaslat", "listeGizli", "kisilerPaneli", "ctrlKisayol", "kisayolIpucuAcik", "guncellemeOtomatik", "raporGosterildi", "rubychatKartiKapali"] as const) {
       if (typeof h[k] === "boolean") g[k] = h[k] as boolean;
     }
     if (typeof h.turGoruldu === "boolean") {

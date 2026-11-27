@@ -2,6 +2,7 @@
 
 Matrix istemcisi (rubyyard ailesi): Android öncelikli, masaüstü de çalışır. Mimari ve genişletme noktaları: `docs/MIMARI.md`
 (değişince güncelle). Kardeş proje: `~/Projeler/rubyyard` (forum; tasarım dili ve token'lar oradan).
+**Arayüz işine başlarken önce `docs/HARITA.md`** (kurallar, hazır yapı taşları, görev → dosya tablosu, dosya kataloğu): bütün projeyi okuma, haritadan yalnızca gerekenleri aç. Arayüz dosyası ekleyince `python3 araclar/harita.py`.
 
 ## Teknoloji ve komutlar
 
