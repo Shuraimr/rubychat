@@ -35,6 +35,11 @@ class Duzen {
         void this.kompakt;
         untrack(() => this.cekmeceKapat());
       });
+      // Explore uses a permanent directory column in compact mode, so close any open drawer and drop its layer.
+      // Keşfet kompakt kipte kalıcı dizin sütunu kullanır; açık çekmeceyi kapatıp katmanını bırak.
+      $effect(() => {
+        if (gezinme.sekme === "kesfet") untrack(() => this.cekmeceKapat());
+      });
       // Register a layer only while the People panel is an overlay (tablet / narrow desktop). · Kişiler paneli yalnızca kaplama iken katman kaydet (tablet / dar masaüstü).
       $effect(() => {
         const kaplama = this.kisilerKaplama;
@@ -55,8 +60,9 @@ class Duzen {
   }
 
   cekmeceAc() {
-    // Without a room the list already fills the window. · Oda yokken liste zaten pencereyi doldurur.
-    if (this.cekmece || !gezinme.acikOdaId) return;
+    // Without a room/settings the list already fills the window, and Explore is a permanent column.
+    // Oda/ayar yokken liste zaten pencereyi doldurur; Keşfet ise kalıcı sütundur.
+    if (this.cekmece || gezinme.sekme === "kesfet" || (!gezinme.acikOdaId && !gezinme.odaAyar)) return;
     this.cekmece = true;
     this.#katman = gezinme.katmanAc(() => {
       this.#katman = 0;
@@ -64,10 +70,11 @@ class Duzen {
     });
   }
   cekmeceKapat() {
+    if (!this.cekmece && !this.#katman) return;
+    this.cekmece = false;
     if (!this.#katman) return;
     const k = this.#katman;
     this.#katman = 0;
-    this.cekmece = false;
     gezinme.katmanBirak(k);
   }
 
@@ -78,7 +85,14 @@ class Duzen {
   }
   degistir() {
     if (!gezinme.genis) return;
-    if (this.kompakt) return this.cekmece ? this.cekmeceKapat() : this.cekmeceAc();
+    if (this.kompakt) {
+      if (gezinme.sekme === "kesfet") {
+        gezinme.sekmeSec("sohbetler");
+        this.cekmeceAc();
+        return;
+      }
+      return this.cekmece ? this.cekmeceKapat() : this.cekmeceAc();
+    }
     if (gezinme.acikOdaId) tercihler.yaz("listeGizli", !tercihler.d.listeGizli);
   }
 

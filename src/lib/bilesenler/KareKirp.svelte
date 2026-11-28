@@ -130,7 +130,7 @@
 
 <svelte:window onkeydown={tus} />
 
-<AltSayfa baslik={cikartmaKipi ? t("kirp.cikartmaBaslik") : t("kirp.baslik")} {onkapat}>
+<AltSayfa baslik={cikartmaKipi ? t("kirp.cikartmaBaslik") : t("kirp.baslik")} {onkapat} yerlesim="orta">
   {#if hata}
     <p class="hata">{t("kirp.hata")}</p>
   {:else}

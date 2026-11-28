@@ -27,9 +27,9 @@
   import AramaCubugu from "./AramaCubugu.svelte";
   import Avatar from "./Avatar.svelte";
   import BaglamMenusu, { type MenuEylemi } from "./BaglamMenusu.svelte";
-  import Ikon, { type IkonAdi } from "./Ikon.svelte";
-  import { istekler } from "../durum/istekler.svelte";
+  import Ikon from "./Ikon.svelte";
   import OdaOlustur from "./OdaOlustur.svelte";
+  import YeniMenusu, { type YeniSayfa } from "./YeniMenusu.svelte";
   import YeniSohbet from "./YeniSohbet.svelte";
   import OdaKesfet from "./OdaKesfet.svelte";
 
@@ -66,14 +66,7 @@
   // ---- "Yeni" menu: a layer, so back closes it · "Yeni" menüsü: katman, geri tuşu kapatır ----
   let yeniAcik = $state(false);
   let katman = 0;
-  // "kesfet" (public rooms + join by address) replaced the old "join by address". · "kesfet" (herkese açık odalar + adresle katılma) eski "adresle katıl"ın yerini aldı.
-  let sayfa = $state<"kisi" | "grup" | "alan" | "kesfet" | null>(null);
-  const eylemler: { id: "kisi" | "grup" | "alan" | "kesfet"; ikon: IkonAdi }[] = [
-    { id: "kisi", ikon: "kisi" },
-    { id: "kesfet", ikon: "pusula" },
-    { id: "grup", ikon: "sohbet" },
-    { id: "alan", ikon: "izgara" },
-  ];
+  let sayfa = $state<YeniSayfa | null>(null);
   function yeniDegis() {
     if (yeniAcik) return yeniKapat();
     titret(8);
@@ -91,10 +84,6 @@
   });
   function yeniKapat() {
     if (katman) gezinme.katmanKapat(katman);
-  }
-  function sec(id: typeof sayfa) {
-    yeniKapat();
-    sayfa = id;
   }
 
   // ---- Slide a finger along the dock: the page under the finger opens (Sohbetler · Alanlar · Profil) ----
@@ -170,12 +159,7 @@
 <button class="perde" class:acik={yeniAcik} inert={!yeniAcik} aria-label={t("dock.yeniKapat")} data-bas="yok" onclick={yeniKapat}></button>
 
 <div class="kap" class:gizli inert={gizli} data-alt-cubuk={gizli ? undefined : ""}>
-  <div class="yeni-menu acilir" class:acik={yeniAcik} inert={!yeniAcik} role="menu" aria-label={t("dock.yeni")}>
-    {#each eylemler as e (e.id)}
-      <button class="acilir-satir" role="menuitem" onclick={() => sec(e.id)}><Ikon ad={e.ikon} boyut={22} /><span>{t(`dock.${e.id}`)}</span></button>
-    {/each}
-    <button class="acilir-satir" role="menuitem" onclick={() => { yeniKapat(); istekler.ac(); }}><Ikon ad="zil" boyut={22} /><span>{t("istek.baslik")}</span>{#if istekler.bekleyen > 0}<span class="rozet">{istekler.bekleyen}</span>{/if}</button>
-  </div>
+  <YeniMenusu acik={yeniAcik} onkapat={yeniKapat} konum="orta" onsec={(s) => (sayfa = s)} />
 
   <div class="govde">
     {#if aramaVar && !gizli}<div class="kat"><AramaCubugu /><EcCubuk /></div>{/if}
@@ -255,5 +239,4 @@
   .yuz::after { content: ""; position: absolute; inset: -2px; border-radius: 12px; border: 2px solid var(--vurgu); opacity: 0; pointer-events: none; transition: opacity var(--sure-orta) var(--egri-cikis); }
   .aktif .yuz::after { opacity: 1; }
   .nokta { position: absolute; right: -4px; top: -3px; width: 8px; height: 8px; border-radius: 4px; background: var(--bekliyor); border: 2px solid var(--yuzey-1); }
-  .yeni-menu { position: absolute; left: 50%; bottom: calc(100% + 6px); width: min(15rem, calc(100vw - 48px)); margin-left: calc(min(15rem, 100vw - 48px) / -2); max-height: calc(var(--gorunen-yukseklik, 100vh) - 140px); overflow-y: auto; padding: 6px; transform-origin: 50% 100%; }
 </style>

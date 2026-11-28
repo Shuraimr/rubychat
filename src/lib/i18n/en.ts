@@ -10,6 +10,7 @@ import { enL } from "./en-l";
 import { enAlan } from "./en-alan";
 import { enBaslik } from "./en-baslik";
 import { enBaglanti } from "./en-baglanti";
+import { enDuzen } from "./en-duzen";
 import type { Anahtar } from "./tr";
 
 export const en: Record<Anahtar, string> = {
@@ -876,4 +877,5 @@ export const en: Record<Anahtar, string> = {
   ...enAlan,
   ...enBaslik,
   ...enBaglanti,
+  ...enDuzen,
 };

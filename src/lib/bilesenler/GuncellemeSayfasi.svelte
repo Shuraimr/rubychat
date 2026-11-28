@@ -147,7 +147,7 @@
 {/snippet}
 
 {#if guncelleme.sayfaAcik}
-  <AltSayfa baslik={sayfaBaslik} onkapat={() => guncelleme.sayfaKapat()}>
+  <AltSayfa baslik={sayfaBaslik} onkapat={() => guncelleme.sayfaKapat()} yerlesim="orta">
     {#if guncelleme.durum === "izin"}
       <div class="kahraman">
         <span class="simge-kutu uyari" aria-hidden="true"><Ikon ad="kalkan" boyut={24} /></span>

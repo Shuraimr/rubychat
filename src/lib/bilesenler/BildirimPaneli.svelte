@@ -1,12 +1,13 @@
 <!--
   Notification center panel (mounted once in App.svelte):
    - Phone (!gezinme.genis): bottom sheet via AltSayfa
-   - Wide screen (gezinme.genis): 380px popover anchored beneath the bell button, with outside-click, Escape and focus trap.
+   - Wide screen (gezinme.genis): 380px popover positioned beside the bell button via capaKonumla, with outside-click, Escape and focus trap.
   Bildirim merkezi paneli (App.svelte'te bir kez bağlanır):
    - Telefon (!gezinme.genis): AltSayfa ile alt sayfa
-   - Geniş ekran (gezinme.genis): zil düğmesinin altında 380px açılır panel; dışarı tıklama, Esc ve odak tuzağı ile.
+   - Geniş ekran (gezinme.genis): capaKonumla ile zil düğmesinin yanına hizalanan 380px açılır panel; dışarı tıklama, Esc ve odak tuzağı ile.
 -->
 <script lang="ts">
+  import { capaKonumla, type AcilirKonum } from "../capa";
   import { bildirimMerkezi, type BildirimOgesi } from "../durum/bildirimMerkezi.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { guncelleme } from "../durum/guncelleme.svelte";
@@ -24,29 +25,57 @@
   const okunmuslar = $derived(bildirimMerkezi.ogeler.filter((o) => o.okundu));
 
   let panelEl: HTMLDivElement | undefined = $state();
-  let konum = $state({ top: 64, left: 16, maksYuk: 480 });
+  let ekranW = $state(typeof window !== "undefined" ? window.innerWidth : 1280);
+  let ekranH = $state(typeof window !== "undefined" ? window.innerHeight : 800);
 
-  function konumOlc() {
-    const en = Math.min(380, window.innerWidth - 24);
-    const kaynak = bildirimMerkezi.tetik ?? document.querySelector<HTMLElement>('[data-zil-hedef="zil"]');
+  function konumOlc(vw = ekranW, vh = ekranH): AcilirKonum {
+    const en = Math.min(380, vw - 24);
+    const kaynak =
+      (bildirimMerkezi.tetik?.isConnected ? bildirimMerkezi.tetik : null) ??
+      document.querySelector<HTMLElement>('[data-zil-hedef="zil"]');
     const r = kaynak?.getBoundingClientRect();
-    const top = r && r.height > 0 ? Math.min(r.bottom + 8, window.innerHeight - 200) : 64;
-    const hedefSol = r && r.width > 0 ? r.right - en : 16;
-    const left = Math.max(12, Math.min(hedefSol, window.innerWidth - en - 12));
-    const maksYuk = Math.max(220, Math.min(540, window.innerHeight - top - 16));
-    konum = { top, left, maksYuk };
+    if (r && r.width > 0 && r.height > 0) {
+      const k = capaKonumla(
+        {
+          dikdortgen: r,
+          oge: kaynak,
+          yanda: r.right < 140 || !!kaynak?.closest("nav.ray, nav.serit"),
+        },
+        en,
+        vw,
+        vh,
+      );
+      return { ...k, maxYukseklik: Math.min(540, k.maxYukseklik) };
+    }
+    return {
+      sol: 12,
+      ust: 64,
+      maxYukseklik: Math.max(220, Math.min(540, vh - 80)),
+      kok: "left top",
+    };
   }
+
+  const konum = $derived.by<AcilirKonum>(() => {
+    if (!bildirimMerkezi.acik || !gezinme.genis) {
+      return { sol: 12, ust: 64, maxYukseklik: 480, kok: "left top" };
+    }
+    return konumOlc(ekranW, ekranH);
+  });
 
   // Wide-screen popover lifecycle: layer stack (Esc/back), anchor measurement, focus management & restoration.
   // Geniş ekran açılır panel yaşam döngüsü: katman yığını (Esc/geri), konum ölçümü, odak yönetimi ve odağı geri verme.
   $effect(() => {
     if (!bildirimMerkezi.acik || !gezinme.genis) return;
-    konumOlc();
+    ekranW = window.innerWidth;
+    ekranH = window.innerHeight;
     const oncekiOdak = bildirimMerkezi.tetik ?? (document.activeElement as HTMLElement | null);
     const katmanId = gezinme.katmanAc(() => {
       bildirimMerkezi.kapat();
     });
-    const yeniden = () => konumOlc();
+    const yeniden = () => {
+      ekranW = window.innerWidth;
+      ekranH = window.innerHeight;
+    };
     window.addEventListener("resize", yeniden);
     window.addEventListener("keydown", tus);
     queueMicrotask(() => panelEl?.focus());
@@ -191,9 +220,11 @@
       aria-modal="true"
       aria-label={t("bildirimMerkezi.baslik")}
       tabindex="-1"
-      style:top="{konum.top}px"
-      style:left="{konum.left}px"
-      style:max-height="{konum.maksYuk}px"
+      style:top={konum.ust !== undefined ? `${konum.ust}px` : undefined}
+      style:bottom={konum.alt !== undefined ? `${konum.alt}px` : undefined}
+      style:left="{konum.sol}px"
+      style:max-height="{konum.maxYukseklik}px"
+      style:transform-origin={konum.kok}
       in:menuGir
       out:menuCik
     >
@@ -230,7 +261,6 @@
     border-radius: 16px;
     border: 1px solid var(--kenar-ince);
     box-shadow: var(--kat-2);
-    transform-origin: top right;
     outline: none;
     overflow: hidden;
   }

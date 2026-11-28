@@ -13,7 +13,9 @@
   import AlanSatiri from "../bilesenler/AlanSatiri.svelte";
   import Baslik from "../bilesenler/Baslik.svelte";
   import BosDurum from "../bilesenler/BosDurum.svelte";
+  import Ikon from "../bilesenler/Ikon.svelte";
   import { alanlar } from "../durum/alanlar.svelte";
+  import { gezinme } from "../durum/gezinme.svelte";
   import { altKaydirma } from "../durum/kabuk.svelte";
   import { odalar } from "../durum/odalar.svelte";
   import { kayCik, kayGir } from "../gecis";
@@ -25,6 +27,18 @@
   /** gomulu = shown inside a folder tab of the chat list (no big header) · gomulu = sohbet listesinin bir klasör sekmesinin içinde (büyük başlık yok) */
   let { gomulu = false }: { gomulu?: boolean } = $props();
   let kesfetAcik = $state(false);
+  let kesfetTur = $state<"" | "alan">("");
+
+  function kesfetAc(tur: "" | "alan" = "") {
+    // Wide screens use the dedicated Explore tab; phones keep the modal sheet.
+    // Geniş ekranda ayrı Keşfet sekmesine geçilir; telefonda bugünkü pencere açılır.
+    if (gezinme.genis || gezinme.yatay) {
+      gezinme.sekmeSec("kesfet");
+      return;
+    }
+    kesfetTur = tur;
+    kesfetAcik = true;
+  }
   // The graph lives in the state module (memory): coming back draws it at once. · Grafik durum modülünde (bellekte): geri gelince hemen çizilir.
   const grafik = $derived(alanlar.grafik);
   let kok: HTMLDivElement | undefined = $state();
@@ -51,9 +65,14 @@
   <div class="kok" class:itildi={alanlar.yigin.length > 0} inert={alanlar.yigin.length > 0} bind:this={kok}>
     {#if !gomulu}<Baslik baslik={t("alanlar.baslik")} />{/if}
     {#if liste.length === 0}
-      <BosDurum maskot="selam" baslik={t("alanlar.bosBaslik")} metin={t("alanlar.aciklama")} eylem={t("alanlar.kesfet")} onEylem={() => (kesfetAcik = true)} />
+      <BosDurum maskot="selam" baslik={t("alanlar.bosBaslik")} metin={t("alanlar.aciklama")} eylem={t("alanlar.kesfet")} onEylem={() => kesfetAc("alan")} />
     {:else}
       <div class="liste" use:altKaydirma>
+        <button type="button" class="kesfet-satir" data-dalga onclick={() => kesfetAc("")}>
+          <span class="kesfet-ikon"><Ikon ad="pusula" boyut={22} /></span>
+          <span class="kesfet-ad">{t("dock.kesfet")}</span>
+          <Ikon ad="sagOk" boyut={20} />
+        </button>
         {#each liste as a (a.id)}
           <AlanSatiri oge={a} ac={() => alanlar.ac(a.id, a.ad)} />
         {/each}
@@ -68,7 +87,7 @@
   {/each}
 </div>
 
-{#if kesfetAcik}<OdaKesfet ilkTur="alan" onkapat={() => (kesfetAcik = false)} />{/if}
+{#if kesfetAcik}<OdaKesfet ilkTur={kesfetTur} onkapat={() => (kesfetAcik = false)} />{/if}
 
 <style>
   .alanlar { position: relative; overflow: hidden; flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -77,4 +96,14 @@
   .kok, .katman { transition: transform var(--sure-ekran) var(--egri-ac); }
   .itildi { transform: translate3d(-25%, 0, 0); }
   .liste { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: calc(var(--dock-yer, 16px) + 8px); }
+  .kesfet-satir {
+    width: 100%; min-height: var(--liste-satir-boy, 4.5rem); padding: var(--liste-satir-py, .5rem) 1rem var(--liste-satir-py, .5rem) var(--liste-satir-px, 1rem);
+    display: flex; align-items: center; gap: var(--liste-satir-ara, .75rem); text-align: left; color: var(--yazi);
+    border-bottom: 1px solid var(--kenar-ince);
+  }
+  @media (hover: hover) { .kesfet-satir:hover { background: var(--yuzey-1); } }
+  .kesfet-satir:active { background: var(--yuzey-2); }
+  .kesfet-satir > :global(svg) { color: var(--yazi-2); flex: none; }
+  .kesfet-ikon { width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; background: var(--ton); color: var(--ton-ustu); flex: none; }
+  .kesfet-ad { flex: 1; min-width: 0; font-weight: 600; font-size: 1rem; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

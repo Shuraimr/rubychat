@@ -24,9 +24,11 @@
   import Sayfalayici from "../bilesenler/Sayfalayici.svelte";
   import SohbetAramasi from "./SohbetAramasi.svelte";
   import YeniSohbet from "../bilesenler/YeniSohbet.svelte";
+  import type { YeniSayfa } from "../bilesenler/YeniMenusu.svelte";
   import OdaKesfet from "../bilesenler/OdaKesfet.svelte";
   import OdaOlustur from "../bilesenler/OdaOlustur.svelte";
   import { alanlar } from "../durum/alanlar.svelte";
+  import { duzen } from "../durum/duzen.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { altKaydirma, kabuk } from "../durum/kabuk.svelte";
   import { istekler } from "../durum/istekler.svelte";
@@ -51,15 +53,14 @@
     }
   }
 
-  let yeniAcik = $state(false);
+  let yeniSayfa = $state<YeniSayfa | null>(null);
   // Opened by the Vim ":yeni" command · Vim ":yeni" komutuyla açılır
   $effect(() => {
     if (!klavye.yeniSohbetBekleyen) return;
     klavye.yeniSohbetBekleyen = false;
-    yeniAcik = true;
+    yeniSayfa = "kisi";
   });
 
-  let digerSayfa = $state<"kesfet" | "grup" | "alan" | null>(null);
   // Long press on a row: pin it (quick switcher, top of the list) · Satıra uzun bas: sabitle (hızlı geçiş, listenin başı)
   let menu = $state<{ x: number; y: number; eylemler: MenuEylemi[] } | null>(null);
   function odaMenusu(o: OdaOzeti, x: number, y: number) {
@@ -147,7 +148,9 @@
           {#if odalar.ilkListeGeldi}<span class="ozet" class:var={odalar.okunmamisOda > 0}>{odalar.okunmamisOda > 0 ? t("sohbetler.ozetOkunmamis", { o: odalar.okunmamisOda, n: odalar.suz("tumu").length }) : t("sohbetler.ozet", { n: odalar.suz("tumu").length })}</span>{/if}
         </span>
         <span class="ust-eylemler">
-          <Zil />
+          <!-- Bell stays here only on portrait phones; wider layouts and landscape phones keep it in the rail/strip. -->
+          <!-- Zil burada yalnızca dikey telefonda durur; geniş düzenlerde ve yatay telefonda rayda/şerittedir. -->
+          {#if telefon}<Zil />{/if}
           <button class="duzenle" aria-label={t("sohbetler.cipEkle")} onclick={() => (cipDuzenle = true)}><Ikon ad="ayar" boyut={22} /></button>
         </span>
       </header>
@@ -196,30 +199,29 @@
                 {/if}
               {:else if satirlar.length === 0}
                 {#if odalar.liste.length === 0}
-                  <BosDurum maskot="selam" baslik={t("sohbetler.bos")} metin={t("sohbetler.bosAlt")} eylem={t("sohbetler.yeniSohbet")} onEylem={() => (yeniAcik = true)} />
+                  <BosDurum maskot="selam" baslik={t("sohbetler.bos")} metin={t("sohbetler.bosAlt")} eylem={t("sohbetler.yeniSohbet")} onEylem={() => (yeniSayfa = "kisi")} />
                 {:else}
                   <BosDurum maskot="arama" boyut={96} baslik={t("sohbetler.sonucYok")} />
                 {/if}
               {:else}
                 {#each satirlar as oda (oda.id)}
-                  <SohbetSatiri {oda} secili={gezinme.genis && gezinme.acikOdaId === oda.id} taslak={odalar.taslaklar[oda.id] ?? ""} sec={() => (oda.davet ? istekler.ac() : gezinme.odaAc(oda.id))} uzun={(x, y) => odaMenusu(oda, x, y)} />
+                  <SohbetSatiri {oda} secili={!telefon && gezinme.acikOdaId === oda.id} taslak={odalar.taslaklar[oda.id] ?? ""} sec={() => (oda.davet ? istekler.ac() : gezinme.odaAc(oda.id))} uzun={(x, y) => odaMenusu(oda, x, y)} />
                 {/each}
               {/if}
-              <!-- Room for the search pill + button · Arama hapı + düğme için yer -->
-              <div class="alt-bosluk"></div>
+              <!-- Room for the bottom bar (dock on portrait phone, search pill + "+" on wide desktop & landscape phone) · Alt çubuk için yer (dikey telefonda dock, geniş masaüstü ve yatay telefonda arama hapı + "+") -->
+              {#if !duzen.kompakt}<div class="alt-bosluk"></div>{/if}
             </div>
           {/if}
         </div>
       {/snippet}
     </Sayfalayici>
 
-    {#if !telefon}<SohbetAramasi onyeni={() => (yeniAcik = true)} />{/if}
+    {#if !telefon && !duzen.kompakt}<SohbetAramasi onsec={(s) => (yeniSayfa = s)} />{/if}
   {/if}
 </div>
 
 {#if menu}<BaglamMenusu x={menu.x} y={menu.y} eylemler={menu.eylemler} onkapat={() => (menu = null)} />{/if}
-{#if yeniAcik}<YeniSohbet onkapat={() => (yeniAcik = false)} kisayol={telefon ? undefined : (s) => { yeniAcik = false; digerSayfa = s; }} />{/if}
-{#if digerSayfa === "kesfet"}<OdaKesfet onkapat={() => (digerSayfa = null)} />{:else if digerSayfa}<OdaOlustur tur={digerSayfa} onkapat={() => (digerSayfa = null)} />{/if}
+{#if yeniSayfa === "kisi"}<YeniSohbet onkapat={() => (yeniSayfa = null)} />{:else if yeniSayfa === "kesfet"}<OdaKesfet onkapat={() => (yeniSayfa = null)} />{:else if yeniSayfa}<OdaOlustur tur={yeniSayfa} onkapat={() => (yeniSayfa = null)} />{/if}
 
 {#if cipDuzenle}
   <AltSayfa baslik={t("sohbetler.cipBaslik")} onkapat={() => (cipDuzenle = false)}>
@@ -278,7 +280,7 @@
   :global([data-yogunluk="kompakt"]) .ust { height: 3.75rem; padding: 0 .625rem 0 .75rem; }
   :global([data-yogunluk="kompakt"]) .tepsi { margin: 0 10px 6px; }
   :global([data-yogunluk="kompakt"]) .iskelet { min-height: var(--liste-satir-boy); padding: 0 .75rem; }
-  .alt-bosluk { height: var(--dock-yer); }
+  .alt-bosluk { height: var(--dock-yer, 4.75rem); }
   .istek-karti { width: calc(100% - 1.5rem); margin: 0 .75rem .5rem; min-height: 4rem; padding: .625rem 1rem; display: flex; align-items: center; gap: .75rem; text-align: left; background: var(--ton); color: var(--ton-ustu); border-radius: 1.5rem; }
   .istek-karti small { color: inherit; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .yuzler { display: flex; flex: none; }

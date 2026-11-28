@@ -4,7 +4,7 @@
 // (ile Escape'in) uygulamadan çıkmak yerine en üstteki şeyi kapatmasını sağlayan KATMAN YIĞINI.
 import { arama } from "./arama.svelte";
 
-export type Sekme = "sohbetler" | "alanlar" | "ben";
+export type Sekme = "sohbetler" | "alanlar" | "kesfet" | "ben";
 /** Sub-pages under "Ben" · "Ben" altındaki alt sayfalar */
 export type BenAlt = "gorunum" | "sohbet" | "bildirimler" | "klavye" | "guvenlik" | "guncellemeler" | "hakkinda" | "profil" | "hesap";
 /** Target for the shared room / space settings screen · Ortak oda / alan ayarları ekranının hedefi */
@@ -65,7 +65,12 @@ class Gezinme {
     if (history.state) history.replaceState(null, "");
     const yatay = window.matchMedia(YATAY_SORGU);
     const tablet = window.matchMedia(TABLET_SORGU);
-    const guncelle = () => (this.sekil = yatay.matches ? "yatay" : tablet.matches ? "tablet" : "telefon");
+    const guncelle = () => {
+      this.sekil = yatay.matches ? "yatay" : tablet.matches ? "tablet" : "telefon";
+      // Portrait phone has no Explore tab: fall back to Spaces when entering portrait phone.
+      // Dikey telefonda Keşfet sekmesi yok: dikey telefona geçilirken Alanlar'a düş.
+      if (this.sekil === "telefon" && this.sekme === "kesfet") this.#sekmeyeGec("alanlar");
+    };
     guncelle();
     yatay.addEventListener("change", guncelle);
     tablet.addEventListener("change", guncelle);
@@ -198,11 +203,14 @@ class Gezinme {
   }
 
   sekmeSec(s: Sekme) {
+    // Portrait phone has no Explore tab: keep it on Spaces if requested. · Dikey telefonda Keşfet sekmesi yok: istenirse Alanlar'da tut.
+    const hedef: Sekme = this.sekil === "telefon" && s === "kesfet" ? "alanlar" : s;
     this.odaAyarKapat();
     this.benAltKapat();
-    this.#sekmeyeGec(s);
-    // Where a room covers the tab panels (phone, landscape phone), leaving to a tab closes it. · Odanın sekme panellerini örttüğü yerde (telefon, yatay) sekmeye geçmek odayı kapatır.
-    if (!this.genis) this.odaKapat();
+    this.#sekmeyeGec(hedef);
+    // Where a room covers the tab panels (portrait phone), leaving to a tab closes it; landscape phone keeps list and room side by side.
+    // Odanın sekme panellerini örttüğü yerde (dikey telefon) sekmeye geçmek odayı kapatır; yatay telefonda liste ve oda yan yana kalır.
+    if (this.sekil === "telefon") this.odaKapat();
   }
 
   /**

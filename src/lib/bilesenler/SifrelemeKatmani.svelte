@@ -67,7 +67,7 @@
 </script>
 
 {#if sifreleme.katman === "kurulum"}
-  <AltSayfa baslik={t("kurulum.baslik")} onkapat={() => sifreleme.kapat()}>
+  <AltSayfa baslik={t("kurulum.baslik")} onkapat={() => sifreleme.kapat()} yerlesim="orta">
     <Maskot poz="kilit" boyut={96} />
     <p class="aciklama">{t("kurulum.alt")}</p>
     {#if d}
@@ -126,7 +126,7 @@
     {/snippet}
   </AltSayfa>
 {:else if sifreleme.katman === "dogrulama"}
-  <AltSayfa baslik={dog.asama === "gelen_istek" ? t("dogrulama.gelenBaslik") : t("dogrulama.baslik")} onkapat={() => sifreleme.kapat()}>
+  <AltSayfa baslik={dog.asama === "gelen_istek" ? t("dogrulama.gelenBaslik") : t("dogrulama.baslik")} onkapat={() => sifreleme.kapat()} yerlesim="orta">
     {#if dog.asama === "istek_gonderildi" || dog.asama === "yok"}
       <div class="durum bekliyor"><span class="yuklenme"></span><strong>{t("dogrulama.bekle")}</strong></div>
       <p class="aciklama">{t("dogrulama.bekleAlt")}</p>
@@ -171,7 +171,7 @@
 {:else if sifreleme.katman === "kurtarma-olustur"}
   <!-- Once the key is shown the sheet cannot be dismissed by accident: the key appears only once. -->
   <!-- Anahtar gösterildikten sonra sayfa yanlışlıkla kapatılamaz: anahtar yalnızca bir kez görünür. -->
-  <AltSayfa baslik={t("kurtarmaOlustur.baslik")} onkapat={() => sifreleme.kapat()} kapatilabilir={!sifreleme.yeniAnahtar}>
+  <AltSayfa baslik={t("kurtarmaOlustur.baslik")} onkapat={() => sifreleme.kapat()} kapatilabilir={!sifreleme.yeniAnahtar} yerlesim="orta">
     {#if !sifreleme.yeniAnahtar}
       <p class="aciklama">{t("kurtarmaOlustur.alt")}</p>
     {:else}
@@ -200,7 +200,7 @@
     {/snippet}
   </AltSayfa>
 {:else if sifreleme.katman === "kurtarma-gir"}
-  <AltSayfa baslik={t("kurtarmaGir.baslik")} onkapat={() => sifreleme.kapat()} kapatilabilir={!sifreleme.mesgul}>
+  <AltSayfa baslik={t("kurtarmaGir.baslik")} onkapat={() => sifreleme.kapat()} kapatilabilir={!sifreleme.mesgul} yerlesim="orta">
     <form id="kurtarma-formu" onsubmit={kurtarmaGonder} class="form">
       <p class="aciklama">{t("kurtarmaGir.alt")}</p>
       <label class="alan">
@@ -227,7 +227,7 @@
     {/snippet}
   </AltSayfa>
 {:else if sifreleme.katman === "parola"}
-  <AltSayfa baslik={t("parola.baslik")} onkapat={() => sifreleme.kapat()} kapatilabilir={!sifreleme.mesgul}>
+  <AltSayfa baslik={t("parola.baslik")} onkapat={() => sifreleme.kapat()} kapatilabilir={!sifreleme.mesgul} yerlesim="orta">
     <form id="parola-formu" onsubmit={parolaGonder} class="form">
       <p class="aciklama">{t("parola.alt")}</p>
       <label class="alan">
@@ -244,7 +244,7 @@
     {/snippet}
   </AltSayfa>
 {:else if sifreleme.katman === "cikis"}
-  <AltSayfa baslik={sifreleme.cikisRiskli ? t("cikis.baslik") : t("cikis.onayBaslik")} onkapat={() => sifreleme.kapat()}>
+  <AltSayfa baslik={sifreleme.cikisRiskli ? t("cikis.baslik") : t("cikis.onayBaslik")} onkapat={() => sifreleme.kapat()} yerlesim="orta">
     {#if sifreleme.cikisRiskli}<div class="durum iptal"><Ikon ad="uyari" boyut={22} /><strong>{d?.kurtarma === "eksik" ? t("cikis.uyariEksik") : t("cikis.uyari")}</strong></div>{/if}
     <p class="aciklama">{t("cikis.onayAlt")}</p>
     {#snippet altlik()}

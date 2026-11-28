@@ -844,6 +844,8 @@
       </div>
     {:else}
       <header class="kapsuller">
+        <!-- Landscape phone keeps the list beside the room, so no back button. · Yatay telefonda liste odanın yanında durur; geri düğmesi gerekmez. -->
+        {#if !gezinme.yatay}
         <button
           class="simge-dugme geri kapsul"
           data-zil-hedef="geri"
@@ -856,6 +858,7 @@
             <span class="rozet geri-rozet" aria-hidden="true">{digerOkunmamis > 99 ? "99+" : digerOkunmamis}</span>
           {/if}
         </button>
+        {/if}
 
         {#if bilgi}
           <button class="kapsul kapsul-kimlik" aria-label={t("oda.bilgiAc")} onclick={() => (bilgiAcik = true)} use:uzunBasma={{ ac: () => (ozellestirAcik = true) }}>

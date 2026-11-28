@@ -12,6 +12,7 @@ import type {
   OdaAyarlari,
   OdaBilgisi,
   OdaOzeti,
+  OnizlemeMesaji,
   OturumCihazi,
   SabitMesaj,
   Uye,
@@ -37,6 +38,7 @@ export interface VitrinVerisi {
   alanlar: AlanOgesi[];
   alanIcerikleri: Record<string, AlanIcerigi>;
   kesifOdalar: BulunanOda[];
+  kesifOnizlemeler: Record<string, OnizlemeMesaji[]>;
   kisiler: BulunanKisi[];
   cihazlar: OturumCihazi[];
   hesapBilgisi: HesapBilgisi;
@@ -972,6 +974,89 @@ export function vitrinVerisiOlustur(): VitrinVerisi {
     },
   ];
 
+  const kesifOnizlemeler: Record<string, OnizlemeMesaji[]> = {
+    [`!kesfet-rust:${sunucu}`]: [
+      {
+        olayId: "$kesfet-rust-1",
+        gonderen: mertId,
+        gonderenAd: "Mert",
+        kendi: false,
+        zaman: bugun(13, 12),
+        metin: en ? "Anyone tried Tokio's new task dump in production?" : "Tokio'nun yeni task dump özelliğini canlıda deneyen var mı?",
+        tur: "metin",
+      },
+      {
+        olayId: "$kesfet-rust-2",
+        gonderen: elifId,
+        gonderenAd: "Elif",
+        kendi: false,
+        zaman: bugun(13, 24),
+        metin: en ? "Yes, caught a stuck lock in five minutes" : "Evet, takılı kalan bir kilidi beş dakikada buldurdu",
+        tur: "metin",
+      },
+      {
+        olayId: "$kesfet-rust-3",
+        gonderen: burakId,
+        gonderenAd: "Burak",
+        kendi: false,
+        zaman: bugun(13, 39),
+        metin: en ? "Nice, adding it to our tracing setup this week" : "Güzelmiş, bu hafta bizim tracing kurulumuna ekliyorum",
+        tur: "metin",
+      },
+    ],
+    [`!kesfet-svelte:${sunucu}`]: [
+      {
+        olayId: "$kesfet-svelte-1",
+        gonderen: zeynepId,
+        gonderenAd: "Zeynep",
+        kendi: false,
+        zaman: bugun(12, 5),
+        metin: en ? "Snippets made sharing layouts between modal and inline views so clean" : "Snippet'ler pencere ve gömülü görünümler arasında düzen paylaşımını çok temizleştirdi",
+        tur: "metin",
+      },
+      {
+        olayId: "$kesfet-svelte-2",
+        gonderen: canId,
+        gonderenAd: "Can Yılmaz",
+        kendi: false,
+        zaman: bugun(12, 18),
+        metin: en ? "Agreed, much easier to read than nested slots" : "Katılıyorum, iç içe slot'lardan çok daha okunaklı",
+        tur: "metin",
+      },
+    ],
+    [`!kesfet-foto:${sunucu}`]: [
+      {
+        olayId: "$kesfet-foto-1",
+        gonderen: denizId,
+        gonderenAd: "Deniz",
+        kendi: false,
+        zaman: gunOnce(1, 18, 10),
+        metin: en ? "Developed a roll of HP5 pushed to 1600, grain looks great" : "1600'e ittiğim HP5 makarasını banyo ettim, gren çok hoş çıktı",
+        tur: "metin",
+      },
+      {
+        olayId: "$kesfet-foto-2",
+        gonderen: ayseId,
+        gonderenAd: "Ayşe Demir",
+        kendi: false,
+        zaman: gunOnce(1, 18, 42),
+        metin: en ? "Share a couple of frames when you scan them!" : "Tarayınca birkaç kare paylaş mutlaka!",
+        tur: "metin",
+      },
+    ],
+    [`!kesfet-muzik:${sunucu}`]: [
+      {
+        olayId: "$kesfet-muzik-1",
+        gonderen: burakId,
+        gonderenAd: "Burak",
+        kendi: false,
+        zaman: gunOnce(1, 21, 5),
+        metin: en ? "Found a clean first pressing at the Kadıköy flea market" : "Kadıköy bit pazarında tertemiz bir ilk baskı buldum",
+        tur: "metin",
+      },
+    ],
+  };
+
   const kisiler: BulunanKisi[] = kitapUyeleri
     .filter((k) => k.kullaniciId !== eceId)
     .map((k) => ({ kullaniciId: k.kullaniciId, ad: k.ad, avatarMxc: null }));
@@ -1020,6 +1105,7 @@ export function vitrinVerisiOlustur(): VitrinVerisi {
     alanlar: [alanOgesi],
     alanIcerikleri: { [alanId]: { alan: alanOgesi, cocuklar: alanCocuklari } },
     kesifOdalar,
+    kesifOnizlemeler,
     kisiler,
     cihazlar,
     hesapBilgisi,

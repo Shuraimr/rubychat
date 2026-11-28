@@ -8,7 +8,8 @@
 -->
 <script lang="ts">
   import { sureMs } from "../hareket";
-  import { onDestroy, onMount, type Snippet } from "svelte";
+  import { onDestroy, onMount, untrack, type Snippet } from "svelte";
+  import { acilirCik, acilirGir, capaKonumla, sonCapaAyrinti, type CapaAyrinti } from "../capa";
   import { perdeCik, perdeGir, sayfaCik, sayfaGir } from "../gecis";
   import { gezinme } from "../durum/gezinme.svelte";
   import { t } from "../i18n";
@@ -18,6 +19,8 @@
     baslik,
     onkapat,
     kapatilabilir = true,
+    yerlesim = "otomatik",
+    capa,
     ustEylem,
     children,
     altlik,
@@ -26,6 +29,10 @@
     onkapat: () => void;
     /** false = no backdrop/Escape/back/✕/drag close (a step the user must finish) · false = arka plan/Escape/geri/✕/sürükleme ile kapanmaz (kullanıcının bitirmesi gereken adım) */
     kapatilabilir?: boolean;
+    /** "otomatik" opens beside the anchor button on wide screens; "orta" stays centred · "otomatik" geniş ekranda düğmenin yanında açılır; "orta" ortada kalır */
+    yerlesim?: "otomatik" | "orta";
+    /** Optional anchor rect; defaults to the last triggered button · İsteğe bağlı çapa dikdörtgeni; varsayılanı son etkinleşen düğmedir */
+    capa?: DOMRect | null;
     /** Optional action rendered in the header beside the close button · Başlıkta kapatma düğmesinin yanında isteğe bağlı eylem */
     ustEylem?: Snippet;
     children: Snippet;
@@ -36,6 +43,19 @@
   let kutu: HTMLDivElement | undefined = $state();
   let katmanId = 0;
   let gizli = $state(false);
+  let ekranW = $state(typeof window !== "undefined" ? window.innerWidth : 1280);
+  let ekranH = $state(typeof window !== "undefined" ? window.innerHeight : 800);
+
+  // Capture the anchor once at creation so the opening transition starts beside the button.
+  // Çapayı oluşturma anında bir kez yakala; açılış geçişi düğmenin yanında başlasın.
+  const yakalananCapa: CapaAyrinti | null = untrack(() => {
+    if (yerlesim !== "otomatik") return null;
+    if (capa) return { dikdortgen: capa, oge: null, yanda: capa.right < 140 };
+    return sonCapaAyrinti();
+  });
+
+  const acilirMi = $derived(gezinme.genis && yerlesim === "otomatik" && !!yakalananCapa);
+  const konum = $derived(acilirMi && yakalananCapa ? capaKonumla(yakalananCapa, 420, ekranW, ekranH) : null);
 
   onMount(() => {
     // Refusing (false) when the step cannot be dismissed keeps the sheet and restores the history entry. · Adım kapatılamıyorsa reddetmek (false) sayfayı tutar ve history girdisini yeniler.
@@ -45,6 +65,12 @@
     });
     // Focus the sheet when it opens so keyboard / screen reader users land inside it. · Sayfa açılınca odağı içine al; klavye / ekran okuyucu kullanıcıları içeride başlasın.
     kutu?.focus();
+    const boyutYenile = () => {
+      ekranW = window.innerWidth;
+      ekranH = window.innerHeight;
+    };
+    window.addEventListener("resize", boyutYenile);
+    return () => window.removeEventListener("resize", boyutYenile);
   });
   onDestroy(() => gezinme.katmanBirak(katmanId));
 
@@ -98,15 +124,16 @@
     }
   }
 
-  const giris = (n: Element) => (gezinme.genis ? perdeGir(n) : sayfaGir(n));
-  const cikis = (n: Element) => (gezinme.genis ? perdeCik(n) : sayfaCik(n));
+  const giris = (n: Element) => (acilirMi ? acilirGir(n) : gezinme.genis ? perdeGir(n) : sayfaGir(n));
+  const cikis = (n: Element) => (acilirMi ? acilirCik(n) : gezinme.genis ? perdeCik(n) : sayfaCik(n));
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="perde" onclick={kapat} in:perdeGir|global out:perdeCik|global></div>
-<div class="kap" class:dialog={gezinme.genis}>
+<div class="perde" class:saydam={acilirMi} onclick={kapat} in:perdeGir|global out:perdeCik|global></div>
+<div class="kap" class:dialog={gezinme.genis && !acilirMi}>
   <div
     class="sayfa"
+    class:acilir-kart={acilirMi}
     class:suruklenen={surukleniyor}
     role="dialog"
     aria-modal="true"
@@ -114,6 +141,11 @@
     tabindex="-1"
     bind:this={kutu}
     data-alt-cubuk={gezinme.genis ? undefined : ""}
+    style:left={konum ? `${konum.sol}px` : undefined}
+    style:top={konum?.ust !== undefined ? `${konum.ust}px` : undefined}
+    style:bottom={konum?.alt !== undefined ? `${konum.alt}px` : undefined}
+    style:max-height={konum ? `${konum.maxYukseklik}px` : undefined}
+    style:transform-origin={konum?.kok}
     style:transform={dy > 0 ? `translateY(${dy}px)` : undefined}
     style:visibility={gizli ? "hidden" : undefined}
     in:giris|global
@@ -140,6 +172,7 @@
 <style>
   /* Scrim = the page background at 50% (design section 8; no separate colour token). · Perde = sayfa zemini %50 (tasarım bölüm 8; ayrı renk değişkeni yok). */
   .perde { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, var(--zemin) 50%, transparent); }
+  .perde.saydam { background: transparent; }
   /* The wrapper centres/bottom-aligns the sheet, so the sheet's own transform stays free for the animations. */
   /* Kapsayıcı sayfayı ortalar/alta hizalar; böylece sayfanın kendi transform'u animasyonlara serbest kalır. */
   .kap { position: fixed; inset: 0; z-index: 31; display: flex; align-items: flex-end; justify-content: center; pointer-events: none; }
@@ -155,6 +188,14 @@
   }
   .sayfa.suruklenen { transition: none; }
   .dialog .sayfa { width: min(480px, calc(100% - 32px)); max-height: min(85%, 720px); border-radius: 1.75rem; padding-bottom: 0; }
+  /* Anchored popover card on desktop: fixed beside its trigger button. · Masaüstünde açılır kart: tetikleyici düğmenin yanında sabitlenir. */
+  .sayfa.acilir-kart {
+    position: fixed;
+    width: min(420px, calc(100vw - 16px));
+    border-radius: 1.25rem;
+    padding-bottom: 0;
+    transition: none;
+  }
   /* Landscape phone: a sheet this wide would be too long a line, so it is capped and centred. · Yatay telefon: bu kadar geniş sayfa çok uzun satır olurdu; sınırlanır ve ortalanır. */
   @media (max-height: 500px) { .sayfa { width: min(560px, 100%); } }
   .tutamak-alani { flex: none; touch-action: none; }

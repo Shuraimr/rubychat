@@ -6,6 +6,6 @@
   import KlavyeListesi from "./KlavyeListesi.svelte";
 </script>
 
-<AltSayfa baslik={t("klavye.kisayollar")} onkapat={() => (klavye.yardim = false)}>
+<AltSayfa baslik={t("klavye.kisayollar")} onkapat={() => (klavye.yardim = false)} yerlesim="orta">
   <KlavyeListesi otoOdak />
 </AltSayfa>

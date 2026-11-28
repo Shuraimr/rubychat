@@ -70,9 +70,9 @@
   const ad = $derived(gorunenAd ?? oturum.ben?.kullaniciId ?? "");
   const g = $derived(sifreleme.durum);
   const raySiz = $derived(gezinme.sekil === "telefon");
-  // The compact desktop strip has no Görünüm button (the rail does): then it lives here, or it could not be reached at all.
-  // Kompakt masaüstü şeridinde Görünüm düğmesi yok (rayda var): o zaman burada durur, yoksa hiç ulaşılamazdı.
-  const gorunumBurada = $derived(raySiz || (duzen.kompakt && !gezinme.yatay));
+  // The rail and the compact strip both have a Görünüm button; only the portrait phone needs the row here (no repeats).
+  // Ray ve kompakt şeridin ikisinde de Görünüm düğmesi var; satır burada yalnızca dikey telefonda gerekir (tekrar yok).
+  const gorunumBurada = $derived(raySiz);
   // Desktop only: phones have no hardware shortcut keys. · Yalnızca masaüstü: telefonda donanım kısayol tuşları yok.
   const masaustu = window.matchMedia("(any-hover: hover) and (any-pointer: fine)").matches;
   const temaAdi = $derived(ayarlar.tema === "koyu" ? t("gorunum.koyu") : ayarlar.tema === "acik" ? t("gorunum.acik") : t("gorunum.sistem"));

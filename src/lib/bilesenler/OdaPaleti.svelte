@@ -61,6 +61,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
   import { ayniGrup } from "../gruplama";
+  import { acilirCik, acilirGir, capaKonumla, sonCapaAyrinti, type CapaAyrinti } from "../capa";
   import { odaOnizleme } from "../api/komutlar";
   import type { MesajAramaSonucu, OdaOzeti } from "../api/tipler";
   import { atlama, EN_AZ_KARAKTER, MesajAramasi } from "../arama-mesaj/durum.svelte";
@@ -125,8 +126,23 @@
   const ziyaret = [...klavye.ziyaret];
   const mesajArama = new MesajAramasi();
 
+  // Capture the triggering button when opened by click; Ctrl+Space clears it so the palette stays centred.
+  // Tıklamayla açıldığında tetikleyici düğmeyi yakala; Ctrl+Space temizler, palet üstte ortada kalır.
+  const yakalananCapa: CapaAyrinti | null = sonCapaAyrinti();
+  let ekranW = $state(typeof window !== "undefined" ? window.innerWidth : 1280);
+  let ekranH = $state(typeof window !== "undefined" ? window.innerHeight : 800);
+
   const onizlemeAktif = $derived(genislet && genisEkran);
+  const acilirMi = $derived(gezinme.genis && !!yakalananCapa);
+  const konum = $derived.by(() => {
+    if (!acilirMi || !yakalananCapa) return null;
+    const k = capaKonumla(yakalananCapa, onizlemeAktif ? 920 : 560, ekranW, ekranH);
+    return { ...k, maxYukseklik: Math.min(600, k.maxYukseklik) };
+  });
   const aktifKipBilgi = $derived(KIPLER.find((x) => x.id === kip) ?? KIPLER[0]);
+
+  const giris = (n: Element) => (acilirMi ? acilirGir(n) : menuGir(n));
+  const cikis = (n: Element) => (acilirMi ? acilirCik(n) : { duration: 0 });
 
   onMount(() => {
     katman = gezinme.katmanAc(() => {
@@ -135,9 +151,17 @@
     const mq = window.matchMedia(ONIZLEME_ESIK);
     genisEkran = mq.matches;
     const guncelle = (e: MediaQueryListEvent) => (genisEkran = e.matches);
+    const boyutYenile = () => {
+      ekranW = window.innerWidth;
+      ekranH = window.innerHeight;
+    };
     mq.addEventListener("change", guncelle);
+    window.addEventListener("resize", boyutYenile);
     alan?.focus();
-    return () => mq.removeEventListener("change", guncelle);
+    return () => {
+      mq.removeEventListener("change", guncelle);
+      window.removeEventListener("resize", boyutYenile);
+    };
   });
   onDestroy(() => {
     onizlemeIstek++;
@@ -630,8 +654,22 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="perde" onclick={() => gezinme.katmanKapat(katman)} in:perdeGir></div>
-<div class="palet" class:genis={onizlemeAktif} role="dialog" aria-modal="true" aria-label={t("klavye.kPalet")} in:menuGir>
+<div class="perde" class:saydam={acilirMi} onclick={() => gezinme.katmanKapat(katman)} in:perdeGir></div>
+<div
+  class="palet"
+  class:genis={onizlemeAktif}
+  class:capali={acilirMi}
+  role="dialog"
+  aria-modal="true"
+  aria-label={t("klavye.kPalet")}
+  style:left={konum ? `${konum.sol}px` : undefined}
+  style:top={konum?.ust !== undefined ? `${konum.ust}px` : undefined}
+  style:bottom={konum?.alt !== undefined ? `${konum.alt}px` : undefined}
+  style:max-height={konum ? `${konum.maxYukseklik}px` : undefined}
+  style:transform-origin={konum?.kok}
+  in:giris
+  out:cikis
+>
   <div class="alan">
     <Ikon ad="ara" boyut={20} />
     <input
@@ -893,6 +931,7 @@
 
 <style>
   .perde { position: fixed; inset: 0; z-index: 46; background: color-mix(in srgb, var(--zemin) 55%, transparent); }
+  .perde.saydam { background: transparent; }
   .palet {
     position: fixed; z-index: 47; top: min(12vh, 96px); left: 50%; translate: -50% 0;
     width: min(560px, calc(100vw - 32px)); max-height: min(600px, 76vh);
@@ -900,6 +939,8 @@
     background: var(--yuzey-2); box-shadow: var(--kat-2); overflow: hidden;
   }
   .palet.genis { width: min(920px, calc(100vw - 32px)); }
+  .palet.capali { top: auto; left: auto; translate: none; width: min(560px, calc(100vw - 16px)); }
+  .palet.capali.genis { width: min(920px, calc(100vw - 16px)); }
 
   .alan {
     flex: none; display: flex; align-items: center; gap: .625rem;
@@ -1049,6 +1090,7 @@
   @media (max-width: 759px) {
     .genislet-dugme, .onizleme { display: none; }
     .palet.genis { width: min(560px, calc(100vw - 32px)); }
+    .palet.capali.genis { width: min(560px, calc(100vw - 16px)); }
     .palet.genis .liste { flex: 1; max-width: none; }
   }
 </style>

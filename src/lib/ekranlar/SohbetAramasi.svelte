@@ -1,8 +1,8 @@
 <!--
-  Smart search of the chat list (results panel + the field at the bottom). On phones (`dock`) the field stays hidden and grows out of the
-  bottom dock when "Ara" is tapped; on wider shapes it is the always-visible pill next to the "new chat" hexagon.
-  Sohbet listesinin akıllı araması (sonuç paneli + alttaki alan). Telefonda (`dock`) alan gizli durur ve "Ara"ya basınca alt dock'un içinden
-  büyür; geniş şekillerde altıgen "yeni sohbet" düğmesinin yanındaki her zaman görünen haptır.
+  Smart search of the chat list (results panel + the field at the bottom). On portrait phones (`dock`) the field stays hidden and grows out of
+  the bottom dock when "Ara" is tapped; on wide desktop and landscape phones it is the always-visible pill next to the round "+" New menu button.
+  Sohbet listesinin akıllı araması (sonuç paneli + alttaki alan). Dikey telefonda (`dock`) alan gizli durur ve "Ara"ya basınca alt dock'un içinden
+  büyür; geniş masaüstünde ve yatay telefonda yuvarlak "+" Yeni menüsü düğmesinin yanındaki her zaman görünen haptır.
 -->
 <script lang="ts">
   import { hareketVar } from "../hareket";
@@ -14,13 +14,14 @@
   import Ikon, { type IkonAdi } from "../bilesenler/Ikon.svelte";
   import { titret } from "../dokunma";
   import SohbetSatiri from "../bilesenler/SohbetSatiri.svelte";
+  import YeniMenusu, { type YeniSayfa } from "../bilesenler/YeniMenusu.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
   import { kabuk } from "../durum/kabuk.svelte";
   import { odalar } from "../durum/odalar.svelte";
   import { sonAramaEkle, sonAramalariOku, sonAramalariTemizle, sorguAyir } from "../durum/sonAramalar";
   import { t, type Anahtar } from "../i18n";
 
-  let { dock = false, onyeni }: { dock?: boolean; onyeni?: () => void } = $props();
+  let { dock = false, onsec }: { dock?: boolean; onsec?: (sayfa: YeniSayfa) => void } = $props();
 
   // ---- Smart search · Akıllı arama ----
   let aramaModu = $state(false);
@@ -28,6 +29,40 @@
   let alan: HTMLInputElement | undefined = $state();
   let sonlar = $state<string[]>(sonAramalariOku());
   let aramaKatmani = 0;
+
+  // ---- "+" New menu (wide desktop & landscape phone) · "+" Yeni menüsü (geniş masaüstü ve yatay telefon) ----
+  let yeniAcik = $state(false);
+  let yeniKatman = 0;
+  let menuKap: HTMLDivElement | undefined = $state();
+  let yeniDugme: HTMLButtonElement | undefined = $state();
+  let yeniPerde: HTMLButtonElement | undefined = $state();
+
+  function yeniKapat() {
+    if (yeniKatman) gezinme.katmanKapat(yeniKatman);
+  }
+  function yeniDegis() {
+    if (yeniAcik) return yeniKapat();
+    titret(8);
+    kabuk.altGizli = false;
+    yeniAcik = true;
+    yeniKatman = gezinme.katmanAc(() => {
+      yeniKatman = 0;
+      yeniAcik = false;
+    });
+  }
+  // Close the New menu on outside pointerdown anywhere in the window (including the rail or room column outside Sohbetler's stacking context).
+  // Pencerenin herhangi bir yerine dışarı tıklandığında (Sohbetler yığın bağlamı dışındaki ray ya da oda sütunu dahil) Yeni menüsünü kapat.
+  $effect(() => {
+    if (!yeniAcik || dock) return;
+    const disTik = (e: PointerEvent) => {
+      const hedef = e.target as Node | null;
+      if (!hedef) return;
+      if (menuKap?.contains(hedef) || yeniDugme?.contains(hedef) || yeniPerde?.contains(hedef)) return;
+      yeniKapat();
+    };
+    document.addEventListener("pointerdown", disTik, true);
+    return () => document.removeEventListener("pointerdown", disTik, true);
+  });
   const ayri = $derived(sorguAyir(ham));
   const yazi = $derived(ayri.sorgu.trim());
   // ---- What to search in: chips above the field, at the thumb · Nerede aranacağı: alanın üstünde, başparmakta çipler ----
@@ -56,8 +91,8 @@
     const l = odalar.liste.filter((o) => !o.davet && kapsamda(o) && o.ad.toLocaleLowerCase("tr").includes(a));
     return kapsam === "hepsi" ? l.slice(0, 5) : l.slice(0, 40);
   });
-  // Hidden while scrolling down (never while searching). · Aşağı kaydırırken gizli (arama sırasında asla).
-  const gizli = $derived(dock ? !aramaModu : kabuk.altGizli && !aramaModu);
+  // Hidden while scrolling down (never while searching or while the New menu is open). · Aşağı kaydırırken gizli (arama ya da Yeni menüsü açıkken asla).
+  const gizli = $derived(dock ? !aramaModu : kabuk.altGizli && !aramaModu && !yeniAcik);
 
   /**
    * Run a state change as ONE shared-element transition of the pill when View Transitions exist; otherwise switch cleanly without animating width.
@@ -74,6 +109,7 @@
 
   function aramaAc() {
     if (aramaModu) return;
+    yeniKapat();
     void hapMorf(() => {
       aramaModu = true;
     });
@@ -104,6 +140,7 @@
   }
   onDestroy(() => {
     if (aramaKatmani) gezinme.katmanBirak(aramaKatmani);
+    if (yeniKatman) gezinme.katmanBirak(yeniKatman);
     kabuk.aramaOdakta = false;
   });
 
@@ -162,9 +199,20 @@
   </div>
 {/if}
 
-<!-- Bottom bar: ONLY the search pill + the new-chat button; a fixed bottom bar (data-alt-cubuk) while visible. -->
-<!-- Alt çubuk: YALNIZCA arama hapı + yeni sohbet düğmesi; görünürken sabit alt çubuk (data-alt-cubuk). -->
+<!-- Transparent list scrim while the New menu is open so clicking a chat row closes the menu without opening the chat. -->
+<!-- Yeni menüsü açıkken liste üstünde saydam perde: bir sohbet satırına tıklamak sohbeti açmadan menüyü kapatır. -->
+{#if !dock && yeniAcik}
+  <button bind:this={yeniPerde} class="yeni-perde" type="button" aria-label={t("dock.yeniKapat")} data-bas="yok" onclick={yeniKapat}></button>
+{/if}
+
+<!-- Bottom bar: ONLY the search pill + the round "+" button; a fixed bottom bar (data-alt-cubuk) while visible. -->
+<!-- Alt çubuk: YALNIZCA arama hapı + yuvarlak "+" düğmesi; görünürken sabit alt çubuk (data-alt-cubuk). -->
 <div class="alt-cubuk" class:gizli class:aramada={aramaModu} class:dockta={dock} inert={dock && !aramaModu} data-alt-cubuk={gizli ? undefined : ""}>
+  {#if !dock}
+    <div class="yeni-menu-kap" bind:this={menuKap}>
+      <YeniMenusu acik={yeniAcik} onkapat={yeniKapat} konum="sol" {onsec} />
+    </div>
+  {/if}
   {#if aramaModu}
     <div class="kapsamlar" role="radiogroup" aria-label={t("sohbetler.kapsam")}>
       {#each kapsamlar as k (k.id)}
@@ -182,7 +230,17 @@
     {/if}
   </form>
   {#if !dock}<span class="fab-yer" class:gizli-fab={aramaModu}>
-    <button class="fab" aria-label={t("sohbetler.yeniSohbet")} onclick={onyeni} disabled={aramaModu}><Ikon ad="kalem" boyut={24} /></button>
+    <button
+      bind:this={yeniDugme}
+      class="fab"
+      class:acik={yeniAcik}
+      type="button"
+      aria-label={yeniAcik ? t("dock.yeniKapat") : t("dock.yeni")}
+      aria-expanded={yeniAcik}
+      aria-haspopup="menu"
+      onclick={yeniDegis}
+      disabled={aramaModu}
+    ><span class="cevir"><Ikon ad="artik" boyut={24} /></span></button>
   </span>{/if}
 </div>
 
@@ -216,18 +274,24 @@
   .cip-k.secili { background: var(--ton); color: var(--ton-ustu); border-radius: 1.375rem; }
   .alt-cubuk.gizli { transform: translate3d(0, calc(100% + 1rem), 0); opacity: 0; }
   .alt-cubuk.gizli > * { pointer-events: none; }
-  .fab { width: 3.5rem; height: 3.5rem; border-radius: 1rem; display: inline-flex; align-items: center; justify-content: center; background: var(--vurgu); color: var(--vurgu-ustu); box-shadow: var(--kat-2); }
-  .arama-hapi { background: var(--yuzey-3); box-shadow: var(--kat-2); pointer-events: auto; flex: 1; min-width: 0; min-height: 3.5rem; display: flex; align-items: center; border-radius: 1.75rem; overflow: hidden; view-transition-name: arama-hapi; }
-    .ara-simge { flex: none; width: 3.25rem; min-height: 3.5rem; display: inline-flex; align-items: center; justify-content: center; color: var(--yazi-2); }
-  .arama-hapi input { flex: 1; min-width: 0; min-height: 3.5rem; background: none; border: 0; outline: none; color: var(--yazi); font-size: 1rem; text-overflow: ellipsis; }
+  .yeni-perde { position: absolute; inset: 0; z-index: 3; background: transparent; }
+  .yeni-menu-kap { display: contents; }
+  .fab { width: 48px; height: 48px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--vurgu); color: var(--vurgu-ustu); box-shadow: var(--kat-2); transition: opacity var(--sure-hizli) var(--egri-cikis); }
+  .fab:active { opacity: .82; }
+  .cevir { display: inline-flex; transition: transform var(--sure-orta) var(--egri-ac); }
+  .fab.acik .cevir { transform: rotate(135deg); }
+  .arama-hapi { background: var(--yuzey-3); box-shadow: var(--kat-2); pointer-events: auto; flex: 1; min-width: 0; min-height: 3rem; display: flex; align-items: center; border-radius: 1.5rem; overflow: hidden; view-transition-name: arama-hapi; }
+  .ara-simge { flex: none; width: 3rem; min-height: 3rem; display: inline-flex; align-items: center; justify-content: center; color: var(--yazi-2); }
+  .arama-hapi input { flex: 1; min-width: 0; min-height: 3rem; background: none; border: 0; outline: none; color: var(--yazi); font-size: 1rem; text-overflow: ellipsis; }
   .arama-hapi input::placeholder { color: var(--yazi-2); }
   .temizle { flex: none; width: 2.75rem; height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; color: var(--yazi-2); }
   /* The FAB scales away via transform + opacity only (no per-frame margin animation). · Arama sırasında FAB yalnızca transform + opacity ile kaybolur (kare başına margin animasyonu yok). */
   .fab-yer { pointer-events: auto; flex: none; display: inline-flex; transition: transform var(--sure-orta) var(--egri-ac), opacity var(--sure-cikis) linear; }
-  .fab-yer.gizli-fab { transform: scale(.3); opacity: 0; margin-left: -4rem; pointer-events: none; }
+  .fab-yer.gizli-fab { transform: scale(.3); opacity: 0; margin-left: -3.75rem; pointer-events: none; }
   /* Phone: the field grows out of the dock (same place, same corners) · Telefon: alan dock'un içinden büyür (aynı yer, aynı köşeler) */
   .alt-cubuk.dockta.gizli { transform: scale(.94, 1.15); opacity: 0; transform-origin: 50% 100%; }
-  .alt-cubuk.dockta .arama-hapi { border-radius: 2rem; }
+  .alt-cubuk.dockta .arama-hapi { min-height: 3.5rem; border-radius: 2rem; }
+  .alt-cubuk.dockta .ara-simge, .alt-cubuk.dockta .arama-hapi input { min-height: 3.5rem; }
   .aramada { background: linear-gradient(to top, var(--zemin) 60%, transparent); }
 
 </style>

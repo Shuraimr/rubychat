@@ -201,7 +201,8 @@ function isleyici(komut: string, payload?: InvokeArgs): unknown {
     case "oda_onizleme": {
       const odaId = String(arg.odaId ?? "");
       const adet = typeof arg.adet === "number" ? arg.adet : 20;
-      const ogeler = veri.zamanlar[odaId] ?? [];
+      const ogeler = veri.zamanlar[odaId];
+      if (!ogeler) return (veri.kesifOnizlemeler[odaId] ?? []).slice(-adet);
       const sonuc: OnizlemeMesaji[] = ogeler
         .filter((o) => o.olayId && o.metin)
         .slice(-adet)
@@ -435,7 +436,74 @@ function isleyici(komut: string, payload?: InvokeArgs): unknown {
       return [];
     case "alana_oda_ekle":
       return 0;
-    case "alana_katil":
+    case "alana_katil": {
+      const kimlik = String(arg.kimlik ?? "");
+      const kesif = veri.kesifOdalar.find((o) => o.odaId === kimlik || o.adres === kimlik);
+      if (kesif) {
+        kesif.uye = true;
+        const ad = kesif.ad ?? kesif.adres ?? kesif.odaId;
+        const harf = ad.replace(/^[#!]/, "").charAt(0).toUpperCase() || "#";
+        const oniz = veri.kesifOnizlemeler[kesif.odaId] ?? [];
+        const son = oniz.at(-1);
+        if (!odaBul(kesif.odaId)) {
+          veri.odalar.unshift({
+            id: kesif.odaId,
+            takmaAd: kesif.adres,
+            ad,
+            avatarHarf: harf,
+            avatarMxc: kesif.avatarMxc,
+            sonMesaj: son ? `${son.gonderenAd}: ${son.metin}` : null,
+            sonZaman: son?.zaman ?? Date.now(),
+            okunmamis: 0,
+            bahsedilme: 0,
+            sifreli: false,
+            dm: false,
+            davet: false,
+            alan: kesif.alan,
+            sabit: false,
+          });
+        }
+        if (!kesif.alan && !veri.bilgiler[kesif.odaId]) {
+          veri.bilgiler[kesif.odaId] = {
+            id: kesif.odaId,
+            ad,
+            avatarHarf: harf,
+            sifreli: false,
+            uyeSayisi: kesif.uyeSayisi + 1,
+            avatarMxc: kesif.avatarMxc,
+            karsiKullanici: null,
+          };
+        }
+        if (!kesif.alan && !veri.zamanlar[kesif.odaId] && oniz.length > 0) {
+          veri.zamanlar[kesif.odaId] = oniz.map((m) => ({
+            id: m.olayId,
+            gonderen: m.gonderen,
+            gonderenAd: m.gonderenAd,
+            kendi: m.kendi,
+            zaman: m.zaman,
+            tur: "metin",
+            metin: m.metin,
+            durum: "gonderildi",
+            gonderenAvatarMxc: null,
+            arama: null,
+            medya: null,
+            olayId: m.olayId,
+            html: null,
+            duzenlendi: false,
+            tepkiler: [],
+            yanit: null,
+            okuyanlar: [],
+            anket: null,
+            silinebilir: false,
+            sabit: false,
+            duzenlenebilir: false,
+          }));
+        }
+        odalariYayinla();
+        return kesif.odaId;
+      }
+      return kimlik || veri.odalar[0]?.id || `!yeni:${veri.sunucu}`;
+    }
     case "alanda_oda_olustur":
       return String(arg.kimlik ?? veri.odalar[0]?.id ?? `!yeni:${veri.sunucu}`);
     case "alandan_cikar":
@@ -534,6 +602,19 @@ function isleyici(komut: string, payload?: InvokeArgs): unknown {
     case "yerel_arama_uygulamalar":
     case "ec_aktif_aramalar":
       return [];
+    case "yerel_arama_aygitlar":
+      return {
+        girisler: [
+          { ad: "alsa_input.pci-0000_00_1f.3.analog-stereo", aciklama: "Dahili mikrofon" },
+          { ad: "alsa_input.usb-Blue_Microphones-00.mono-fallback", aciklama: "USB Masaüstü Mikrofonu" },
+        ],
+        cikislar: [
+          { ad: "alsa_output.pci-0000_00_1f.3.analog-stereo", aciklama: "Dahili hoparlör" },
+          { ad: "bluez_output.00_11_22_33_44_55.1", aciklama: "Bluetooth Kulaklık" },
+        ],
+        varsayilanGiris: "alsa_input.pci-0000_00_1f.3.analog-stereo",
+        varsayilanCikis: "alsa_output.pci-0000_00_1f.3.analog-stereo",
+      };
     case "yerel_arama_var":
     case "ec_sunucu_destekliyor":
     case "pano_yaz":
@@ -553,6 +634,7 @@ function isleyici(komut: string, payload?: InvokeArgs): unknown {
     case "yerel_arama_paylas":
     case "yerel_arama_paylasilan_sesler":
     case "yerel_arama_paylasimi_durdur":
+    case "yerel_arama_ses_ayarla":
     case "ec_gonder":
     case "ec_kapat":
     case "guncelleme_iptal":
