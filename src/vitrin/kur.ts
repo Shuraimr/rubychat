@@ -13,6 +13,7 @@ import type {
   ZamanGuncelleme,
   ZamanOgesi,
 } from "../lib/api/tipler";
+import type { YerelDurum } from "../lib/arama-ec/tipler";
 import { vitrinVerisiOlustur } from "./veri";
 
 const SURUM = "0.1.0-beta.10";
@@ -34,6 +35,119 @@ const DOGRULAMA_YOK: DogrulamaDurumu = {
 
 const veri = vitrinVerisiOlustur();
 let yerelSira = 1;
+
+type VitrinAramaKipi = "izgara" | "izleme" | "paylasim" | "koptu";
+
+// Optional showcase call preview (?vitrin&arama=izgara|izleme|paylasim|koptu) to verify call layouts without a backend.
+// Arka uç olmadan arama düzenlerini doğrulamak için isteğe bağlı vitrin arama önizlemesi.
+const vitrinAramaKipi: VitrinAramaKipi | null = (() => {
+  if (typeof location === "undefined") return null;
+  const v = new URLSearchParams(location.search).get("arama");
+  return v === "izgara" || v === "izleme" || v === "paylasim" || v === "koptu" ? v : null;
+})();
+
+let sonYerelDurum: YerelDurum | null = null;
+
+/** Build one static 64x36 I420 dark frame so YerelVideo renders cleanly without spinning in showcase mode. */
+/** YerelVideo'nun vitrinde boş döngüye girmeden temiz çizmesi için tek bir sabit 64x36 I420 koyu kare üretir. */
+function vitrinKareUret(): ArrayBuffer {
+  const g = 64;
+  const h = 36;
+  const cg = g >> 1;
+  const ch = h >> 1;
+  const buf = new ArrayBuffer(12 + g * h + 2 * cg * ch);
+  const dv = new DataView(buf);
+  dv.setUint32(0, 1, true);
+  dv.setUint32(4, g, true);
+  dv.setUint32(8, h, true);
+  const y = new Uint8Array(buf, 12, g * h);
+  y.fill(38);
+  // Subtle top bar so the shared screen looks like an application window. · Paylaşılan ekran bir uygulama penceresi gibi görünsün diye hafif üst çubuk.
+  y.fill(54, 0, g * 4);
+  new Uint8Array(buf, 12 + g * h, cg * ch).fill(132);
+  new Uint8Array(buf, 12 + g * h + cg * ch, cg * ch).fill(126);
+  return buf;
+}
+
+function vitrinAramaDurumuOlustur(odaId: string, kip: VitrinAramaKipi): YerelDurum {
+  const izleme = kip === "izleme";
+  const paylasim = kip === "paylasim";
+  return {
+    odaId,
+    asama: kip === "koptu" ? "koptu" : "acik",
+    neden: null,
+    mikrofonKapali: false,
+    paylasim: paylasim ? "acik" : "yok",
+    paylasilan: paylasim ? ["Helium"] : [],
+    paylasimHatasi: false,
+    onizleme: paylasim ? "ben|ekran-onizleme" : null,
+    yayin: paylasim ? { durum: "yayinda", kbps: 1400, kareHizi: 30, genislik: 1920, yukseklik: 1080 } : null,
+    katilimcilar: [
+      {
+        uye: "vitrin-ben",
+        kullaniciId: veri.ben.kullaniciId,
+        ad: "Sen",
+        avatarMxc: null,
+        ben: true,
+        susturulmus: false,
+        konusuyor: false,
+        ekran: null,
+        kamera: null,
+        sesler: [{ anahtar: "ben|mik", tur: "mikrofon", ad: null, duzey: 1 }],
+        sorun: null,
+      },
+      {
+        uye: "vitrin-ece",
+        kullaniciId: `@ece2:${veri.sunucu}`,
+        ad: "Ece",
+        avatarMxc: null,
+        ben: false,
+        susturulmus: false,
+        konusuyor: true,
+        ekran: izleme ? "vitrin|ekran" : null,
+        kamera: null,
+        sesler: [
+          { anahtar: "ece|mik", tur: "mikrofon", ad: null, duzey: 1 },
+          ...(izleme ? [{ anahtar: "ece|helium", tur: "uygulama" as const, ad: "Helium", duzey: 0.8 }] : []),
+        ],
+        sorun: null,
+      },
+      {
+        uye: "vitrin-mert",
+        kullaniciId: `@mert:${veri.sunucu}`,
+        ad: "Mert",
+        avatarMxc: null,
+        ben: false,
+        susturulmus: true,
+        konusuyor: false,
+        ekran: null,
+        kamera: null,
+        sesler: [{ anahtar: "mert|mik", tur: "mikrofon", ad: null, duzey: 1 }],
+        sorun: null,
+      },
+      {
+        uye: "vitrin-deniz",
+        kullaniciId: `@deniz:${veri.sunucu}`,
+        ad: "Deniz",
+        avatarMxc: null,
+        ben: false,
+        susturulmus: false,
+        konusuyor: false,
+        ekran: null,
+        kamera: null,
+        sesler: [{ anahtar: "deniz|mik", tur: "mikrofon", ad: null, duzey: 1 }],
+        sorun: "dogrulanmamis",
+      },
+    ],
+  };
+}
+
+function yerelDurumYayinla(durum: YerelDurum) {
+  sonYerelDurum = durum;
+  queueMicrotask(() => {
+    void emit("yerel-arama", durum);
+  });
+}
 
 function argNesne(payload?: InvokeArgs): Record<string, unknown> {
   if (!payload || typeof payload !== "object" || Array.isArray(payload) || payload instanceof ArrayBuffer || payload instanceof Uint8Array) {
@@ -599,9 +713,10 @@ function isleyici(komut: string, payload?: InvokeArgs): unknown {
     case "kamera_penceresi":
       return null;
     case "arama_turn_sunuculari":
-    case "yerel_arama_uygulamalar":
     case "ec_aktif_aramalar":
       return [];
+    case "yerel_arama_uygulamalar":
+      return vitrinAramaKipi ? ["Helium", "Firefox"] : [];
     case "yerel_arama_aygitlar":
       return {
         girisler: [
@@ -617,23 +732,78 @@ function isleyici(komut: string, payload?: InvokeArgs): unknown {
       };
     case "yerel_arama_var":
     case "ec_sunucu_destekliyor":
+      // ec.ara checks ec_sunucu_destekliyor before yerel_arama_var, so both must be true for showcase calls.
+      // ec.ara, yerel_arama_var'dan önce ec_sunucu_destekliyor'u yoklar; vitrin araması için ikisi de true olmalı.
+      return vitrinAramaKipi !== null;
     case "pano_yaz":
     case "guncelleme_izin_var":
     case "guncelleme_kur":
       return false;
-    case "yerel_arama_kare":
+    case "yerel_arama_kare": {
+      if (!vitrinAramaKipi) return new ArrayBuffer(0);
+      const sonra = typeof arg.sonra === "number" ? arg.sonra : 0;
+      if (sonra === 0) return vitrinKareUret();
+      return new Promise<ArrayBuffer>((coz) => setTimeout(() => coz(new ArrayBuffer(4)), 1000));
+    }
     case "pano_resim":
       return new ArrayBuffer(0);
     case "ec_ac":
       return { widgetId: "vitrin-ec", url: "about:blank" };
-    case "arama_olayi_gonder":
-    case "yerel_arama_baslat":
+    case "yerel_arama_baslat": {
+      if (vitrinAramaKipi) {
+        const odaId = String(arg.odaId ?? "");
+        yerelDurumYayinla(vitrinAramaDurumuOlustur(odaId, vitrinAramaKipi));
+      }
+      return null;
+    }
+    case "yerel_arama_sustur": {
+      if (sonYerelDurum) {
+        const kapali = Boolean(arg.kapali);
+        yerelDurumYayinla({
+          ...sonYerelDurum,
+          mikrofonKapali: kapali,
+          katilimcilar: sonYerelDurum.katilimcilar.map((k) => (k.ben ? { ...k, susturulmus: kapali } : k)),
+        });
+      }
+      return null;
+    }
+    case "yerel_arama_paylas": {
+      if (sonYerelDurum) {
+        const paylasilan = Array.isArray(arg.uygulamalar) ? arg.uygulamalar.map(String) : [];
+        yerelDurumYayinla({
+          ...sonYerelDurum,
+          paylasim: "acik",
+          paylasilan,
+          onizleme: "ben|ekran-onizleme",
+          yayin: { durum: "yayinda", kbps: 1400, kareHizi: 30, genislik: 1920, yukseklik: 1080 },
+        });
+      }
+      return null;
+    }
+    case "yerel_arama_paylasilan_sesler": {
+      if (sonYerelDurum) {
+        const paylasilan = Array.isArray(arg.uygulamalar) ? arg.uygulamalar.map(String) : [];
+        yerelDurumYayinla({ ...sonYerelDurum, paylasilan });
+      }
+      return null;
+    }
+    case "yerel_arama_paylasimi_durdur": {
+      if (sonYerelDurum) {
+        yerelDurumYayinla({
+          ...sonYerelDurum,
+          paylasim: "yok",
+          paylasilan: [],
+          onizleme: null,
+          yayin: null,
+        });
+      }
+      return null;
+    }
     case "yerel_arama_kapat":
-    case "yerel_arama_sustur":
+      sonYerelDurum = null;
+      return null;
+    case "arama_olayi_gonder":
     case "yerel_arama_duzey":
-    case "yerel_arama_paylas":
-    case "yerel_arama_paylasilan_sesler":
-    case "yerel_arama_paylasimi_durdur":
     case "yerel_arama_ses_ayarla":
     case "ec_gonder":
     case "ec_kapat":
@@ -658,3 +828,23 @@ function isleyici(komut: string, payload?: InvokeArgs): unknown {
 
 mockWindows("main");
 mockIPC(isleyici, { shouldMockEvents: true });
+
+if (vitrinAramaKipi) {
+  const grup = veri.odalar.find((o) => !o.dm && !o.alan);
+  if (grup) {
+    // Wait until App.svelte restores the mock session and ec.baslat() subscribes to "yerel-arama".
+    // App.svelte taklit oturumu geri yükleyip ec.baslat() "yerel-arama" olayına abone olana dek bekle.
+    setTimeout(() => {
+      void import("../lib/arama-ec/ec.svelte").then(({ ec }) => {
+        void ec.ara({
+          id: grup.id,
+          ad: grup.ad,
+          avatarHarf: grup.avatarHarf || grup.ad.charAt(0).toUpperCase(),
+          avatarMxc: null,
+          dm: false,
+          sesli: false,
+        });
+      });
+    }, 1500);
+  }
+}
