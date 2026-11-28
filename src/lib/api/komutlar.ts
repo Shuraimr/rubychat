@@ -45,7 +45,7 @@ import type {
   GuncellemeBilgisi,
   RaporSatiri,
 } from "./tipler";
-import type { EcAcIstegi, EcAcilis, EcAramaDurumu } from "../arama-ec/tipler";
+import type { EcAcIstegi, EcAcilis, EcAramaDurumu, SesAygitlari } from "../arama-ec/tipler";
 
 /** Tauri rejects with whatever the command returned in Err; normalise it to our Hata shape. */
 /** Tauri, komutun Err'ünü olduğu gibi reddeder; onu Hata biçimine düzeltiriz. */
@@ -226,6 +226,9 @@ export const yerelAramaPaylas = (uygulamalar: string[]) => cagir<void>("yerel_ar
 export const yerelAramaPaylasilanSesler = (uygulamalar: string[]) => cagir<void>("yerel_arama_paylasilan_sesler", { uygulamalar });
 export const yerelAramaPaylasimiDurdur = () => cagir<void>("yerel_arama_paylasimi_durdur");
 export const yerelAramaKare = (anahtar: string, sonra: number) => cagir<ArrayBuffer>("yerel_arama_kare", { anahtar, sonra });
+export const yerelAramaAygitlar = () => cagir<SesAygitlari>("yerel_arama_aygitlar");
+export const yerelAramaSesAyarla = (giris: string | null, cikis: string | null, gurultu: boolean) =>
+  cagir<void>("yerel_arama_ses_ayarla", { giris, cikis, gurultu });
 
 export const ecAc = (i: EcAcIstegi) => cagir<EcAcilis>("ec_ac", { ...i });
 /** One widget API message from the iframe to the Rust driver · iframe'den Rust sürücüsüne bir widget API mesajı */

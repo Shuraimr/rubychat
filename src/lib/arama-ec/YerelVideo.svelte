@@ -9,6 +9,11 @@
   import { t } from "../i18n";
 
   let { anahtar }: { anahtar: string } = $props();
+  // A derived string: every call snapshot hands the same key again, and only a real change may restart the reader. Restarting
+  // on every snapshot re-created the textures, and the picture turned green. · Türetilmiş metin: her arama anlık görüntüsü aynı
+  // anahtarı yeniden verir; okuyucuyu yalnızca gerçek bir değişiklik yeniden başlatabilir. Her anlık görüntüde yeniden başlamak
+  // dokuları yeniden kuruyordu ve görüntü yeşile dönüyordu.
+  const ad = $derived(anahtar);
   let tuval = $state<HTMLCanvasElement | null>(null);
   let geldi = $state(false);
 
@@ -43,15 +48,23 @@
       for (const [a, d] of [[gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR]]) gl.texParameteri(gl.TEXTURE_2D, a, d);
       gl.uniform1i(gl.getUniformLocation(p, ad), i);
     });
+    // Size of what the textures hold, kept here and not read from the canvas: fresh textures on a canvas that already has the
+    // right size would otherwise only get texSubImage2D, which fails on empty storage, and all-zero YUV draws green.
+    // Dokuların tuttuğu boyut; tuvalden okunmaz, burada tutulur: yoksa zaten doğru boyuttaki bir tuvalde yeni dokular yalnızca
+    // texSubImage2D alırdı, boş depoda bu başarısız olur ve tamamen sıfır YUV yeşil çizilir.
+    let dg = 0;
+    let dh = 0;
     return (b: ArrayBuffer) => {
       const bas = new DataView(b);
       const g = bas.getUint32(4, true);
       const h = bas.getUint32(8, true);
       const cg = (g + 1) >> 1;
       const ch = (h + 1) >> 1;
-      if (!g || !h || b.byteLength < 12 + g * h + 2 * cg * ch) return;
-      const yeni = c.width !== g || c.height !== h;
+      if (!g || !h || b.byteLength < 12 + g * h + 2 * cg * ch) return false;
+      const yeni = dg !== g || dh !== h;
       if (yeni) {
+        dg = g;
+        dh = h;
         c.width = g;
         c.height = h;
         gl.viewport(0, 0, g, h);
@@ -65,21 +78,30 @@
         else gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, y, gl.LUMINANCE, gl.UNSIGNED_BYTE, d);
       }
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      return true;
     };
   }
 
   $effect(() => {
     const c = tuval;
-    const ad = anahtar;
+    const anahtarAdi = ad;
     if (!c) return;
-    const ciz = kur(c);
+    let ciz = kur(c);
     if (!ciz) return;
     let dur = false;
+    // A lost GPU context is rebuilt instead of leaving a dead (green or black) canvas. · Kaybolan GPU bağlamı ölü (yeşil ya da
+    // siyah) bir tuval bırakmak yerine yeniden kurulur.
+    const kayip = (e: Event) => e.preventDefault();
+    const geriGeldi = () => {
+      ciz = kur(c);
+    };
+    c.addEventListener("webglcontextlost", kayip);
+    c.addEventListener("webglcontextrestored", geriGeldi);
     void (async () => {
       let sira = 0;
       while (!dur) {
         try {
-          const b = await yerelAramaKare(ad, sira);
+          const b = await yerelAramaKare(anahtarAdi, sira);
           if (dur) break;
           // Nothing new yet (a still screen): ask again with the same number. · Henüz yeni bir şey yok (durağan ekran): aynı numarayla yeniden sor.
           if (b.byteLength === 4) continue;
@@ -89,8 +111,7 @@
             continue;
           }
           sira = new DataView(b).getUint32(0, true);
-          ciz(b);
-          geldi = true;
+          if (ciz?.(b)) geldi = true;
         } catch {
           await new Promise((r) => setTimeout(r, 300));
         }
@@ -99,6 +120,8 @@
     return () => {
       dur = true;
       geldi = false;
+      c.removeEventListener("webglcontextlost", kayip);
+      c.removeEventListener("webglcontextrestored", geriGeldi);
     };
   });
 </script>

@@ -3,14 +3,14 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use matrix_rtc_call::{CallEnd, CallKind, CallStatus, GroupNotify, RingConfig};
 use matrix_rtc_call_sdk::{CallEvent, ConnectionState, LiveKitCall, LiveKitCallOptions, Participant, UnableToDecrypt};
 use matrix_rtc_core::compat::MembershipFormat;
 use matrix_rtc_transport::{
-    AudioFrame, AudioSourceConfig, LocalTrackHandle, MediaStreamKind, PublishOptions, VideoEncodingLimits, VideoFrame, VideoSourceConfig,
+    AudioFrame, AudioSourceConfig, I420Buffer, LocalTrackHandle, MediaStreamKind, PublishOptions, VideoEncodingLimits, VideoFrame, VideoSourceConfig,
 };
 use serde::Serialize;
 use tauri::Emitter;
@@ -23,9 +23,42 @@ use super::*;
 
 pub const VAR: bool = true;
 const OLAY: &str = "yerel-arama";
+const SEVIYE_OLAYI: &str = "yerel-arama-seviye";
 /// Names of the shared applications, encrypted to each device (track names would be readable by the media server).
 /// Paylaşılan uygulamaların adları, her cihaza şifreli (parça adlarını medya sunucusu okuyabilirdi).
 const AD_OLAYI: &str = "dev.rubyyard.rubychat.app_audio";
+/// Fixed frame-channel key for the sharer's own local screen preview. · Paylaşanın kendi yerel ekran önizlemesi için sabit kare kanalı anahtarı.
+const ONIZLEME: &str = "ben|ekran-onizleme";
+
+/// Keeps WebRTC's PeerConnectionFactory alive for the whole process after creating it on a clean OS thread.
+/// On Android, `LkRuntime::instance()` initializes libwebrtc's JNI video encoder factory, which aborts with
+/// `RTC_CHECK(!env->ExceptionCheck())` ("error during NewStringUTF") if run on a tokio worker that carries a
+/// leftover Java exception. Holding a strong `Arc` stops the factory from dropping between calls and being
+/// recreated later on a tokio thread.
+/// WebRTC'nin PeerConnectionFactory'sini temiz bir işletim sistemi iş parçacığında kurup süreç boyunca canlı tutar.
+/// Android'de `LkRuntime::instance()` libwebrtc'nin JNI video kodlayıcı fabrikasını başlatır; önceden kalmış bir
+/// Java istisnası taşıyan bir tokio iş parçacığında çalışırsa `RTC_CHECK(!env->ExceptionCheck())` ("error during
+/// NewStringUTF") ile süreci düşürür. Güçlü `Arc` saklanır ki fabrika aramalar arasında düşüp sonraki aramada
+/// yeniden bir tokio iş parçacığında kurulmasın.
+static CALISMA: OnceLock<Arc<livekit::rtc_engine::lk_runtime::LkRuntime>> = OnceLock::new();
+
+fn webrtc_hazirla() {
+    if CALISMA.get().is_some() {
+        return;
+    }
+    match std::thread::Builder::new()
+        .name("rubychat-webrtc".into())
+        .spawn(livekit::rtc_engine::lk_runtime::LkRuntime::instance)
+    {
+        Ok(h) => match h.join() {
+            Ok(rt) => {
+                let _ = CALISMA.set(rt);
+            }
+            Err(_) => tracing::warn!("webrtc hazırlama iş parçacığı panikledi"),
+        },
+        Err(e) => tracing::warn!("webrtc hazırlama iş parçacığı açılamadı: {e}"),
+    }
+}
 
 #[derive(Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +88,18 @@ pub struct Katilimci {
     sorun: Option<&'static str>,
 }
 
+/// Real WebRTC send-side health and bitrate of our own screen share. · Kendi ekran paylaşımımızın gerçek WebRTC gönderim durumu ve hızı.
+#[derive(Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct YayinBilgisi {
+    /// "basliyor" | "yayinda" | "gitmiyor"
+    durum: &'static str,
+    kbps: u32,
+    kare_hizi: u32,
+    genislik: u32,
+    yukseklik: u32,
+}
+
 #[derive(Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct YerelDurum {
@@ -70,6 +115,10 @@ pub struct YerelDurum {
     paylasilan: Vec<String>,
     /// Share ended by an error or by the system's picker · Paylaşım hatayla ya da sistem seçicisinde bitti
     paylasim_hatasi: bool,
+    /// Local preview frame key while picking or sharing · Seçim ve paylaşım sırasında yerel önizleme kare anahtarı
+    onizleme: Option<String>,
+    /// Real send counters while sharing ("acik" only) · Paylaşım açıkken gerçek gönderim sayaçları (yalnız "acik")
+    yayin: Option<YayinBilgisi>,
 }
 
 enum Istek {
@@ -81,6 +130,7 @@ enum Istek {
     EkranHazir(u64, u32, u32),
     EkranBitti(u64, bool),
     MikrofonHazir(Result<Arc<dyn LocalTrackHandle>, String>),
+    SesAyari(ses::AyarDegisimi),
     Adlar(String, String, HashMap<u32, String>),
 }
 
@@ -110,6 +160,9 @@ fn iste(i: Istek) -> bool {
 
 pub async fn baslat(app: AppHandle, oda: matrix_sdk::Room, dm: bool, ara: bool) -> Sonuc<()> {
     kapat().await;
+    // Even tokio's blocking pool may carry JNI state from earlier calls, so `webrtc_hazirla` spawns its own fresh thread.
+    // tokio'nun bloklayan havuzu da önceki çağrılardan JNI durumu taşıyabilir; `webrtc_hazirla` kendi yeni iş parçacığını açar.
+    let _ = tokio::task::spawn_blocking(webrtc_hazirla).await;
     // The engine brings rustls with two crypto back ends. · Motor rustls'i iki şifreleme arka ucuyla getirir.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let ses = Ses::baslat();
@@ -141,6 +194,17 @@ pub async fn uygulamalar() -> Vec<String> {
     tokio::task::spawn_blocking(|| ses::uygulamalar().into_keys().collect()).await.unwrap_or_default()
 }
 
+pub async fn aygitlar() -> SesAygitlari {
+    tokio::task::spawn_blocking(ses::aygitlar).await.unwrap_or_default()
+}
+
+pub fn ses_ayarla(giris: Option<String>, cikis: Option<String>, gurultu: bool) {
+    let d = ses::ayar_yaz(giris, cikis, gurultu);
+    if d.giris || d.cikis || d.gurultu {
+        iste(Istek::SesAyari(d));
+    }
+}
+
 pub fn paylas(u: Vec<String>) -> Sonuc<()> {
     if iste(Istek::Paylas(u)) { Ok(()) } else { Err(Hata::Diger("arama yok".into())) }
 }
@@ -154,6 +218,12 @@ pub fn paylasimi_durdur() {
 }
 
 pub async fn kare(anahtar: String, sonra: u64) -> Vec<u8> {
+    let onizleme = anahtar == ONIZLEME;
+    if onizleme {
+        // At most 5 preview frames a second: the sharer only needs to see that it moves. · Saniyede en fazla 5 önizleme
+        // karesi: paylaşanın yalnızca oynadığını görmesi yeter.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
     let kanal = kilitle(kareler()).get(&anahtar).cloned();
     let Some(kanal) = kanal else {
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -174,6 +244,9 @@ pub async fn kare(anahtar: String, sonra: u64) -> Vec<u8> {
         Err(_) => return if rx.borrow().0 < sonra { vec![] } else { vec![0; 4] },
     };
     let (no, Some(k)) = bulunan else { return vec![] };
+    if onizleme {
+        return kucult(&k).and_then(|k| paketle(no as u32, &k)).unwrap_or_else(|| vec![0; 4]);
+    }
     paketle(no as u32, &k).unwrap_or_default()
 }
 
@@ -192,6 +265,56 @@ fn paketle(no: u32, k: &VideoFrame) -> Option<Vec<u8>> {
         }
     }
     Some(o)
+}
+
+/// Downsamples one plane by 2×2 into a tightly packed buffer; returns None on inconsistent strides or lengths.
+/// Bir düzlemi 2×2 seyrelterek sıkı paketli tampona küçültür; tutarsız adım veya uzunlukta None döner.
+fn duzlem_kucult(kaynak: &[u8], adim: u32, kaynak_w: usize, kaynak_h: usize, hedef_w: usize, hedef_h: usize) -> Option<Vec<u8>> {
+    let adim = adim as usize;
+    if adim < kaynak_w || hedef_w == 0 || hedef_h == 0 {
+        return None;
+    }
+    if (hedef_h - 1).checked_mul(2)? >= kaynak_h || (hedef_w - 1).checked_mul(2)? >= kaynak_w {
+        return None;
+    }
+    let mut cikti = Vec::with_capacity(hedef_w.checked_mul(hedef_h)?);
+    for y in 0..hedef_h {
+        let bas = (y * 2).checked_mul(adim)?;
+        let satir = kaynak.get(bas..bas.checked_add(kaynak_w)?)?;
+        for x in 0..hedef_w {
+            cikti.push(*satir.get(x * 2)?);
+        }
+    }
+    Some(cikti)
+}
+
+/// Scales an I420 frame to half resolution (even dimensions, at least 2×2) for the local preview so decoding stays cheap.
+/// Yerel önizlemenin hafif kalması için bir I420 kareyi yarı çözünürlüğe (en az 2×2 çift boyutlar) küçültür.
+fn kucult(f: &VideoFrame) -> Option<VideoFrame> {
+    let b = &f.buffer;
+    let (w, h) = (b.width as usize, b.height as usize);
+    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+    let nw = ((b.width / 2) & !1).max(2);
+    let nh = ((b.height / 2) & !1).max(2);
+    let ncw = nw / 2;
+    let nch = nh / 2;
+    let data_y = duzlem_kucult(&b.data_y, b.stride_y, w, h, nw as usize, nh as usize)?;
+    let data_u = duzlem_kucult(&b.data_u, b.stride_u, cw, ch, ncw as usize, nch as usize)?;
+    let data_v = duzlem_kucult(&b.data_v, b.stride_v, cw, ch, ncw as usize, nch as usize)?;
+    Some(VideoFrame {
+        buffer: I420Buffer {
+            width: nw,
+            height: nh,
+            data_y,
+            stride_y: nw,
+            data_u,
+            stride_u: ncw,
+            data_v,
+            stride_v: ncw,
+        },
+        rotation: f.rotation,
+        timestamp_us: f.timestamp_us,
+    })
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -229,6 +352,11 @@ struct Paylasim {
     kare: Arc<Mutex<Option<Arc<dyn LocalTrackHandle>>>>,
     istenen: Vec<String>,
     uygulamalar: BTreeMap<String, PaylasilanUygulama>,
+    /// Previous `(bytes_sent, timestamp)` for delta bitrate calculation. · Fark bit hızı hesabı için önceki `(bytes_sent, zaman)`.
+    onceki_bayt: Option<(u64, Instant)>,
+    /// Consecutive stat samples with zero byte growth. · Bayt artışı olmayan art arda okuma sayısı.
+    bos_okuma: u8,
+    yayin: YayinBilgisi,
 }
 
 struct Arama {
@@ -242,6 +370,7 @@ struct Arama {
     mikrofon: Option<Arc<dyn LocalTrackHandle>>,
     kayit: Option<Kayit>,
     kapali: bool,
+    seviye_acikti: bool,
     paylasim: Option<Paylasim>,
     paylasim_hatasi: bool,
     paylasim_no: u64,
@@ -256,7 +385,7 @@ struct Arama {
 fn bitti(app: &AppHandle, oda_id: &str, neden: &'static str) {
     let d = YerelDurum {
         oda_id: oda_id.to_owned(), asama: "bitti", neden: Some(neden), katilimcilar: vec![], mikrofon_kapali: false,
-        paylasim: "yok", paylasilan: vec![], paylasim_hatasi: false,
+        paylasim: "yok", paylasilan: vec![], paylasim_hatasi: false, onizleme: None, yayin: None,
     };
     let _ = app.emit(OLAY, d);
 }
@@ -288,7 +417,14 @@ async fn yurut(
         } else {
             CallKind::Group { notify: ara.then(|| GroupNotify { intent: Some("audio".into()), ..Default::default() }) }
         };
-        let secenek = LiveKitCallOptions { format: MembershipFormat::RoomState, kind, ..Default::default() };
+        // Keys from devices their owner has not cross-signed are accepted, as Element and Element Call do: friends who never
+        // verified their sessions were heard by no one (and saw nothing) with the strict MSC4153 default. The sender is still
+        // proven by Olm, and the tile keeps its "unverified" warning. (User decision, 2026-11-28.)
+        // Sahibinin çapraz imzalamadığı cihazlardan gelen anahtarlar kabul edilir (Element ve Element Call da böyle yapar):
+        // oturumlarını hiç doğrulamamış arkadaşlar katı MSC4153 varsayılanında kimseyi duymuyor, ekranı da görmüyordu. Gönderen
+        // yine Olm ile kanıtlanır; kutudaki "doğrulanmamış" uyarısı kalır. (Kullanıcı kararı, 2026-11-28.)
+        let encryption_config = Some(matrix_rtc_core::EncryptionConfig { require_confirmed_sender: false, ..Default::default() });
+        let secenek = LiveKitCallOptions { format: MembershipFormat::RoomState, kind, encryption_config, ..Default::default() };
         let katilan = oda.clone();
         let katilma = LiveKitCall::join(&katilan, secenek);
         tokio::pin!(katilma);
@@ -309,6 +445,7 @@ async fn yurut(
                         return ("biz", Some(b));
                     }
                     Some(Istek::Sustur(k)) => kapali = k,
+                    Some(Istek::SesAyari(d)) => ses.ayar_uygula(d),
                     Some(_) => {}
                     None => {
                         katilmadan_ayril(katilma).await;
@@ -319,13 +456,17 @@ async fn yurut(
         };
         let mut a = Arama {
             app: app.clone(), oda, call, ses, tx, alicilar: HashMap::new(), konusan: vec![], mikrofon: None, kayit: None, kapali,
-            paylasim: None, paylasim_hatasi: false, paylasim_no: 0, uygulama_no: 0, adlar: HashMap::new(), ad_gonderilen: vec![],
-            profiller: HashMap::new(), son: None,
+            seviye_acikti: false, paylasim: None, paylasim_hatasi: false, paylasim_no: 0, uygulama_no: 0, adlar: HashMap::new(),
+            ad_gonderilen: vec![], profiller: HashMap::new(), son: None,
         };
         let (neden, b) = a.dongu(&mut rx).await;
-        let Arama { call, alicilar, kayit, paylasim, ses, .. } = a;
+        let Arama { call, alicilar, kayit, paylasim, ses, seviye_acikti, .. } = a;
         // Microphone and screen first: nothing may be recorded while the leave travels. · Önce mikrofon ve ekran: ayrılma sürerken kayıt olmasın.
         drop((kayit, paylasim, alicilar, ses));
+        kilitle(kareler()).remove(ONIZLEME);
+        if seviye_acikti {
+            let _ = app.emit(SEVIYE_OLAYI, 0.0_f32);
+        }
         if let Ok(Err(e)) = tokio::time::timeout(Duration::from_secs(8), call.leave()).await {
             tracing::warn!("aramadan ayrılma: {e}");
         }
@@ -353,6 +494,10 @@ impl Arama {
         // Publishing waits for our own connection; it must not stop the loop. · Yayın kendi bağlantımızı bekler; döngüyü durdurmamalı.
         let mut tik = tokio::time::interval(Duration::from_millis(500));
         tik.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut seviye_tik = tokio::time::interval(Duration::from_millis(100));
+        seviye_tik.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut yayin_tik = tokio::time::interval(Duration::from_secs(2));
+        yayin_tik.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         // The screen shows the call before the microphone is published (that waits for the server). · Ekran, mikrofon yayınlanmadan
         // (sunucuyu bekler) önce aramayı gösterir.
         self.bildir().await;
@@ -372,6 +517,18 @@ impl Arama {
                     self.konusan = speakers.into_iter().map(|s| s.member_id).collect();
                 },
                 r = durumlar.changed() => if r.is_err() { return ("ag", None) },
+                _ = seviye_tik.tick() => {
+                    if self.kayit.is_some() {
+                        let _ = self.app.emit(SEVIYE_OLAYI, self.ses.seviye_al());
+                        self.seviye_acikti = true;
+                    } else if self.seviye_acikti {
+                        let _ = self.ses.seviye_al();
+                        let _ = self.app.emit(SEVIYE_OLAYI, 0.0_f32);
+                        self.seviye_acikti = false;
+                    }
+                    continue;
+                }
+                _ = yayin_tik.tick() => self.yayini_denetle().await,
                 _ = tik.tick() => {}
             }
             if let CallStatus::Ended { reason } = self.call.status() {
@@ -407,6 +564,16 @@ impl Arama {
                 }
                 Err(e) => tracing::warn!("mikrofon yayımlanamadı: {e}"),
             },
+            Istek::SesAyari(d) => {
+                self.ses.ayar_uygula(d);
+                #[cfg(target_os = "linux")]
+                if d.giris {
+                    // Restart the recorder so `parec` opens the newly selected input device.
+                    // Kaydı yeniden başlat ki `parec` yeni seçilen giriş aygıtını açsın.
+                    self.kayit = None;
+                    self.mikrofonu_esitle();
+                }
+            }
             Istek::Paylas(u) => self.paylas(u),
             Istek::Sesler(u) => self.sesleri_esitle(u).await,
             Istek::PaylasimiDurdur => self.paylasimi_birak().await,
@@ -486,9 +653,17 @@ impl Arama {
         self.paylasim_no += 1;
         let no = self.paylasim_no;
         let kare: Arc<Mutex<Option<Arc<dyn LocalTrackHandle>>>> = Arc::default();
+        let onizleme = Arc::new(watch::channel((0_u64, None)).0);
+        kilitle(kareler()).insert(ONIZLEME.to_owned(), onizleme.clone());
         let (k, tx) = (kare.clone(), self.tx.clone());
         let yakalama = Yakalama::baslat(
             move |f| {
+                // The preview keeps the NEWEST full frame; it is shrunk (and rate-limited) only when the screen asks for it.
+                // Shrinking every 200 ms here dropped the last frame of a burst, so a still screen stayed on its first, empty
+                // (green) frame. · Önizleme her zaman EN YENİ tam kareyi tutar; küçültme (ve hız sınırı) ancak ekran isteyince
+                // yapılır. Burada 200 ms'de bir küçültmek bir kare dizisinin sonuncusunu atıyordu; durağan ekran ilk, boş (yeşil)
+                // karede kalıyordu.
+                onizleme.send_modify(|v| *v = (v.0 + 1, Some(Arc::new(f.clone()))));
                 let iz = kilitle(&k).clone();
                 if let Some(iz) = iz {
                     let _ = iz.capture_video(f);
@@ -505,7 +680,16 @@ impl Arama {
                 });
             },
         );
-        self.paylasim = Some(Paylasim { no, yakalama, kare, istenen: u, uygulamalar: BTreeMap::new() });
+        self.paylasim = Some(Paylasim {
+            no,
+            yakalama,
+            kare,
+            istenen: u,
+            uygulamalar: BTreeMap::new(),
+            onceki_bayt: None,
+            bos_okuma: 0,
+            yayin: YayinBilgisi { durum: "basliyor", kbps: 0, kare_hizi: 0, genislik: 0, yukseklik: 0 },
+        });
     }
 
     async fn ekrani_yayinla(&mut self, no: u64, g: u32, y: u32) {
@@ -517,7 +701,8 @@ impl Arama {
         s.simulcast = false;
         match self.call.publish(s).await {
             Ok(iz) => {
-                let Some(p) = self.paylasim.as_mut() else { return };
+                let Some(p) = self.paylasim.as_mut().filter(|p| p.no == no) else { return };
+                tracing::info!("ekran yayında: {g}x{y}");
                 *kilitle(&p.kare) = Some(iz);
                 // The sounds only once the picture runs: a cancelled picker shares nothing. · Sesler ancak görüntü başlayınca: iptal edilen seçici hiçbir şey paylaşmaz.
                 let u = std::mem::take(&mut p.istenen);
@@ -533,12 +718,84 @@ impl Arama {
 
     async fn paylasimi_birak(&mut self) {
         self.sesleri_esitle(vec![]).await;
+        kilitle(kareler()).remove(ONIZLEME);
         if let Some(p) = self.paylasim.take() {
             p.yakalama.durdur();
             let iz = kilitle(&p.kare).take();
             if iz.is_some() {
                 let _ = self.call.engine().unpublish(MediaStreamKind::ScreenShare).await;
             }
+        }
+    }
+
+    /// Reads real WebRTC send counters for the active screen share without holding any lock across await.
+    /// Etkin ekran paylaşımının gerçek WebRTC gönderim sayaçlarını await boyunca kilit tutmadan okur.
+    async fn yayini_denetle(&mut self) {
+        let Some((no, iz)) = self.paylasim.as_ref().and_then(|p| Some((p.no, kilitle(&p.kare).clone()?))) else {
+            return;
+        };
+        let istatistik = iz.send_stats().await;
+        let Some(p) = self.paylasim.as_mut().filter(|p| p.no == no) else {
+            return;
+        };
+        let onceki_durum = p.yayin.durum;
+        let simdi = Instant::now();
+        let yeni = match istatistik {
+            None => {
+                p.onceki_bayt = None;
+                p.bos_okuma = 0;
+                YayinBilgisi { durum: "basliyor", kbps: 0, kare_hizi: 0, genislik: 0, yukseklik: 0 }
+            }
+            Some(st) => {
+                let toplam_bayt: u64 = st.layers.iter().fold(0_u64, |t, l| t.saturating_add(l.bytes_sent));
+                let kare_hizi = st
+                    .layers
+                    .iter()
+                    .map(|l| l.frames_per_second)
+                    .filter(|f| f.is_finite() && *f > 0.0)
+                    .fold(0.0_f64, f64::max)
+                    .round() as u32;
+                let (genislik, yukseklik) = st
+                    .layers
+                    .iter()
+                    .max_by_key(|l| u64::from(l.frame_width) * u64::from(l.frame_height))
+                    .map(|l| (l.frame_width, l.frame_height))
+                    .unwrap_or((0, 0));
+                match p.onceki_bayt.replace((toplam_bayt, simdi)) {
+                    None => {
+                        p.bos_okuma = 0;
+                        YayinBilgisi { durum: "basliyor", kbps: 0, kare_hizi, genislik, yukseklik }
+                    }
+                    Some((onceki, onceki_zaman)) => {
+                        let fark = toplam_bayt.saturating_sub(onceki);
+                        let sure_ms = simdi.duration_since(onceki_zaman).as_millis();
+                        let kbps = if sure_ms > 0 {
+                            ((u128::from(fark) * 8 + sure_ms / 2) / sure_ms).min(u128::from(u32::MAX)) as u32
+                        } else {
+                            0
+                        };
+                        let durum = if fark > 0 {
+                            p.bos_okuma = 0;
+                            "yayinda"
+                        } else {
+                            p.bos_okuma = p.bos_okuma.saturating_add(1);
+                            if p.bos_okuma >= 3 { "gitmiyor" } else { onceki_durum }
+                        };
+                        YayinBilgisi { durum, kbps, kare_hizi, genislik, yukseklik }
+                    }
+                }
+            }
+        };
+        p.yayin = yeni;
+        if p.yayin.durum != onceki_durum {
+            tracing::info!(
+                "ekran yayını {onceki_durum}→{}: {} kbps, {} kare/sn, {}x{}",
+                p.yayin.durum,
+                p.yayin.kbps,
+                p.yayin.kare_hizi,
+                p.yayin.genislik,
+                p.yayin.yukseklik,
+            );
         }
     }
 
@@ -574,6 +831,7 @@ impl Arama {
                     let kayit = UygulamaSesi::baslat(ad.clone(), move |v| {
                         rt.block_on(hedef.capture_audio(AudioFrame { data: v, sample_rate: ses::HIZ, num_channels: 2, samples_per_channel: ses::KARE as u32 })).is_ok()
                     });
+                    tracing::info!("uygulama sesi yayında: {ad}");
                     if let Some(p) = self.paylasim.as_mut() {
                         p.uygulamalar.insert(ad, PaylasilanUygulama { no, iz, _ses: kayit });
                     }
@@ -645,7 +903,7 @@ impl Arama {
         if cihazlar.is_empty() {
             return;
         }
-        match sifre.encrypt_and_send_raw_to_device(cihazlar.iter().collect(), AD_OLAYI, ham, CollectStrategy::IdentityBasedStrategy).await {
+        match sifre.encrypt_and_send_raw_to_device(cihazlar.iter().collect(), AD_OLAYI, ham, CollectStrategy::AllDevices).await {
             Ok(_) => self.ad_gonderilen.extend(bulunan),
             Err(e) => tracing::warn!("uygulama adları gönderilemedi: {e}"),
         }
@@ -759,15 +1017,18 @@ impl Arama {
             _ if self.mikrofon.is_some() => "acik",
             _ => "baglaniyor",
         };
+        let (paylasim, onizleme, yayin) = match &self.paylasim {
+            None => ("yok", None, None),
+            Some(p) if kilitle(&p.kare).is_some() => ("acik", Some(ONIZLEME.to_owned()), Some(p.yayin.clone())),
+            Some(_) => ("seciliyor", Some(ONIZLEME.to_owned()), None),
+        };
         let d = YerelDurum {
             oda_id: self.oda.room_id().to_string(), asama, neden: None, katilimcilar, mikrofon_kapali: self.kapali,
-            paylasim: match &self.paylasim {
-                None => "yok",
-                Some(p) if kilitle(&p.kare).is_some() => "acik",
-                Some(_) => "seciliyor",
-            },
+            paylasim,
             paylasilan: self.paylasim.iter().flat_map(|p| p.uygulamalar.keys().cloned()).collect(),
             paylasim_hatasi: self.paylasim_hatasi,
+            onizleme,
+            yayin,
         };
         if self.son.as_ref() != Some(&d) {
             let _ = self.app.emit(OLAY, &d);

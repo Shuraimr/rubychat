@@ -32,6 +32,15 @@ export interface YerelKatilimci {
   sorun: "baglaniyor" | "cozulemiyor" | "dogrulanmamis" | null;
 }
 
+/** Send-side health and bitrate of our own screen share. Mirrors `YayinBilgisi` in motor.rs. · Kendi ekran paylaşımımızın gönderim durumu ve hızı. */
+export interface YerelYayin {
+  durum: "basliyor" | "yayinda" | "gitmiyor";
+  kbps: number;
+  kareHizi: number;
+  genislik: number;
+  yukseklik: number;
+}
+
 export interface YerelDurum {
   odaId: string;
   asama: "baglaniyor" | "caliyor" | "acik" | "koptu" | "bitti";
@@ -41,6 +50,22 @@ export interface YerelDurum {
   paylasim: "yok" | "seciliyor" | "acik";
   paylasilan: string[];
   paylasimHatasi: boolean;
+  onizleme: string | null;
+  yayin: YerelYayin | null;
+}
+
+/** One audio input or output device reported by the OS. Mirrors src-tauri/src/matrix/yerel_arama.rs. · İşletim sisteminin bildirdiği bir ses giriş ya da çıkış aygıtı. */
+export interface SesAygiti {
+  ad: string;
+  aciklama: string;
+}
+
+/** Desktop audio device list and OS defaults. Mirrors src-tauri/src/matrix/yerel_arama.rs. · Masaüstü ses aygıtları listesi ve işletim sistemi varsayılanları. */
+export interface SesAygitlari {
+  girisler: SesAygiti[];
+  cikislar: SesAygiti[];
+  varsayilanGiris: string | null;
+  varsayilanCikis: string | null;
 }
 
 /** One JSON message of the widget API, Rust → webview · Widget API'sinin bir JSON mesajı, Rust → webview */

@@ -11,10 +11,11 @@
   import Avatar from "../bilesenler/Avatar.svelte";
   import Ikon from "../bilesenler/Ikon.svelte";
   import { bildirim } from "../durum/bildirim.svelte";
-  import { t } from "../i18n";
+  import { t, yerel } from "../i18n";
   import { sureYaz } from "../zaman-bicim";
   import { ec } from "./ec.svelte";
   import type { YerelKatilimci, YerelSes } from "./tipler";
+  import SesAyarlariSayfasi from "./SesAyarlariSayfasi.svelte";
   import YerelVideo from "./YerelVideo.svelte";
   import { androidMi, sesCihaziSec, sesCihazlari, sesVarsayilan } from "./ses";
 
@@ -25,6 +26,7 @@
   let secilen = $state<string | null>(null);
   const sahne = $derived(paylasanlar.find((k) => k.uye === secilen) ?? paylasanlar[0] ?? null);
   let panel = $state(false);
+  let sesAyarAcik = $state(false);
   let paylasAcik = $state(false);
   let uygulamalar = $state<string[]>([]);
   let secili = $state<string[]>([]);
@@ -45,6 +47,23 @@
     if (d.asama === "caliyor") return t("yerel.caliyor");
     const bas = d.paylasim === "acik" ? t("yerel.sen") : sahne ? t("yerel.paylasiyor", { ad: sahne.ad }) : t("yerel.kisi", { n: kisiler.length });
     return `${bas} · ${sureYaz(ec.sure)}`;
+  });
+
+  // Format real WebRTC send bitrate for the preview card footer. · Önizleme kartı alt satırı için gerçek WebRTC gönderim hızını biçimle.
+  function hizYaz(kbps: number): string {
+    if (kbps >= 1000) {
+      const mb = (kbps / 1000).toLocaleString(yerel, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      return t("yerel.hizMb", { n: mb });
+    }
+    return t("yerel.hizKb", { n: Math.round(kbps) });
+  }
+  const yayinDurum = $derived(d?.paylasim === "acik" ? (d.yayin?.durum ?? "basliyor") : null);
+  const yayinMetni = $derived.by(() => {
+    if (!d?.onizleme) return "";
+    if (d.paylasim === "seciliyor") return t("yerel.onizlemeSec");
+    if (d.yayin?.durum === "yayinda") return t("yerel.yayinda", { hiz: hizYaz(d.yayin.kbps), kare: d.yayin.kareHizi });
+    if (d.yayin?.durum === "gitmiyor") return t("yerel.yayinGitmiyor");
+    return t("yerel.yayinBasliyor");
   });
 
   // Local copy, so the slider moves under the finger and not with the next snapshot. · Yerel kopya: sürgü sonraki anlık görüntüyle değil parmakla oynar.
@@ -136,7 +155,7 @@
   <div class="govde">
     <div class="orta">
       {#if sahne?.ekran}
-        <div class="sahne">
+        <div class="sahne" class:onizlemeli={!!d?.onizleme}>
           {#key sahne.ekran}<YerelVideo anahtar={sahne.ekran} />{/key}
           <button class="yuzen" onclick={() => (tam = !tam)} aria-label={t(tam ? "yerel.kucult" : "yerel.tamEkran")}><Ikon ad={tam ? "kapat" : "tamEkran"} boyut={20} /></button>
         </div>
@@ -155,6 +174,22 @@
         </div>
         {#if d && !digerleri.length && d.asama !== "baglaniyor"}<p class="not ortala">{t("yerel.bekleniyor")}</p>{/if}
       {/if}
+      {#if d?.onizleme}
+        <!-- Floating local preview of our own screen share, pinned bottom-right inside .orta (always above .dock). -->
+        <!-- Kendi ekran paylaşımımızın yüzen yerel önizlemesi, .orta içinde sağ altta sabit (her zaman .dock üstünde). -->
+        <section class="onizleme-kart" class:kucuk={!genis || tam} class:tam aria-label={t("yerel.onizleme")}>
+          <div class="onizleme-kutu">
+            {#key d.onizleme}<YerelVideo anahtar={d.onizleme} />{/key}
+            <button class="onizleme-durdur" onclick={durdur} aria-label={t("yerel.durdur")}>
+              <span>{t("yerel.paylasimiDurdur")}</span>
+            </button>
+          </div>
+          <div class="onizleme-alt" class:yayinda={yayinDurum === "yayinda"} class:hata={yayinDurum === "gitmiyor"} role="status" title={yayinMetni}>
+            <span class="nokta" class:yesil={yayinDurum === "yayinda"} class:hata={yayinDurum === "gitmiyor"} aria-hidden="true"></span>
+            <span class="onizleme-metin">{yayinMetni}</span>
+          </div>
+        </section>
+      {/if}
     </div>
     {#if panel && genis && !tam}<aside aria-label={t("yerel.sesler")}><h2>{t("yerel.sesler")}</h2>{@render sesListesi()}</aside>{/if}
   </div>
@@ -170,6 +205,7 @@
         <button class="tus" class:acik={d && d.paylasim !== "yok"} disabled={ec.asama !== "acik"} onclick={paylasAc} aria-label={t("yerel.paylas")}><Ikon ad="ekranPaylas" /></button>
       {/if}
       <button class="tus" class:acik={panel} aria-pressed={panel} onclick={() => (panel = !panel)} aria-label={t("yerel.sesler")}><Ikon ad="sesler" /></button>
+      <button class="tus" class:acik={sesAyarAcik} aria-pressed={sesAyarAcik} onclick={() => (sesAyarAcik = !sesAyarAcik)} aria-label={t("yerel.sesAyarlari")}><Ikon ad="ayar" /></button>
       <button class="tus son" onclick={() => void ec.kapat()} aria-label={t("arama.kapat")}><Ikon ad="telefonKapat" /></button>
     </div>
   {/if}
@@ -194,6 +230,9 @@
       {/snippet}
     </AltSayfa>
   {/if}
+  {#if sesAyarAcik && ec.ekranAcik}
+    <SesAyarlariSayfasi onkapat={() => (sesAyarAcik = false)} />
+  {/if}
 </div>
 
 <style>
@@ -205,7 +244,7 @@
   .durum { font-size: .8125rem; color: var(--yazi-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .serit { flex: none; margin: 0 16px 8px; padding: 10px 14px; border-radius: 12px; background: var(--yuzey-2); color: var(--bekliyor); font-size: .875rem; }
   .govde { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 4px 16px 12px; }
-  .orta { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: safe center; gap: 12px; }
+  .orta { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: safe center; gap: 12px; }
   .izgara { display: grid; gap: 16px; grid-template-columns: repeat(var(--sutun), minmax(0, 360px)); justify-content: center; overflow-y: auto; }
   .kutu { position: relative; display: grid; place-items: center; min-height: 160px; aspect-ratio: 4 / 3; border-radius: 16px; background: var(--yuzey-1); box-shadow: inset 0 0 0 1px var(--kenar-ince); overflow: hidden; }
   .kutu.kucuk { width: 170px; min-height: 90px; height: 90px; aspect-ratio: auto; }
@@ -216,7 +255,24 @@
   .kirmizi { color: var(--hata); }
   .gizli-metin { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .sahne { position: relative; flex: 1; min-height: 120px; border-radius: 16px; overflow: hidden; background: var(--yuzey-1); }
+  .sahne.onizlemeli .yuzen { top: 10px; bottom: auto; }
   .yuzen { position: absolute; right: 10px; bottom: 10px; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; background: var(--yuzey-2); color: var(--yazi); }
+  /* Floating local preview card: no entry animation so reduced-motion stays uniform. · Yüzen yerel önizleme kartı: azaltılmış hareketle uyumlu olması için giriş animasyonsuz. */
+  .onizleme-kart { position: absolute; right: 0; bottom: 0; z-index: 2; width: 240px; border-radius: 16px; background: var(--yuzey-2); border: 1px solid var(--kenar-ince); box-shadow: var(--kat-1); overflow: hidden; }
+  .onizleme-kart.kucuk { width: 148px; }
+  .onizleme-kart.tam { right: 10px; bottom: 10px; }
+  .onizleme-kutu { position: relative; width: 100%; aspect-ratio: 16 / 9; background: var(--yuzey-1); overflow: hidden; }
+  .onizleme-kutu :global(p) { font-size: .75rem; padding: 8px; text-align: center; }
+  /* Compact red chip inside a >=44px hit target so phones can tap Stop without covering the preview. · Önizlemeyi kapatmadan telefonda rahat dokunmak için >=44px dokunma alanı içinde küçük kırmızı etiket. */
+  .onizleme-durdur { position: absolute; top: 0; right: 0; min-width: 44px; min-height: 44px; padding: 6px; display: flex; align-items: flex-start; justify-content: flex-end; background: transparent; }
+  .onizleme-durdur span { padding: 4px 8px; border-radius: 8px; background: var(--hata); color: var(--zemin); font-size: .75rem; font-weight: 600; line-height: 1.2; }
+  .onizleme-alt { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: .75rem; color: var(--yazi-2); font-variant-numeric: tabular-nums; }
+  .onizleme-alt.yayinda { color: var(--yazi); }
+  .onizleme-alt.hata { color: var(--hata); }
+  .nokta { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--yazi-2); }
+  .nokta.yesil { background: var(--cozum); }
+  .nokta.hata { background: var(--hata); }
+  .onizleme-metin { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dizi { flex: none; display: flex; gap: 12px; overflow-x: auto; }
   .sec[aria-pressed="true"] .kutu { box-shadow: inset 0 0 0 2px var(--ton-ustu); }
   aside { flex: none; width: 340px; overflow-y: auto; padding: 14px 16px; border-radius: 16px; background: var(--yuzey-1); align-self: flex-start; max-height: 100%; box-sizing: border-box; }

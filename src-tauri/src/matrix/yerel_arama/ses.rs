@@ -12,7 +12,7 @@ use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 #[cfg(target_os = "linux")]
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
@@ -40,6 +40,54 @@ pub fn kilitle<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 struct Apm(AudioProcessingModule);
 // SAFETY: used only behind the Mutex below. · GÜVENLİK: yalnızca aşağıdaki Mutex'in arkasında kullanılır.
 unsafe impl Send for Apm {}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct SesAyari {
+    pub giris: Option<String>,
+    pub cikis: Option<String>,
+    pub gurultu: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct AyarDegisimi {
+    pub giris: bool,
+    pub cikis: bool,
+    pub gurultu: bool,
+}
+
+/// Process-wide audio preferences: read when a call opens and updated live if one is running.
+/// Süreç geneli ses tercihleri: arama açılırken okunur ve süren varsa canlı güncellenir.
+static AYAR: Mutex<SesAyari> = Mutex::new(SesAyari { giris: None, cikis: None, gurultu: true });
+
+pub fn ayar_oku() -> SesAyari {
+    kilitle(&AYAR).clone()
+}
+
+/// Stores the latest audio settings and returns which fields actually changed.
+/// Son ses ayarlarını kaydeder ve gerçekten hangi alanların değiştiğini döndürür.
+pub fn ayar_yaz(giris: Option<String>, cikis: Option<String>, gurultu: bool) -> AyarDegisimi {
+    let yeni = SesAyari {
+        giris: giris.filter(|s| !s.is_empty()),
+        cikis: cikis.filter(|s| !s.is_empty()),
+        gurultu,
+    };
+    let mut a = kilitle(&AYAR);
+    let degisim = AyarDegisimi {
+        giris: a.giris != yeni.giris,
+        cikis: a.cikis != yeni.cikis,
+        gurultu: a.gurultu != yeni.gurultu,
+    };
+    *a = yeni;
+    degisim
+}
+
+/// Echo cancellation, gain control and high-pass filter stay enabled; only noise suppression is user-configurable.
+/// Yankı giderme, kazanç denetimi ve yüksek geçiren süzgeç hep açıktır; yalnız gürültü engelleme kullanıcıya açıktır.
+fn apm_kur(gurultu: bool) -> Apm {
+    let mut apm = AudioProcessingModule::new(true, true, true, gurultu);
+    let _ = apm.set_stream_delay_ms(80);
+    Apm(apm)
+}
 
 #[cfg(target_os = "linux")]
 /// Kills the child when dropped, so no recorder survives the call. · Düşünce süreci öldürür; aramadan sonra kayıtçı kalmasın.
@@ -169,13 +217,21 @@ pub struct Ses {
     /// The player, held here so dropping `Ses` kills it: a write stuck on a stalled sound server then wakes with an error.
     /// Çalar; burada tutulur ki `Ses` düşünce ölsün: takılan ses sunucusunda bekleyen yazma o zaman hatayla uyanır.
     calar: Arc<Mutex<Option<Calar>>>,
+    /// Peak processed microphone level (f32 bits in 0..=1) since the last UI tick.
+    /// Son arayüz tikinden bu yana işlenmiş en yüksek mikrofon seviyesi (0..=1 aralığında f32 bitleri).
+    seviye: Arc<AtomicU32>,
 }
 
 impl Ses {
     pub fn baslat() -> Ses {
-        let mut apm = AudioProcessingModule::new(true, true, true, true);
-        let _ = apm.set_stream_delay_ms(80);
-        let s = Ses { karisim: Arc::default(), apm: Arc::new(Mutex::new(Apm(apm))), dur: Arc::default(), calar: Arc::default() };
+        let apm = apm_kur(ayar_oku().gurultu);
+        let s = Ses {
+            karisim: Arc::default(),
+            apm: Arc::new(Mutex::new(apm)),
+            dur: Arc::default(),
+            calar: Arc::default(),
+            seviye: Arc::default(),
+        };
         let (karisim, apm, dur, calar) = (s.karisim.clone(), s.apm.clone(), s.dur.clone(), s.calar.clone());
         thread::spawn(move || {
             while !dur.load(Relaxed) {
@@ -188,16 +244,44 @@ impl Ses {
         s
     }
 
+    /// Applies a live audio-setting change to the running APM and (on Linux) output player.
+    /// Canlı ses ayarı değişimini süren APM'ye ve (Linux'ta) çıkış çalarına uygular.
+    pub fn ayar_uygula(&self, d: AyarDegisimi) {
+        if d.gurultu {
+            *kilitle(&self.apm) = apm_kur(ayar_oku().gurultu);
+        }
+        #[cfg(target_os = "linux")]
+        if d.cikis {
+            // Dropping the player breaks `pacat`'s pipe so `cal()` immediately reopens it with the new device.
+            // Çaları düşürmek `pacat` borusunu keser; `cal()` yeni aygıtla hemen yeniden açar.
+            *kilitle(&self.calar) = None;
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = d.cikis;
+    }
+
     /// Opens the microphone; `al` gets 10 ms of processed mono at a time. · Mikrofonu açar; `al` her seferinde işlenmiş 10 ms mono alır.
     pub fn mikrofon(&self, al: impl FnMut(Vec<i16>) -> bool + Send + 'static) -> Kayit {
         let apm = self.apm.clone();
+        let seviye = self.seviye.clone();
         let mut al = al;
-        Kayit::baslat(vec![], 1, 20, move |mut v| {
+        Kayit::baslat(vec![], 1, 20, false, move |mut v| {
             if let Err(e) = kilitle(&apm).0.process_stream(&mut v, HIZ as i32, 1) {
                 tracing::debug!("ses işlemesi: {}", e.message);
             }
+            let tepe = v.iter().map(|&s| s.unsigned_abs()).max().unwrap_or(0);
+            let oran = (tepe as f32 / i16::MAX as f32).min(1.0);
+            // Non-negative finite f32 bit patterns share u32 ordering, so fetch_max keeps the window's true peak.
+            // Negatif olmayan sonlu f32 bitleri u32 sırasıyla aynıdır; fetch_max aralığın gerçek tepesini tutar.
+            seviye.fetch_max(oran.to_bits(), Relaxed);
             al(v)
         })
+    }
+
+    /// Reads the peak microphone level (0..1) accumulated since the last call and resets it to 0.
+    /// Son çağrıdan bu yana biriken en yüksek mikrofon seviyesini (0..1) okur ve 0'a çeker.
+    pub fn seviye_al(&self) -> f32 {
+        f32::from_bits(self.seviye.swap(0, Relaxed))
     }
 }
 
@@ -210,12 +294,17 @@ impl Drop for Ses {
 
 #[cfg(target_os = "linux")]
 fn cal(karisim: &Mutex<Karistirici>, apm: &Mutex<Apm>, dur: &AtomicBool, calar: &Mutex<Option<Surec>>) -> std::io::Result<()> {
-    let mut surec = Surec(komut("pacat", &bicim(2, 40)).stdin(Stdio::piped()).spawn()?);
+    let secili = ayar_oku().cikis;
+    let mut args = bicim(2, 40);
+    if let Some(cikis) = &secili {
+        args.push(format!("--device={cikis}"));
+    }
+    let mut surec = Surec(komut("pacat", &args).stdin(Stdio::piped()).spawn()?);
     let mut giris = surec.0.stdin.take().ok_or(std::io::ErrorKind::BrokenPipe)?;
     boruyu_kisalt(&giris);
     *kilitle(calar) = Some(surec);
-    // Dropped meanwhile: do not start a player nobody will stop. · Bu arada düştü: kimsenin durdurmayacağı çaları başlatma.
-    if dur.load(Relaxed) {
+    // Dropped or switched output meanwhile: do not run a stale player. · Bu arada düştü ya da çıkış değişti: eski çaları sürdürme.
+    if dur.load(Relaxed) || ayar_oku().cikis != secili {
         *kilitle(calar) = None;
         return Ok(());
     }
@@ -224,7 +313,9 @@ fn cal(karisim: &Mutex<Karistirici>, apm: &Mutex<Apm>, dur: &AtomicBool, calar: 
         let mut kare = kilitle(karisim).sonraki();
         let baytlar: Vec<u8> = kare.iter().flat_map(|s| s.to_le_bytes()).collect();
         let _ = kilitle(apm).0.process_reverse_stream(&mut kare, HIZ as i32, 2);
-        giris.write_all(&baytlar)?;
+        if let Err(e) = giris.write_all(&baytlar) {
+            return if dur.load(Relaxed) || ayar_oku().cikis != secili { Ok(()) } else { Err(e) };
+        }
     }
     Ok(())
 }
@@ -238,14 +329,18 @@ pub struct Kayit {
 
 #[cfg(target_os = "linux")]
 impl Kayit {
-    fn baslat(ek: Vec<String>, kanal: u32, gecikme: u32, mut al: impl FnMut(Vec<i16>) -> bool + Send + 'static) -> Kayit {
+    fn baslat(ek: Vec<String>, kanal: u32, gecikme: u32, tekil: bool, mut al: impl FnMut(Vec<i16>) -> bool + Send + 'static) -> Kayit {
         let k = Kayit { dur: Arc::default(), surec: Arc::default() };
         let (dur, yuva) = (k.dur.clone(), k.surec.clone());
-        let tekil = !ek.is_empty();
         thread::spawn(move || {
-            let mut args = bicim(kanal, gecikme);
-            args.extend(ek);
             while !dur.load(Relaxed) {
+                let mut args = bicim(kanal, gecikme);
+                args.extend(ek.iter().cloned());
+                if !tekil {
+                    if let Some(giris) = ayar_oku().giris {
+                        args.push(format!("--device={giris}"));
+                    }
+                }
                 match komut("parec", &args).stdout(Stdio::piped()).spawn() {
                     Ok(mut s) => {
                         let cikis = s.stdout.take();
@@ -309,6 +404,66 @@ fn akislari_oku(json: &str) -> BTreeMap<String, Vec<u32>> {
 }
 
 #[cfg(target_os = "linux")]
+fn aygitlari_oku(json: &str, monitor_at: bool) -> Vec<super::SesAygiti> {
+    let Ok(serde_json::Value::Array(l)) = serde_json::from_str(json) else { return vec![] };
+    let mut cikis = vec![];
+    for a in l {
+        let Some(ad) = a["name"].as_str().map(str::trim).filter(|s| !s.is_empty()) else { continue };
+        if monitor_at {
+            // Exclude sink monitors so the user does not pick loopback audio as their microphone.
+            // Çıkış monitörlerini hariç tut ki kullanıcı geri döngü sesini mikrofon diye seçmesin.
+            let monitor = ad.ends_with(".monitor")
+                || a.get("monitor_of_sink").is_some_and(|v| match v {
+                    serde_json::Value::Null => false,
+                    serde_json::Value::String(s) => !s.is_empty() && s != "n/a",
+                    _ => true,
+                });
+            if monitor {
+                continue;
+            }
+        }
+        let aciklama = a["description"].as_str().map(str::trim).filter(|s| !s.is_empty()).unwrap_or(ad);
+        cikis.push(super::SesAygiti { ad: ad.to_owned(), aciklama: aciklama.to_owned() });
+    }
+    cikis
+}
+
+#[cfg(target_os = "linux")]
+fn pactl_cikti(args: &[&str]) -> Option<String> {
+    let a: Vec<String> = args.iter().map(|s| (*s).to_owned()).collect();
+    match komut("pactl", &a).stdout(Stdio::piped()).output() {
+        Ok(c) if c.status.success() => Some(String::from_utf8_lossy(&c.stdout).into_owned()),
+        Ok(c) => {
+            tracing::warn!("pactl {:?}: çıkış {}", args, c.status);
+            None
+        }
+        Err(e) => {
+            tracing::warn!("pactl {:?}: {e}", args);
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+/// Lists available PulseAudio / PipeWire input sources (excluding monitors) and output sinks.
+/// Kullanılabilir PulseAudio / PipeWire giriş kaynaklarını (monitörler hariç) ve çıkış aygıtlarını listeler.
+pub fn aygitlar() -> super::SesAygitlari {
+    let girisler = pactl_cikti(&["-f", "json", "list", "sources"])
+        .map(|j| aygitlari_oku(&j, true))
+        .unwrap_or_default();
+    let cikislar = pactl_cikti(&["-f", "json", "list", "sinks"])
+        .map(|j| aygitlari_oku(&j, false))
+        .unwrap_or_default();
+    let varsayilan_giris = pactl_cikti(&["get-default-source"])
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+    let varsayilan_cikis = pactl_cikti(&["get-default-sink"])
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+    super::SesAygitlari { girisler, cikislar, varsayilan_giris, varsayilan_cikis }
+}
+
+#[cfg(target_os = "linux")]
 /// Applications making sound now, with their streams. · Şu an ses çıkaran uygulamalar ve akışları.
 pub fn uygulamalar() -> BTreeMap<String, Vec<u32>> {
     let args: Vec<String> = ["-f", "json", "list", "sink-inputs"].map(String::from).into();
@@ -354,7 +509,7 @@ impl UygulamaSesi {
                     for no in simdi {
                         kayitlar.entry(no).or_insert_with(|| {
                             let (k, anahtar) = (izle_karisim.clone(), no.to_string());
-                            Kayit::baslat(vec![format!("--monitor-stream={no}")], 2, 20, move |v| {
+                            Kayit::baslat(vec![format!("--monitor-stream={no}")], 2, 20, true, move |v| {
                                 kilitle(&k).ekle(&anahtar, &v);
                                 true
                             })
@@ -445,7 +600,7 @@ pub struct Kayit {
 #[cfg(target_os = "android")]
 impl Kayit {
     /// Only the microphone exists here (mono); `ek` (an application stream) is never asked for on Android. · Burada yalnız mikrofon var (mono).
-    fn baslat(_ek: Vec<String>, _kanal: u32, _gecikme: u32, mut al: impl FnMut(Vec<i16>) -> bool + Send + 'static) -> Kayit {
+    fn baslat(_ek: Vec<String>, _kanal: u32, _gecikme: u32, _tekil: bool, mut al: impl FnMut(Vec<i16>) -> bool + Send + 'static) -> Kayit {
         let k = Kayit { dur: Arc::default(), id: Arc::default() };
         let dur = k.dur.clone();
         let id = k.id.clone();
@@ -473,6 +628,13 @@ impl Drop for Kayit {
             crate::android_jni::arama_sesi_kayit_kapat(id);
         }
     }
+}
+
+/// Android routes audio through SesKoprusu in the UI, so no OS device list is exposed here.
+/// Android sesi arayüzdeki SesKoprusu ile yönlendirir; burada aygıt listesi döndürülmez.
+#[cfg(target_os = "android")]
+pub fn aygitlar() -> super::SesAygitlari {
+    super::SesAygitlari::default()
 }
 
 /// No per-application sound on Android. · Android'de uygulama başına ses yok.
@@ -527,5 +689,20 @@ mod testler {
         assert_eq!(m.len(), 1);
         assert_eq!(m["Firefox"], vec![4, 5]);
         assert!(akislari_oku("bozuk").is_empty());
+    }
+
+    #[test]
+    fn aygit_listesi_monitorleri_atar() {
+        let j = r#"[
+            {"name":"alsa_input.mic","description":"USB Mic","monitor_of_sink":null},
+            {"name":"alsa_input.mic2","description":"Internal Mic","monitor_of_sink":"n/a"},
+            {"name":"alsa_output.spk.monitor","description":"Monitor of Speaker","monitor_of_sink":"alsa_output.spk"},
+            {"name":"virtual.loop","description":"Loop","monitor_of_sink":"alsa_output.spk"}
+        ]"#;
+        let g = aygitlari_oku(j, true);
+        assert_eq!(g.len(), 2);
+        assert_eq!(g[0].ad, "alsa_input.mic");
+        assert_eq!(g[0].aciklama, "USB Mic");
+        assert_eq!(g[1].ad, "alsa_input.mic2");
     }
 }

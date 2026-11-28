@@ -12,6 +12,7 @@ import { ayarlar } from "../durum/ayarlar.svelte";
 import { bildirim } from "../durum/bildirim.svelte";
 import { gezinme } from "../durum/gezinme.svelte";
 import { aramaSesiBaslat, aramaSesiBitir, androidMi, sesCihaziSec, sesCihazlari, sesVarsayilan } from "./ses";
+import { sesAyarlari } from "./sesAyarlari.svelte";
 import type { EcAramaDurumu, EcTuru, YerelDurum } from "./tipler";
 
 export type EcAsama = "bos" | "yukleniyor" | "acik" | "hata";
@@ -209,6 +210,10 @@ class EcArama {
         const cikis = sesVarsayilan(!oda.sesli || !oda.dm);
         if (cikis) sesCihaziSec(cikis);
         this.ekranAc();
+        // Send saved input/output and noise-suppression choices before the engine opens the audio streams.
+        // Motor ses akışlarını açmadan önce kayıtlı giriş/çıkış ve gürültü engelleme seçimlerini gönder.
+        await sesAyarlari.gonder();
+        if (this.asama !== "yukleniyor") return true;
         await yerelAramaBaslat(oda.id, oda.dm, tur === "baslat");
         // Hung up while Rust was starting: the earlier close did nothing (the call did not exist yet), so close it now.
         // Rust başlarken kapatıldı: önceki kapatma boşa gitti (arama henüz yoktu), şimdi kapat.

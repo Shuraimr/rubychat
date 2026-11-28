@@ -19,8 +19,12 @@ use jni::{
 
 const PAKET: &str = "dev.rubyyard.rubychat";
 
-/// Runs `f` with an attached env, the application Context and the named Kotlin class. Clears a pending Java exception.
-/// `f`yi bağlı bir ortam, uygulama Context'i ve adı verilen Kotlin sınıfıyla çalıştırır. Bekleyen Java istisnasını temizler.
+/// Runs `f` with an attached env, the application Context and the named Kotlin class. Clears any pending Java exception
+/// on every exit path after attach — jni-rs leaves exceptions set on errors, and if the thread stays attached (e.g.
+/// shared with libwebrtc), the next JNI call from libwebrtc aborts the process on `RTC_CHECK(!env->ExceptionCheck())`.
+/// `f`yi bağlı bir ortam, uygulama Context'i ve adı verilen Kotlin sınıfıyla çalıştırır. Bağlandıktan sonraki her çıkış
+/// yolunda bekleyen Java istisnasını temizler — jni-rs hatada istisnayı bırakır ve iş parçacığı bağlı kalırsa (ör.
+/// libwebrtc ile paylaşılıyorsa), libwebrtc'nin sonraki JNI çağrısı `RTC_CHECK(!env->ExceptionCheck())` ile süreci düşürür.
 fn calistir<T>(sinif: &str, f: impl FnOnce(&mut JNIEnv, &JObject, &JClass) -> jni::errors::Result<T>) -> Result<T, String> {
     if !cfg!(target_os = "android") {
         return Err("yalnızca Android".into());
@@ -31,17 +35,15 @@ fn calistir<T>(sinif: &str, f: impl FnOnce(&mut JNIEnv, &JObject, &JClass) -> jn
     let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }.map_err(|e| e.to_string())?;
     let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
     let context = unsafe { JObject::from_raw(ctx.context().cast()) };
-    let yukleyici = env
-        .call_method(&context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
-        .and_then(|v| v.l())
-        .map_err(|e| e.to_string())?;
-    let ad = env.new_string(format!("{PAKET}.{sinif}")).map_err(|e| e.to_string())?;
-    let sinif_nesnesi = env
-        .call_method(&yukleyici, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;", &[JValue::Object(&ad)])
-        .and_then(|v| v.l())
-        .map_err(|e| e.to_string())?;
-    let sinif_nesnesi = JClass::from(sinif_nesnesi);
-    let sonuc = f(&mut env, &context, &sinif_nesnesi);
+    let sonuc = (|| -> jni::errors::Result<T> {
+        let yukleyici = env.call_method(&context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?.l()?;
+        let ad = env.new_string(format!("{PAKET}.{sinif}"))?;
+        let sinif_nesnesi = env
+            .call_method(&yukleyici, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;", &[JValue::Object(&ad)])?
+            .l()?;
+        let sinif_nesnesi = JClass::from(sinif_nesnesi);
+        f(&mut env, &context, &sinif_nesnesi)
+    })();
     if env.exception_check().unwrap_or(false) {
         let _ = env.exception_clear();
         return Err("Java istisnası".into());

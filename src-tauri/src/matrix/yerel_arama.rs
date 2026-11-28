@@ -18,6 +18,22 @@ mod motor;
 #[cfg(all(feature = "yerel-arama", any(target_os = "linux", target_os = "android")))]
 mod ses;
 
+#[derive(serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SesAygiti {
+    pub ad: String,
+    pub aciklama: String,
+}
+
+#[derive(serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SesAygitlari {
+    pub girisler: Vec<SesAygiti>,
+    pub cikislar: Vec<SesAygiti>,
+    pub varsayilan_giris: Option<String>,
+    pub varsayilan_cikis: Option<String>,
+}
+
 #[cfg(not(all(feature = "yerel-arama", any(target_os = "linux", target_os = "android"))))]
 mod motor {
     use super::*;
@@ -34,6 +50,8 @@ mod motor {
     pub fn paylasilan_sesler(_: Vec<String>) {}
     pub fn paylasimi_durdur() {}
     pub async fn kare(_: String, _: u64) -> Vec<u8> { vec![] }
+    pub async fn aygitlar() -> SesAygitlari { SesAygitlari::default() }
+    pub fn ses_ayarla(_: Option<String>, _: Option<String>, _: bool) {}
 }
 
 #[tauri::command]
@@ -94,4 +112,18 @@ pub fn yerel_arama_paylasimi_durdur() {
 #[tauri::command]
 pub async fn yerel_arama_kare(anahtar: String, sonra: u32) -> Response {
     Response::new(motor::kare(anahtar, sonra.into()).await)
+}
+
+/// Available audio input/output devices (Linux; empty on Android where SesKoprusu routes audio).
+/// Kullanılabilir ses giriş/çıkış aygıtları (Linux; Android'de yönlendirmeyi SesKoprusu yapar, boş döner).
+#[tauri::command]
+pub async fn yerel_arama_aygitlar() -> SesAygitlari {
+    motor::aygitlar().await
+}
+
+/// Saves audio preferences for future calls and applies changes immediately if a call is running.
+/// Ses tercihlerini sonraki aramalar için saklar ve süren arama varsa değişimleri hemen uygular.
+#[tauri::command]
+pub fn yerel_arama_ses_ayarla(giris: Option<String>, cikis: Option<String>, gurultu: bool) {
+    motor::ses_ayarla(giris, cikis, gurultu);
 }

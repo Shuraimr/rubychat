@@ -22,11 +22,31 @@ mod tipler;
 
 use tauri::Manager;
 
-/// Logs go to stdout on desktop and to logcat (tag "rubychat") on Android, where stdout is discarded.
-/// Günlükler masaüstünde stdout'a, Android'de logcat'e ("rubychat" etiketi) gider; Android stdout'u atar.
+#[cfg(not(target_os = "android"))]
+fn gunluk_dosyasi_ac() -> Option<std::fs::File> {
+    let taban = match std::env::var_os("XDG_DATA_HOME") {
+        Some(v) if !v.is_empty() => std::path::PathBuf::from(v),
+        _ => std::path::PathBuf::from(std::env::var_os("HOME").filter(|v| !v.is_empty())?).join(".local/share"),
+    };
+    let klasor = taban.join(format!("dev.rubyyard.rubychat{}", profil_eki()));
+    std::fs::create_dir_all(&klasor).ok()?;
+    let yol = klasor.join("gunluk.txt");
+    // Rotate on startup once the file grows past 4 MiB so logs cannot fill the disk.
+    // Açılışta dosya 4 MiB'ı aşmışsa döndür ki günlükler diski doldurmasın.
+    if std::fs::metadata(&yol).is_ok_and(|m| m.len() > 4 * 1024 * 1024) {
+        let eski = klasor.join("gunluk.1.txt");
+        let _ = std::fs::remove_file(&eski);
+        let _ = std::fs::rename(&yol, &eski);
+    }
+    std::fs::OpenOptions::new().create(true).append(true).open(&yol).ok()
+}
+
+/// Logs go to stdout (plus a rotating file on desktop) and to logcat (tag "rubychat") on Android, where stdout is discarded.
+/// Günlükler masaüstünde stdout'a (ek olarak dönen dosyaya), Android'de logcat'e ("rubychat" etiketi) gider; Android stdout'u atar.
 fn gunlukleri_baslat() {
-    let filtre = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "rubychat_lib=info,matrix_sdk=warn".into());
+    let filtre = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        "rubychat_lib=info,matrix_sdk=warn,matrix_rtc_core=info,matrix_rtc_call=info,matrix_rtc_call_sdk=info,matrix_rtc_livekit=info,matrix_rtc_transport=info,matrix_rtc_matrix_sdk=info,livekit=warn,libwebrtc=warn".into()
+    });
     #[cfg(target_os = "android")]
     {
         use tracing_logcat::{LogcatMakeWriter, LogcatTag};
@@ -34,7 +54,17 @@ fn gunlukleri_baslat() {
         tracing_subscriber::fmt().with_env_filter(filtre).with_writer(yazici).with_ansi(false).without_time().init();
     }
     #[cfg(not(target_os = "android"))]
-    tracing_subscriber::fmt().with_env_filter(filtre).init();
+    {
+        use tracing_subscriber::fmt::writer::MakeWriterExt;
+        if let Some(dosya) = gunluk_dosyasi_ac() {
+            // Flatpak sends stdout to /dev/null, so mirror logs to a file alongside stdout (no ANSI escapes in the file).
+            // Flatpak stdout'u /dev/null'a gönderir; günlükleri stdout'la birlikte dosyaya da yaz (dosyada ANSI kaçışı yok).
+            let yazici = std::io::stdout.and(std::sync::Mutex::new(dosya));
+            tracing_subscriber::fmt().with_env_filter(filtre).with_writer(yazici).with_ansi(false).init();
+        } else {
+            tracing_subscriber::fmt().with_env_filter(filtre).init();
+        }
+    }
 
     // A panic inside an async command would otherwise vanish silently and leave the UI waiting forever.
     // Async bir komuttaki panik aksi hâlde sessizce kaybolur ve arayüz sonsuza dek bekler.
@@ -271,6 +301,8 @@ pub fn run() {
             matrix::yerel_arama::yerel_arama_paylasilan_sesler,
             matrix::yerel_arama::yerel_arama_paylasimi_durdur,
             matrix::yerel_arama::yerel_arama_kare,
+            matrix::yerel_arama::yerel_arama_aygitlar,
+            matrix::yerel_arama::yerel_arama_ses_ayarla,
             matrix::ec::ec_ac,
             matrix::ec::kamera_penceresi,
             matrix::ec::ec_gonder,

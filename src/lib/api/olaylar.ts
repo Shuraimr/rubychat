@@ -53,6 +53,8 @@ export const yaziyorGuncellendi = (isle: (g: YaziyorGuncelleme) => void): Promis
 
 // ---- Native calls · Yerel aramalar ----
 export const yerelAramaDurumu = (isle: (d: YerelDurum) => void): Promise<UnlistenFn> => listen<YerelDurum>("yerel-arama", (e) => isle(e.payload));
+export const yerelAramaSeviye = (isle: (s: number) => void): Promise<UnlistenFn> =>
+  listen<number>("yerel-arama-seviye", (e) => isle(e.payload));
 
 // ---- Element Call ----
 export const ecGelen = (isle: (g: EcGelen) => void): Promise<UnlistenFn> => listen<EcGelen>("ec-gelen", (e) => isle(e.payload));

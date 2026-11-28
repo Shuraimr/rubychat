@@ -18,7 +18,7 @@ tauri-build = { version = "2", features = [] }
 [features]
 # Calls inside the app instead of Element Call in an iframe. Needs a C++ toolchain, so off by default (see flatpak/derle.sh).
 # iframe'deki Element Call yerine uygulama içi aramalar. C++ araçları ister, bu yüzden varsayılan kapalı (bkz. flatpak/derle.sh).
-yerel-arama = ["dep:matrix-rtc-call-sdk", "dep:matrix-rtc-call", "dep:matrix-rtc-core", "dep:matrix-rtc-transport", "dep:libwebrtc", "dep:rustls", "dep:libc", "dep:matrix-sdk-base"]
+yerel-arama = ["dep:matrix-rtc-call-sdk", "dep:matrix-rtc-call", "dep:matrix-rtc-core", "dep:matrix-rtc-transport", "dep:livekit", "dep:libwebrtc", "dep:rustls", "dep:libc", "dep:matrix-sdk-base"]
 
 [patch.crates-io]
 # Stereo sound, which livekit 0.9.7 lacks; see ../motor/yama/README.md. · livekit 0.9.7'de olmayan stereo ses.
@@ -81,6 +81,9 @@ matrix-rtc-call-sdk = { path = "../motor/crates/matrix-rtc-call-sdk", features =
 matrix-rtc-call = { path = "../motor/crates/matrix-rtc-call", optional = true }
 matrix-rtc-core = { path = "../motor/crates/matrix-rtc-core", optional = true }
 matrix-rtc-transport = { path = "../motor/crates/matrix-rtc-transport", optional = true }
+# Already in the tree (patched to ../motor/yama/livekit): initializes WebRTC's PeerConnectionFactory on a clean thread.
+# Zaten ağaçta (../motor/yama/livekit'e yönlendirilir): WebRTC'nin PeerConnectionFactory'sini temiz iş parçacığında kurar.
+livekit = { version = "0.9.7", default-features = false, optional = true }
 libwebrtc = { version = "=0.3.54", optional = true }
 # Already in the tree: the engine pulls in rustls with two crypto back ends, so one must be chosen at start.
 # Zaten ağaçta: motor rustls'i iki şifreleme arka ucuyla getirir, başlangıçta biri seçilmeli.

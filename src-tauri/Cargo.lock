@@ -5838,6 +5838,7 @@ dependencies = [
  "keyring",
  "libc",
  "libwebrtc",
+ "livekit",
  "matrix-rtc-call",
  "matrix-rtc-call-sdk",
  "matrix-rtc-core",

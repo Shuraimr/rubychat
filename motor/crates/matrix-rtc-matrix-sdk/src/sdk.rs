@@ -504,8 +504,11 @@ impl MatrixBackend for SdkMatrixBackend {
                 devices.iter().collect(),
                 &message_type,
                 raw,
-                // MSC4153: refuse to hand keys to unverified identities.
-                CollectStrategy::IdentityBasedStrategy,
+                // Every device except blacklisted ones, as Element and Element Call do: with MSC4153's identity-based
+                // strategy a friend whose device is not cross-signed never got our key and heard nothing (rubychat user
+                // decision, 2026-11-28). · Kara listedekiler dışında her cihaz (Element ve Element Call gibi): MSC4153'ün
+                // kimlik tabanlı stratejisinde cihazı çapraz imzasız arkadaş anahtarımızı hiç almıyor, hiçbir şey duymuyordu.
+                CollectStrategy::AllDevices,
             )
             .await
             .map_err(command_error)?;
