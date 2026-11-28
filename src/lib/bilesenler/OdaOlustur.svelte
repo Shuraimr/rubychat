@@ -3,6 +3,7 @@
   "Grup oluştur" / "Alan oluştur" / "Adresle odaya katıl" sayfası: tek alan, tek düğme.
 -->
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { alanaKatil, odaOlustur } from "../api/komutlar";
   import { alanlar } from "../durum/alanlar.svelte";
   import { gezinme } from "../durum/gezinme.svelte";
@@ -11,10 +12,23 @@
   import { hataBildir } from "../mesaj/eylemler";
   import AltSayfa from "./AltSayfa.svelte";
 
-  let { tur, onkapat }: { tur: "grup" | "alan" | "katil"; onkapat: () => void } = $props();
+  let {
+    tur,
+    onkapat,
+    gomulu = false,
+  }: {
+    tur: "grup" | "alan" | "katil";
+    onkapat: () => void;
+    /** Render only the form body without AltSayfa (used inside the desktop New menu card) · AltSayfa olmadan yalnızca form gövdesini çizer (masaüstü Yeni menüsü kartı içinde kullanılır) */
+    gomulu?: boolean;
+  } = $props();
   let deger = $state("");
   let mesgul = $state(false);
   let hata = $state<string | null>(null);
+  let kapandi = false;
+  onDestroy(() => {
+    kapandi = true;
+  });
 
   async function gonder(e: SubmitEvent) {
     e.preventDefault();
@@ -26,12 +40,14 @@
       // A room id needs a server to ask; an alias carries its own. · Oda kimliği sorulacak bir sunucu ister; takma ad kendininkini taşır.
       const via = d.startsWith("!") && d.includes(":") ? [d.slice(d.indexOf(":") + 1)] : [];
       const id = tur === "katil" ? await alanaKatil(d, via) : await odaOlustur(d, tur === "alan");
+      if (kapandi) return;
       onkapat();
       if (tur === "alan") {
         gezinme.sekmeSec("alanlar");
         alanlar.ac(id, d);
       } else gezinme.odaAc(id);
     } catch (err) {
+      if (kapandi) return;
       // Not open to everyone: offer to ask for permission. · Herkese açık değil: izin istemeyi öner.
       if (tur === "katil" && (err as { tur?: string }).tur === "giris") {
         onkapat();
@@ -43,7 +59,7 @@
   }
 </script>
 
-<AltSayfa baslik={t(`dock.${tur}`)} {onkapat}>
+{#snippet govde()}
   <form class="form" onsubmit={gonder}>
     <p class="alt">{t(`dock.${tur}Alt`)}</p>
     <label class="alan">
@@ -53,7 +69,15 @@
     </label>
     <button class="buton birincil" type="submit" disabled={mesgul}>{#if mesgul}<span class="yuklenme"></span>{/if}{tur === "katil" ? t("dock.katilEylem") : t("dock.olustur")}</button>
   </form>
-</AltSayfa>
+{/snippet}
+
+{#if gomulu}
+  {@render govde()}
+{:else}
+  <AltSayfa baslik={t(`dock.${tur}`)} {onkapat}>
+    {@render govde()}
+  </AltSayfa>
+{/if}
 
 <style>
   .form { display: grid; gap: 16px; }

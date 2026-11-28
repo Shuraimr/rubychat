@@ -17,6 +17,7 @@
   import { kayCik, kayGir } from "./lib/gecis";
   import { klavyeyiIzle } from "./lib/klavye";
   import { dokunmaBaslat, titret } from "./lib/dokunma";
+  import { fareGezinmeBaslat } from "./lib/fareGezinme";
   import { capaBaslat } from "./lib/capa";
   import Acilis from "./lib/bilesenler/Acilis.svelte";
   import KullaniciKarti from "./lib/bilesenler/KullaniciKarti.svelte";
@@ -121,7 +122,7 @@
   onMount(() => {
     // Register keyboard shortcuts before gezinme so Esc drops message selection before closing a room on narrow viewports.
     // Klavye kısayollarını gezinme'den önce kaydet; dar ekranda Esc odayı kapatmadan önce mesaj seçimini bıraksın.
-    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat(), capaBaslat(), klavyeBaslat(), matrisBaglantiBaslat()];
+    const birak = [altYeriOlc(), klavyeyiIzle(), dokunmaBaslat(), capaBaslat(), klavyeBaslat(), matrisBaglantiBaslat(), fareGezinmeBaslat()];
     // Desktop: Ctrl+Q quits for real, since the close button only hides the window while it runs in the background.
     // Masaüstü: Ctrl+Q gerçekten çıkar; arka planda çalışırken kapatma düğmesi pencereyi yalnızca gizler.
     if (masaustuLinux) {

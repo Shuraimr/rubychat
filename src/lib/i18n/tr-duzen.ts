@@ -6,4 +6,5 @@ export const trDuzen = {
   "yeniMenu.olustur": "OLUŞTUR",
   "yeniMenu.katil": "KATIL",
   "yeniMenu.adresleKatil": "Adresle katıl",
+  "yeniMenu.geri": "Menüye dön",
 } as const;

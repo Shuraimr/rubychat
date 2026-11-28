@@ -16,10 +16,7 @@
   import { klavye } from "../klavyeKisayol.svelte";
   import Avatar from "./Avatar.svelte";
   import Ikon from "./Ikon.svelte";
-  import OdaKesfet from "./OdaKesfet.svelte";
-  import OdaOlustur from "./OdaOlustur.svelte";
-  import YeniMenusu, { type YeniSayfa } from "./YeniMenusu.svelte";
-  import YeniSohbet from "./YeniSohbet.svelte";
+  import YeniMenusu from "./YeniMenusu.svelte";
   import Zil from "./Zil.svelte";
 
   // Top 3 recent chats: rooms with unread messages or mentions first (newest first), then the newest remaining chats.
@@ -37,13 +34,16 @@
 
   let seritEl: HTMLElement | undefined = $state();
   let yeniDugme: HTMLButtonElement | undefined = $state();
+  let yeniMenu = $state<{ geriAl: () => boolean }>();
   let yeniAcik = $state(false);
   let yeniKatman = 0;
+  let zorlaKapat = false;
   let yeniUst = $state(60);
-  let yeniSayfa = $state<YeniSayfa | null>(null);
 
   function yeniKapat() {
-    if (yeniKatman) gezinme.katmanKapat(yeniKatman);
+    if (!yeniKatman) return;
+    zorlaKapat = true;
+    gezinme.katmanKapat(yeniKatman);
   }
   function yeniDegis() {
     if (yeniAcik) return yeniKapat();
@@ -51,8 +51,13 @@
       yeniUst = Math.max(8, Math.round(yeniDugme.getBoundingClientRect().top - seritEl.getBoundingClientRect().top));
     }
     titret(8);
+    zorlaKapat = false;
     yeniAcik = true;
     yeniKatman = gezinme.katmanAc(() => {
+      // On Escape/back while showing an inline form, return to the menu first instead of dismissing the card.
+      // Gömülü formdayken Escape/geri tuşu kartı kapatmak yerine önce menüye döner.
+      if (!zorlaKapat && yeniMenu?.geriAl()) return false;
+      zorlaKapat = false;
       yeniKatman = 0;
       yeniAcik = false;
     });
@@ -233,17 +238,9 @@
 {#if yeniAcik}
   <button class="yeni-perde" type="button" aria-label={t("dock.yeniKapat")} data-bas="yok" onclick={yeniKapat}></button>
 {/if}
-<div class="yeni-menu-kap" style:top="{yeniUst}px">
-  <YeniMenusu acik={yeniAcik} onkapat={yeniKapat} konum="sag" onsec={(s) => (yeniSayfa = s)} />
+<div class="yeni-menu-kap" style:top="{yeniUst}px" style:--ust="{yeniUst}px">
+  <YeniMenusu bind:this={yeniMenu} acik={yeniAcik} onkapat={yeniKapat} konum="sag" />
 </div>
-
-{#if yeniSayfa === "kisi"}
-  <YeniSohbet onkapat={() => (yeniSayfa = null)} />
-{:else if yeniSayfa === "kesfet"}
-  <OdaKesfet onkapat={() => (yeniSayfa = null)} />
-{:else if yeniSayfa}
-  <OdaOlustur tur={yeniSayfa} onkapat={() => (yeniSayfa = null)} />
-{/if}
 
 <style>
   .serit {

@@ -7,6 +7,7 @@
   Dokununca şifreli DM açılır (varsa mevcut olan). Arka uç: `dm_ac`.
 -->
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { dmAc, kullaniciAra } from "../api/komutlar";
   import type { BulunanKisi } from "../api/tipler";
   import { bildirim } from "../durum/bildirim.svelte";
@@ -23,7 +24,16 @@
   // only the compact layout (room strip instead of the rail) keeps it here, so it is never in two places and never missing.
   // `kisayol`: geniş ekranda dock'taki "Yeni" menüsü yok; sayfa grup ve alan oluşturmayı taşır. Keşfet yan raydadır; yalnızca kompakt
   // düzen (ray yerine oda şeridi) onu burada tutar: hiçbir zaman iki yerde olmaz, hiçbir zaman da kaybolmaz.
-  let { onkapat: ustKapat, kisayol }: { onkapat: () => void; kisayol?: (s: "kesfet" | "grup" | "alan") => void } = $props();
+  let {
+    onkapat: ustKapat,
+    kisayol,
+    gomulu = false,
+  }: {
+    onkapat: () => void;
+    kisayol?: (s: "kesfet" | "grup" | "alan") => void;
+    /** Render only the form body without AltSayfa (used inside the desktop New menu card) · AltSayfa olmadan yalnızca form gövdesini çizer (masaüstü Yeni menüsü kartı içinde kullanılır) */
+    gomulu?: boolean;
+  } = $props();
   const kisayollar = $derived(
     (duzen.kompakt ? [["kesfet", "pusula"], ["grup", "sohbet"], ["alan", "izgara"]] : [["grup", "sohbet"], ["alan", "izgara"]]) as ["kesfet" | "grup" | "alan", "pusula" | "sohbet" | "izgara"][],
   );
@@ -38,6 +48,9 @@
     kapandi = true;
     ustKapat();
   };
+  onDestroy(() => {
+    kapandi = true;
+  });
 
   const benimSunucum = $derived(oturum.ben?.kullaniciId.split(":").slice(1).join(":") ?? "");
   // A typed id, or a bare username on my own server. · Yazılan kimlik ya da kendi sunucumda düz kullanıcı adı.
@@ -105,7 +118,7 @@
   }
 </script>
 
-<AltSayfa baslik={t("yeniSohbet.baslik")} {onkapat}>
+{#snippet govde()}
   <form class="form" onsubmit={gonder}>
     <label class="alan-kutu ara">
       <Ikon ad="ara" boyut={20} />
@@ -157,7 +170,15 @@
     </ul>
     <p class="alt">{t("yeniSohbet.alt")}</p>
   </form>
-</AltSayfa>
+{/snippet}
+
+{#if gomulu}
+  {@render govde()}
+{:else}
+  <AltSayfa baslik={t("yeniSohbet.baslik")} {onkapat}>
+    {@render govde()}
+  </AltSayfa>
+{/if}
 
 <style>
   .form { display: grid; gap: 12px; }

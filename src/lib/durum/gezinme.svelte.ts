@@ -31,6 +31,13 @@ export type Sekil = "telefon" | "yatay" | "tablet";
 
 const YATAY_SORGU = "(max-height: 500px)";
 const TABLET_SORGU = "(min-width: 768px) and (min-height: 501px)";
+const GECMIS_SINIR = 50;
+
+interface AnlikGoruntu {
+  sekme: Sekme;
+  acikOdaId: string | null;
+  benAlt: BenAlt | null;
+}
 
 interface Katman {
   id: number;
@@ -59,6 +66,11 @@ class Gezinme {
   #benAltKatmani = 0;
   #odaAyarKatmani = 0;
   #sekmeKatmani = 0;
+  /** In-app back/forward navigation history stacks (desktop mouse buttons & Alt+Arrows) · Uygulama içi geri/ileri gezinme geçmişi yığınları (masaüstü fare tuşları ve Alt+Oklar) */
+  #geriYigin: AnlikGoruntu[] = [];
+  #ileriYigin: AnlikGoruntu[] = [];
+  /** Nesting counter that suppresses history recording during internal sub-calls and history replay · İç alt çağrılar ve geçmiş uygulaması sırasında kayıt yapmayı durduran iç içe sayaç */
+  #gecmisDuraklat = 0;
 
   baslat() {
     // A reload keeps the old entry's layer id; new ids start from 1 again, so forget it. · Yeniden yükleme eski girdinin katman kimliğini korur; yeni kimlikler 1'den başlar, unut.
@@ -203,14 +215,16 @@ class Gezinme {
   }
 
   sekmeSec(s: Sekme) {
-    // Portrait phone has no Explore tab: keep it on Spaces if requested. · Dikey telefonda Keşfet sekmesi yok: istenirse Alanlar'da tut.
-    const hedef: Sekme = this.sekil === "telefon" && s === "kesfet" ? "alanlar" : s;
-    this.odaAyarKapat();
-    this.benAltKapat();
-    this.#sekmeyeGec(hedef);
-    // Where a room covers the tab panels (portrait phone), leaving to a tab closes it; landscape phone keeps list and room side by side.
-    // Odanın sekme panellerini örttüğü yerde (dikey telefon) sekmeye geçmek odayı kapatır; yatay telefonda liste ve oda yan yana kalır.
-    if (this.sekil === "telefon") this.odaKapat();
+    this.#gecmisle(() => {
+      // Portrait phone has no Explore tab: keep it on Spaces if requested. · Dikey telefonda Keşfet sekmesi yok: istenirse Alanlar'da tut.
+      const hedef: Sekme = this.sekil === "telefon" && s === "kesfet" ? "alanlar" : s;
+      this.odaAyarKapat();
+      this.benAltKapat();
+      this.#sekmeyeGec(hedef);
+      // Where a room covers the tab panels (portrait phone), leaving to a tab closes it; landscape phone keeps list and room side by side.
+      // Odanın sekme panellerini örttüğü yerde (dikey telefon) sekmeye geçmek odayı kapatır; yatay telefonda liste ve oda yan yana kalır.
+      if (this.sekil === "telefon") this.odaKapat();
+    });
   }
 
   /**
@@ -247,31 +261,35 @@ class Gezinme {
    * Bir odayı aç. `sekmeyiKoru`: mevcut sekmede kal (bir alanın içinden açılan oda geri dönüşte sohbet listesine değil o alana dönmeli).
    */
   odaAc(id: string, sekmeyiKoru = false) {
-    // Switching to a room closes any open room/space settings panel so the chat is visible · Odaya geçmek açık oda/alan ayarları panelini kapatır ki sohbet görünsün
-    this.odaAyarKapat();
-    // Phone: opening a room (a notification tap, a search hit) also leaves the other main page. · Telefon: oda açmak (bildirime dokunma, arama sonucu) diğer ana sayfadan da çıkarır.
-    if (!sekmeyiKoru) {
-      this.benAltKapat();
-      this.#sekmeyeGec("sohbetler");
-    }
-    // Where the room replaces the list it is a layer, so the hardware back button closes it. · Oda listenin yerini aldığı yerde bir katmandır; donanım geri tuşu onu kapatır.
-    if (!this.genis && !this.#odaKatmani) {
-      this.#odaKatmani = this.katmanAc(() => {
-        this.#odaKatmani = 0;
-        this.acikOdaId = null;
-      });
-    }
-    this.acikOdaId = id;
+    this.#gecmisle(() => {
+      // Switching to a room closes any open room/space settings panel so the chat is visible · Odaya geçmek açık oda/alan ayarları panelini kapatır ki sohbet görünsün
+      this.odaAyarKapat();
+      // Phone: opening a room (a notification tap, a search hit) also leaves the other main page. · Telefon: oda açmak (bildirime dokunma, arama sonucu) diğer ana sayfadan da çıkarır.
+      if (!sekmeyiKoru) {
+        this.benAltKapat();
+        this.#sekmeyeGec("sohbetler");
+      }
+      // Where the room replaces the list it is a layer, so the hardware back button closes it. · Oda listenin yerini aldığı yerde bir katmandır; donanım geri tuşu onu kapatır.
+      if (!this.genis && !this.#odaKatmani) {
+        this.#odaKatmani = this.katmanAc(() => {
+          this.#odaKatmani = 0;
+          this.acikOdaId = null;
+        });
+      }
+      this.acikOdaId = id;
+    });
   }
 
   odaKapat() {
-    this.odaAyarKapat();
-    if (this.#odaKatmani) {
-      const k = this.#odaKatmani;
-      this.#odaKatmani = 0;
-      this.acikOdaId = null;
-      this.katmanBirak(k);
-    } else this.acikOdaId = null;
+    this.#gecmisle(() => {
+      this.odaAyarKapat();
+      if (this.#odaKatmani) {
+        const k = this.#odaKatmani;
+        this.#odaKatmani = 0;
+        this.acikOdaId = null;
+        this.katmanBirak(k);
+      } else this.acikOdaId = null;
+    });
   }
 
   /** Opens the shared room / space settings screen as a back-button layer · Ortak oda / alan ayarları ekranını geri tuşu katmanı olarak açar */
@@ -303,24 +321,143 @@ class Gezinme {
   }
 
   benAltAc(ad: BenAlt) {
-    this.#sekmeyeGec("ben");
-    if (this.#benAltKatmani) this.katmanBirak(this.#benAltKatmani);
-    this.benAlt = ad;
-    this.#benAltKatmani = this.katmanAc(() => {
-      this.#benAltKatmani = 0;
-      this.benAlt = null;
+    this.#gecmisle(() => {
+      this.#sekmeyeGec("ben");
+      if (this.#benAltKatmani) this.katmanBirak(this.#benAltKatmani);
+      this.benAlt = ad;
+      this.#benAltKatmani = this.katmanAc(() => {
+        this.#benAltKatmani = 0;
+        this.benAlt = null;
+      });
     });
   }
 
   benAltKapat() {
-    if (!this.#benAltKatmani) {
+    this.#gecmisle(() => {
+      if (!this.#benAltKatmani) {
+        this.benAlt = null;
+        return;
+      }
+      const k = this.#benAltKatmani;
+      this.#benAltKatmani = 0;
       this.benAlt = null;
+      this.katmanBirak(k);
+    });
+  }
+
+  #goruntu(): AnlikGoruntu {
+    return { sekme: this.sekme, acikOdaId: this.acikOdaId, benAlt: this.benAlt };
+  }
+
+  #ayniGoruntu(a: AnlikGoruntu, b: AnlikGoruntu): boolean {
+    return a.sekme === b.sekme && a.acikOdaId === b.acikOdaId && a.benAlt === b.benAlt;
+  }
+
+  #geriyeEkle(g: AnlikGoruntu) {
+    const son = this.#geriYigin[this.#geriYigin.length - 1];
+    if (son && this.#ayniGoruntu(son, g)) return;
+    this.#geriYigin.push(g);
+    if (this.#geriYigin.length > GECMIS_SINIR) this.#geriYigin.shift();
+  }
+
+  #ileriyeEkle(g: AnlikGoruntu) {
+    const son = this.#ileriYigin[this.#ileriYigin.length - 1];
+    if (son && this.#ayniGoruntu(son, g)) return;
+    this.#ileriYigin.push(g);
+    if (this.#ileriYigin.length > GECMIS_SINIR) this.#ileriYigin.shift();
+  }
+
+  /** Run a navigation change while recording the previous snapshot once (nested calls and replays do not record). · Bir gezinme değişikliğini önceki görüntüyü tek kez kaydederek çalıştır (iç içe çağrılar ve tekrar oynatmalar kaydetmez). */
+  #gecmisle(islem: () => void) {
+    if (this.#gecmisDuraklat > 0) {
+      islem();
       return;
     }
-    const k = this.#benAltKatmani;
-    this.#benAltKatmani = 0;
-    this.benAlt = null;
-    this.katmanBirak(k);
+    const onceki = this.#goruntu();
+    this.#gecmisDuraklat++;
+    try {
+      islem();
+    } finally {
+      this.#gecmisDuraklat--;
+    }
+    const sonraki = this.#goruntu();
+    if (!this.#ayniGoruntu(onceki, sonraki)) {
+      this.#geriyeEkle(onceki);
+      this.#ileriYigin = [];
+    }
+  }
+
+  /** Apply a navigation snapshot through existing methods without writing back into history. · Bir gezinme görüntüsünü geçmişe yeniden yazmadan var olan yöntemlerle uygula. */
+  #goruntuUygula(hedef: AnlikGoruntu) {
+    this.#gecmisDuraklat++;
+    try {
+      if (hedef.sekme !== this.sekme) {
+        this.sekmeSec(hedef.sekme);
+      } else if (!hedef.benAlt && this.benAlt) {
+        this.benAltKapat();
+      }
+      if (hedef.acikOdaId) {
+        if (hedef.acikOdaId !== this.acikOdaId) this.odaAc(hedef.acikOdaId, true);
+      } else if (this.acikOdaId) {
+        this.odaKapat();
+      }
+      if (hedef.benAlt) {
+        if (hedef.benAlt !== this.benAlt) this.benAltAc(hedef.benAlt);
+      } else if (this.benAlt) {
+        this.benAltKapat();
+      }
+    } finally {
+      this.#gecmisDuraklat--;
+    }
+  }
+
+  /**
+   * Go back: close the top-most open layer first (same as Android back / Escape); when no layer is open, step back through in-app history.
+   * Geri git: önce en üstteki açık katmanı kapat (Android geri / Escape gibi); açık katman yoksa uygulama içi geçmişte bir adım geri dön.
+   */
+  geriGit() {
+    const ust = this.#katmanlar[this.#katmanlar.length - 1];
+    if (ust) {
+      const onceki = this.#goruntu();
+      this.#geriGit(ust);
+      const sonraki = this.#goruntu();
+      if (!this.#ayniGoruntu(onceki, sonraki)) {
+        // A layer that is part of the snapshot closed (e.g. a Ben sub-page): keep forward history coherent and drop the matching back top.
+        // Görüntünün parçası olan bir katman kapandı (ör. Ben alt sayfası): ileri geçmişi tutarlı tut ve eşleşen geri tepesini düş.
+        const son = this.#geriYigin[this.#geriYigin.length - 1];
+        if (son && this.#ayniGoruntu(son, sonraki)) this.#geriYigin.pop();
+        this.#ileriyeEkle(onceki);
+      }
+      return;
+    }
+    const simdi = this.#goruntu();
+    let hedef: AnlikGoruntu | undefined;
+    while (this.#geriYigin.length > 0) {
+      const aday = this.#geriYigin.pop()!;
+      if (!this.#ayniGoruntu(aday, simdi)) {
+        hedef = aday;
+        break;
+      }
+    }
+    if (!hedef) return;
+    this.#ileriyeEkle(simdi);
+    this.#goruntuUygula(hedef);
+  }
+
+  /** Go forward one step in in-app navigation history. · Uygulama içi gezinme geçmişinde bir adım ileri git. */
+  ileriGit() {
+    const simdi = this.#goruntu();
+    let hedef: AnlikGoruntu | undefined;
+    while (this.#ileriYigin.length > 0) {
+      const aday = this.#ileriYigin.pop()!;
+      if (!this.#ayniGoruntu(aday, simdi)) {
+        hedef = aday;
+        break;
+      }
+    }
+    if (!hedef) return;
+    this.#geriyeEkle(simdi);
+    this.#goruntuUygula(hedef);
   }
 
   sifirla() {
@@ -335,6 +472,9 @@ class Gezinme {
     this.#benAltKatmani = 0;
     this.#odaAyarKatmani = 0;
     this.#sekmeKatmani = 0;
+    this.#geriYigin = [];
+    this.#ileriYigin = [];
+    this.#gecmisDuraklat = 0;
   }
 }
 

@@ -33,19 +33,28 @@
   // ---- "+" New menu (wide desktop & landscape phone) · "+" Yeni menüsü (geniş masaüstü ve yatay telefon) ----
   let yeniAcik = $state(false);
   let yeniKatman = 0;
+  let zorlaKapat = false;
   let menuKap: HTMLDivElement | undefined = $state();
+  let yeniMenu = $state<{ geriAl: () => boolean; icinde: (hedef: Node | null) => boolean }>();
   let yeniDugme: HTMLButtonElement | undefined = $state();
   let yeniPerde: HTMLButtonElement | undefined = $state();
 
   function yeniKapat() {
-    if (yeniKatman) gezinme.katmanKapat(yeniKatman);
+    if (!yeniKatman) return;
+    zorlaKapat = true;
+    gezinme.katmanKapat(yeniKatman);
   }
   function yeniDegis() {
     if (yeniAcik) return yeniKapat();
     titret(8);
     kabuk.altGizli = false;
+    zorlaKapat = false;
     yeniAcik = true;
     yeniKatman = gezinme.katmanAc(() => {
+      // On Escape/back while showing an inline form, return to the menu first instead of dismissing the card.
+      // Gömülü formdayken Escape/geri tuşu kartı kapatmak yerine önce menüye döner.
+      if (!zorlaKapat && yeniMenu?.geriAl()) return false;
+      zorlaKapat = false;
       yeniKatman = 0;
       yeniAcik = false;
     });
@@ -57,7 +66,7 @@
     const disTik = (e: PointerEvent) => {
       const hedef = e.target as Node | null;
       if (!hedef) return;
-      if (menuKap?.contains(hedef) || yeniDugme?.contains(hedef) || yeniPerde?.contains(hedef)) return;
+      if (menuKap?.contains(hedef) || yeniMenu?.icinde(hedef) || yeniDugme?.contains(hedef) || yeniPerde?.contains(hedef)) return;
       yeniKapat();
     };
     document.addEventListener("pointerdown", disTik, true);
@@ -210,7 +219,7 @@
 <div class="alt-cubuk" class:gizli class:aramada={aramaModu} class:dockta={dock} inert={dock && !aramaModu} data-alt-cubuk={gizli ? undefined : ""}>
   {#if !dock}
     <div class="yeni-menu-kap" bind:this={menuKap}>
-      <YeniMenusu acik={yeniAcik} onkapat={yeniKapat} konum="sol" {onsec} />
+      <YeniMenusu bind:this={yeniMenu} acik={yeniAcik} onkapat={yeniKapat} konum="sol" onsec={gezinme.genis ? undefined : onsec} />
     </div>
   {/if}
   {#if aramaModu}

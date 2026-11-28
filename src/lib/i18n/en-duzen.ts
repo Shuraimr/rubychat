@@ -8,4 +8,5 @@ export const enDuzen: Record<keyof typeof trDuzen, string> = {
   "yeniMenu.olustur": "CREATE",
   "yeniMenu.katil": "JOIN",
   "yeniMenu.adresleKatil": "Join by address",
+  "yeniMenu.geri": "Back to menu",
 };
