@@ -46,18 +46,31 @@ fn webrtc_hazirla() {
     if CALISMA.get().is_some() {
         return;
     }
-    match std::thread::Builder::new()
-        .name("rubychat-webrtc".into())
-        .spawn(livekit::rtc_engine::lk_runtime::LkRuntime::instance)
+    // Android: the runtime is created on a Java thread that Kotlin starts (WebrtcKoprusu.calismaHazirla, android_jni.rs), so libwebrtc's
+    // JNI calls run with the app's class loader and a clean JNI state. (The crash at call start itself was missing JNI symbols, see build.rs.)
+    // Android: çalışma ortamı Kotlin'in açtığı bir Java iş parçacığında kurulur (WebrtcKoprusu.calismaHazirla, android_jni.rs); böylece libwebrtc'nin
+    // JNI çağrıları uygulamanın sınıf yükleyicisiyle ve temiz JNI durumuyla çalışır. (Arama başında çökmenin asıl sebebi eksik JNI simgeleriydi, bkz. build.rs.)
+    #[cfg(target_os = "android")]
     {
-        Ok(h) => match h.join() {
-            Ok(rt) => {
-                let _ = CALISMA.set(rt);
-            }
-            Err(_) => tracing::warn!("webrtc hazırlama iş parçacığı panikledi"),
-        },
-        Err(e) => tracing::warn!("webrtc hazırlama iş parçacığı açılamadı: {e}"),
+        if let Err(e) = crate::android_jni::webrtc_calisma_hazirla() {
+            tracing::warn!("webrtc Java iş parçacığında hazırlanamadı: {e}");
+        }
     }
+    #[cfg(not(target_os = "android"))]
+    match std::thread::Builder::new().name("rubychat-webrtc".into()).spawn(webrtc_kur) {
+        Ok(h) => {
+            if h.join().is_err() {
+                tracing::warn!("webrtc hazırlama iş parçacığı panikledi");
+            }
+        }
+        Err(e) => tracing::warn!("webrtc hazırlama iş parçacığı açılamadı: {e}"),
+    };
+}
+
+/// Creates the runtime once and keeps it (see `CALISMA`). On Android this runs on a Java thread. · Çalışma ortamını bir kez kurar
+/// ve saklar (bkz. `CALISMA`). Android'de bir Java iş parçacığında çalışır.
+pub(crate) fn webrtc_kur() {
+    CALISMA.get_or_init(livekit::rtc_engine::lk_runtime::LkRuntime::instance);
 }
 
 #[derive(Serialize, Clone, PartialEq)]

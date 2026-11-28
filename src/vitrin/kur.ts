@@ -713,8 +713,18 @@ function isleyici(komut: string, payload?: InvokeArgs): unknown {
     case "kamera_penceresi":
       return null;
     case "arama_turn_sunuculari":
-    case "ec_aktif_aramalar":
       return [];
+    case "ec_aktif_aramalar": {
+      // ?vitrin&katil: a call running in the first room (header "Katıl") and a ringing DM (floating strip on the phone).
+      // ?vitrin&katil: ilk odada süren arama (başlıkta "Katıl") ve çalan DM (telefonda yüzen şerit).
+      if (!new URLSearchParams(location.search).has("katil")) return [];
+      const [ilk, ...digerleri] = veri.odalar.filter((o) => !o.alan);
+      const dm = digerleri.find((o) => o.dm);
+      return [
+        { odaId: ilk.id, aktif: true, katilimcilar: ["@ece:ornek.org", "@mert:ornek.org", "@deniz:ornek.org"], benIcinde: false },
+        ...(dm ? [{ odaId: dm.id, aktif: true, katilimcilar: ["@ayse:ornek.org"], benIcinde: false }] : []),
+      ];
+    }
     case "yerel_arama_uygulamalar":
       return vitrinAramaKipi ? ["Helium", "Firefox"] : [];
     case "yerel_arama_aygitlar":

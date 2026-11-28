@@ -224,6 +224,27 @@ pub extern "system" fn Java_dev_rubyyard_rubychat_WebrtcKoprusu_baslat(env: JNIE
     let _ = (env, context);
 }
 
+/// Called by `WebrtcKoprusu.calismaHazirla` on the fresh Java thread it starts: creates libwebrtc's runtime there (motor.rs `webrtc_hazirla`).
+/// `WebrtcKoprusu.calismaHazirla`ın açtığı yeni Java iş parçacığında çağrılır: libwebrtc'nin çalışma ortamını orada kurar (motor.rs `webrtc_hazirla`).
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_dev_rubyyard_rubychat_WebrtcKoprusu_calismaKur(_env: JNIEnv, _sinif: JClass) {
+    #[cfg(feature = "yerel-arama")]
+    {
+        // A panic must not cross into Java. · Panik Java'ya geçmemeli.
+        if std::panic::catch_unwind(crate::matrix::yerel_arama::motor::webrtc_kur).is_err() {
+            tracing::warn!("webrtc çalışma ortamı kurulurken panik");
+        }
+    }
+}
+
+/// Asks Kotlin to create libwebrtc's runtime on a Java thread and waits for it. · Kotlin'den libwebrtc'nin çalışma ortamını bir Java
+/// iş parçacığında kurmasını ister ve bekler.
+#[cfg(all(feature = "yerel-arama", target_os = "android"))]
+pub fn webrtc_calisma_hazirla() -> Result<(), String> {
+    calistir("WebrtcKoprusu", |env, _, s| env.call_static_method(s, "calismaHazirla", "()V", &[]).map(|_| ()))
+}
+
 /// Opens the player (AudioTrack, 48 kHz stereo, voice call use); returns its id (generation). · Çaları açar (AudioTrack, 48 kHz stereo, sesli arama kullanımı); kimliğini (kuşağını) döndürür.
 pub fn arama_sesi_cal_ac() -> Result<i32, String> {
     let id = calistir("AramaSesi", |env, ctx, s| env.call_static_method(s, "calAc", "(Landroid/content/Context;)I", &[JValue::Object(ctx)])?.i())?;

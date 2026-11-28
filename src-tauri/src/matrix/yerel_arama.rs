@@ -14,7 +14,7 @@ mod ekran;
 #[path = "yerel_arama/ekran_android.rs"]
 mod ekran;
 #[cfg(all(feature = "yerel-arama", any(target_os = "linux", target_os = "android")))]
-mod motor;
+pub(crate) mod motor;
 #[cfg(all(feature = "yerel-arama", any(target_os = "linux", target_os = "android")))]
 mod ses;
 

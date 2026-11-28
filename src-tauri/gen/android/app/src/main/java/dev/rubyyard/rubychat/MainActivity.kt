@@ -339,6 +339,19 @@ class BaglantiKoprusu(private val etkinlik: MainActivity) {
 /** JNI entry for libwebrtc's one-time init (android_jni.rs). · libwebrtc'nin tek seferlik başlatması için JNI girişi (android_jni.rs). */
 object WebrtcKoprusu {
   @JvmStatic external fun baslat(context: Context)
+  @JvmStatic external fun calismaKur()
+
+  /**
+   * Creates libwebrtc's runtime on a fresh JAVA thread and waits: its JNI calls then use the app's class loader and a clean JNI state.
+   * Called from Rust (motor.rs `webrtc_hazirla`).
+   * libwebrtc'nin çalışma ortamını yeni bir JAVA iş parçacığında kurar ve bekler: JNI çağrıları uygulamanın sınıf yükleyicisini ve temiz
+   * JNI durumunu kullanır. Rust'tan çağrılır (motor.rs `webrtc_hazirla`).
+   */
+  @JvmStatic fun calismaHazirla() {
+    val t = Thread({ calismaKur() }, "rubychat-webrtc")
+    t.start()
+    t.join()
+  }
 }
 
 class MainActivity : TauriActivity() {

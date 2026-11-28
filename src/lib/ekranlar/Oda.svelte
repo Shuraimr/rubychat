@@ -54,6 +54,7 @@
   import { yazma } from "../durum/yazma.svelte";
   import type { Tepki } from "../api/tipler";
   import { arama } from "../durum/arama.svelte";
+  import { ec } from "../arama-ec/ec.svelte";
   import { bildirim } from "../durum/bildirim.svelte";
   import { duzen } from "../durum/duzen.svelte";
   import { klavye, type OdaKlavye } from "../klavyeKisayol.svelte";
@@ -68,6 +69,15 @@
   import { GRUP_ARALIGI } from "../gruplama";
 
   let { odaId }: { odaId: string } = $props();
+
+  // A call running in this room that we are not in: the header's call button becomes a green "Katıl" (no separate strip above the app).
+  // Bu odada süren ve içinde olmadığımız arama: başlıktaki arama düğmesi yeşil "Katıl" olur (uygulamanın üstünde ayrı şerit yok).
+  const surenArama = $derived(!ec.etkin ? ec.aktifler[odaId] : undefined);
+  const katilinabilir = $derived(!!surenArama && !surenArama.benIcinde);
+  function aramayaKatil() {
+    const o = odalar.liste.find((x) => x.id === odaId);
+    if (o) ec.katil({ id: o.id, ad: o.ad, avatarHarf: o.avatarHarf, avatarMxc: o.avatarMxc, dm: o.dm, sesli: o.dm });
+  }
 
   // This room's header, kept until the screen is gone: jumping straight to another room clears `zaman.bilgi` while this screen is still
   // drawn, and reading it then crashed the whole room. · Bu odanın başlığı, ekran gidene dek tutulur: doğrudan başka odaya geçmek,
@@ -789,6 +799,12 @@
 <svelte:boundary onerror={(e) => console.error("oda çizimi başarısız", e)}>
   <div class="oda-govde">
   <!-- Floating header: wide screens = single two-storey polished card (C); phone = three separated capsules over messages (B). -->
+  {#snippet katilDugmesi(n: number, boyut: number, sayi = true)}
+    <!-- 44px tap area, 36px green pill inside. · 44px dokunma alanı, içinde 36px yeşil hap. -->
+    <button class="katil-dugme" aria-label={t("arama.ec.suruyor", { n })} title={t("arama.ec.suruyor", { n })} onclick={aramayaKatil}>
+      <span class="katil-hap"><Ikon ad="telefon" {boyut} /><span class="katil-metin">{t("arama.ec.katil")}</span>{#if sayi}<span class="katil-sayi">{n}</span>{/if}</span>
+    </button>
+  {/snippet}
   <!-- Yüzen başlık: geniş ekran = tek iki katlı cilalı kart (C); telefon = mesajların üstünde üç ayrık kapsül (B). -->
   <div class="tepe" class:telefon={!gezinme.genis} data-oda-tepe bind:clientHeight={tepeYuk}>
     {#if gezinme.genis}
@@ -826,7 +842,9 @@
             <span class="ayrac" aria-hidden="true"></span>
           {/if}
           <button class="simge-dugme" class:tonlu={aramaAcik} aria-label={t("mesajAra.odadaAra")} aria-pressed={aramaAcik} use:hizliGecis onclick={() => (aramaAcik = true)}><Ikon ad="ara" /></button>
-          {#if aranabilir && bilgi}
+          {#if katilinabilir && surenArama}
+            {@render katilDugmesi(surenArama.katilimcilar.length, 18)}
+          {:else if aranabilir && bilgi}
             <button
               class="simge-dugme"
               aria-label={t("oda.ara")}
@@ -873,7 +891,9 @@
         {/if}
 
         <div class="kapsul kapsul-eylem">
-          {#if bilgi}
+          <!-- While "Katıl" is shown the face stack steps aside, otherwise the room name has no room left on a phone; people are still one tap away in the room capsule.
+               "Katıl" görünürken yüz yığını çekilir, yoksa telefonda oda adına yer kalmaz; kişiler oda kapsülünden yine bir dokunuş uzakta. -->
+          {#if bilgi && !katilinabilir}
             <button
               class="kisiler-dugme kompakt"
               aria-label={t("baslik.kisiler")}
@@ -884,7 +904,9 @@
             </button>
           {/if}
           <button class="simge-dugme" class:tonlu={aramaAcik} aria-label={t("mesajAra.odadaAra")} aria-pressed={aramaAcik} use:hizliGecis onclick={() => (aramaAcik = true)}><Ikon ad="ara" boyut={20} /></button>
-          {#if aranabilir && bilgi}
+          {#if katilinabilir && surenArama}
+            {@render katilDugmesi(surenArama.katilimcilar.length, 18, false)}
+          {:else if aranabilir && bilgi}
             <button
               class="simge-dugme"
               aria-label={t("oda.ara")}
@@ -1123,6 +1145,17 @@
   .ayrac { flex: none; width: 1px; height: 20px; background: var(--kenar-ince); margin: 0 2px; }
 
   /* Phone B separated capsules over messages (no background gradient) · Telefon B mesajların üstünde üç ayrık kapsül (zemin geçişi yok) */
+  .katil-dugme { flex: none; min-height: 44px; padding: 0 4px; display: inline-flex; align-items: center; }
+  .katil-hap {
+    display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px 0 10px; border-radius: 18px;
+    background: var(--cozum); color: var(--zemin); font-weight: 600; font-size: .875rem; white-space: nowrap;
+  }
+  .katil-sayi { min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-size: .75rem; background: color-mix(in srgb, var(--zemin) 18%, transparent); }
+  .katil-dugme:active .katil-hap { opacity: .85; }
+  /* Narrow phones: icon only, so the room name keeps its place (the label stays for screen readers). · Dar telefon: yalnız simge, oda adı yerini korur (etiket ekran okuyucuda kalır). */
+  @media (max-width: 360px) { .kapsuller .katil-metin { display: none; } .kapsuller .katil-hap { padding: 0 10px; } }
+  .katil-dugme:focus-visible { outline: none; }
+  .katil-dugme:focus-visible .katil-hap { outline: 2px solid var(--vurgu); outline-offset: 2px; }
   .kapsuller { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; pointer-events: none; }
   .kapsul {
     pointer-events: auto;
